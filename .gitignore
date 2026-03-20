@@ -65,6 +65,7 @@ htmlcov/
 
 # deploy utils
 deploy.sh
+
 # Articles / drafts
 documentation/drafts
 
