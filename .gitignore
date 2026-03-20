@@ -20,9 +20,6 @@ wheels/
 *.egg
 MANIFEST
 
-# Cursor
-.cursor
-
 # Virtual environments
 .venv/
 venv/
@@ -30,6 +27,7 @@ ENV/
 env/
 
 # IDEs
+.cursor/
 .vscode/
 .idea/
 *.swp
@@ -65,6 +63,8 @@ htmlcov/
 .env
 .env.local
 
+# deploy utils
+deploy.sh
 # Articles / drafts
 documentation/drafts
 
