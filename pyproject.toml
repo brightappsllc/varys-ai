@@ -1,0 +1,71 @@
+[build-system]
+requires = ["hatchling", "hatch-jupyter-builder>=0.5"]
+build-backend = "hatchling.build"
+
+[project]
+name = "varys"
+version = "0.5.0"
+description = "Varys — your DS assistant for Jupyter Notebook"
+license = { file = "LICENSE.md" }
+requires-python = ">=3.9"
+authors = [{ name = "Jean-Marc Beaujour", email = "jeanmarc@brightappsllc.com" }]
+keywords = ["jupyter", "jupyterlab", "jupyterlab-extension", "ai", "data-science", "agent"]
+classifiers = [
+    "Framework :: Jupyter",
+    "Framework :: Jupyter :: JupyterLab",
+    "License :: Other/Proprietary License",
+    "Programming Language :: Python :: 3",
+    "Private :: Do Not Upload",              # Optional: prevents accidental 'pip publish'
+]
+
+dependencies = [
+    "jupyterlab>=4.0",
+    "jupyter-server>=2.0",
+    "python-dotenv>=1.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+anthropic = ["anthropic"]
+openai    = ["openai"]
+ollama    = ["httpx"]
+bedrock   = ["boto3"]
+rag       = ["chromadb"]
+mcp       = ["mcp>=1.0"]
+images    = ["Pillow>=10.0"]
+# Install all LLM providers + RAG + MCP + image processing at once
+all = ["anthropic", "openai", "httpx", "boto3", "chromadb", "mcp>=1.0", "Pillow>=10.0"]
+
+[project.urls]
+Homepage = "https://github.com/brightappsllc/varys-ai"
+Repository = "https://github.com/brightappsllc/varys-ai"
+
+[project.entry-points."jupyter_server.extension"]
+varys = "varys:_jupyter_server_extension_points"
+
+[tool.hatch.build.targets.wheel]
+packages = ["varys"]
+
+[tool.hatch.build.targets.wheel.shared-data]
+"varys/labextension" = "share/jupyter/labextensions/varys"
+"jupyter-config/jupyter_server_config.d/varys.json" = "etc/jupyter/jupyter_server_config.d/varys.json"
+
+# If varys/labextension/ is committed, pip install git+url skips the Node build (no Node/jlpm on user machine).
+[tool.hatch.build.hooks.jupyter-builder]
+dependencies = ["hatch-jupyter-builder>=0.5"]
+build-function = "hatch_jupyter_builder.npm_builder"
+ensured-targets = [
+    "varys/labextension/static/style.js",
+    "varys/labextension/package.json",
+]
+skip-if-exists = ["varys/labextension/static/style.js"]
+
+[tool.hatch.build.hooks.jupyter-builder.build-kwargs]
+build_cmd = "build:prod"
+npm = ["jlpm"]
+
+[tool.hatch.build.hooks.jupyter-builder.editable-build-kwargs]
+build_cmd = "install:extension"
+npm = ["jlpm"]
+source_dir = "src"
+build_dir = "varys/labextension"

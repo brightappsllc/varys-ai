@@ -1,0 +1,1464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Varys — Documentation</title>
+<style>
+/* ── Reset & Variables ─────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:          #0f1117;
+  --sidebar-bg:  #161b27;
+  --surface:     #1e2435;
+  --surface2:    #252d42;
+  --border:      #2d3550;
+  --accent:      #5b8dee;
+  --accent2:     #7c5cbf;
+  --green:       #3fb950;
+  --orange:      #e07a00;
+  --red:         #e05263;
+  --text:        #c8d0e7;
+  --text-dim:    #7a849e;
+  --text-head:   #e8eaf6;
+  --code-bg:     #141820;
+  --code-text:   #a8d8b8;
+  --tag-bg:      #1e2e4a;
+  --tag-text:    #7ab8f5;
+  --sidebar-w:   270px;
+  --header-h:    56px;
+  --radius:      8px;
+  --font-sans:   'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono:   'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+}
+
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.65;
+  min-height: 100vh;
+}
+
+/* ── Header ────────────────────────────────────────────────────────── */
+#header {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  height: var(--header-h);
+  background: var(--sidebar-bg);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 20px;
+  gap: 16px;
+}
+#header .logo {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 18px; font-weight: 700; color: var(--text-head);
+  white-space: nowrap;
+}
+#header .logo span { color: var(--accent); }
+#header .tagline {
+  font-size: 13px; color: var(--text-dim); flex: 1;
+}
+#search-wrap {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 20px; padding: 5px 14px;
+  width: 280px;
+}
+#search-wrap svg { flex-shrink: 0; opacity: .5; }
+#search { background: none; border: none; outline: none; color: var(--text); font-size: 14px; width: 100%; }
+#search::placeholder { color: var(--text-dim); }
+
+#menu-btn {
+  display: none; background: none; border: none; cursor: pointer;
+  color: var(--text); font-size: 20px; padding: 4px 8px;
+}
+
+/* ── Layout ────────────────────────────────────────────────────────── */
+#layout {
+  display: flex;
+  margin-top: var(--header-h);
+  min-height: calc(100vh - var(--header-h));
+}
+
+/* ── Sidebar ───────────────────────────────────────────────────────── */
+#sidebar {
+  width: var(--sidebar-w);
+  flex-shrink: 0;
+  position: fixed;
+  top: var(--header-h); bottom: 0; left: 0;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 12px 0 40px;
+  transition: transform .25s ease;
+}
+#sidebar::-webkit-scrollbar { width: 4px; }
+#sidebar::-webkit-scrollbar-track { background: transparent; }
+#sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.nav-section-title {
+  font-size: 11px; font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--text-dim);
+  padding: 14px 20px 5px;
+}
+.nav-link {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 20px;
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 13.5px;
+  border-left: 2px solid transparent;
+  transition: all .15s ease;
+  white-space: nowrap;
+}
+.nav-link:hover { color: var(--text); background: var(--surface); }
+.nav-link.active {
+  color: var(--accent);
+  border-left-color: var(--accent);
+  background: var(--tag-bg);
+  font-weight: 600;
+}
+.nav-link .nav-icon { font-size: 15px; width: 18px; text-align: center; flex-shrink: 0; }
+
+/* ── Content ───────────────────────────────────────────────────────── */
+#content {
+  margin-left: var(--sidebar-w);
+  flex: 1;
+  max-width: calc(100vw - var(--sidebar-w));
+}
+.page-section {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 52px 40px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.page-section:last-child { border-bottom: none; padding-bottom: 80px; }
+
+/* ── Typography ────────────────────────────────────────────────────── */
+h1 { font-size: 2em; color: var(--text-head); margin-bottom: 12px; font-weight: 800; }
+h2 { font-size: 1.45em; color: var(--text-head); margin: 36px 0 14px; font-weight: 700; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 1.1em; color: var(--text-head); margin: 24px 0 10px; font-weight: 600; }
+h4 { font-size: .95em; color: var(--accent); margin: 18px 0 8px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+p { margin-bottom: 14px; }
+ul, ol { margin: 8px 0 14px 22px; }
+li { margin-bottom: 5px; }
+li::marker { color: var(--accent); }
+strong { color: var(--text-head); font-weight: 600; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ── Hero / intro ─────────────────────────────────────────────────── */
+.hero-badges { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--tag-bg); color: var(--tag-text);
+  border: 1px solid var(--border);
+  border-radius: 20px; padding: 3px 12px; font-size: 12px; font-weight: 600;
+}
+.badge.green  { background: #1a3a27; color: var(--green);  border-color: #2a5a37; }
+.badge.purple { background: #2a1e3a; color: #b07af5;       border-color: #4a2e6a; }
+.badge.orange { background: #3a2a10; color: #e0a020;       border-color: #6a5010; }
+
+/* ── Callout boxes ─────────────────────────────────────────────────── */
+.callout {
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  margin: 16px 0;
+  border-left: 4px solid;
+  font-size: 14px;
+}
+.callout.info    { background: #1a2640; border-color: var(--accent); }
+.callout.success { background: #1a3020; border-color: var(--green); }
+.callout.warning { background: #3a2a10; border-color: var(--orange); color: #dda050; }
+.callout.tip     { background: #2a1e3a; border-color: #b07af5; }
+.callout-title   { font-weight: 700; margin-bottom: 5px; }
+
+/* ── Code ──────────────────────────────────────────────────────────── */
+code {
+  font-family: var(--font-mono);
+  font-size: .875em;
+  background: var(--code-bg);
+  color: #f4c78a;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.code-block-wrap { position: relative; margin: 14px 0; }
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: .85em;
+  line-height: 1.6;
+  color: var(--code-text);
+}
+pre code { background: none; padding: 0; color: inherit; font-size: inherit; }
+.code-label {
+  position: absolute; top: -1px; right: 0;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 0 var(--radius) 0 var(--radius);
+  font-size: 11px; color: var(--text-dim); padding: 2px 10px;
+  font-family: var(--font-mono);
+}
+.copy-btn {
+  position: absolute; top: 8px; right: 64px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 5px; padding: 3px 10px;
+  font-size: 11px; color: var(--text-dim); cursor: pointer;
+  font-family: var(--font-sans); transition: all .15s;
+}
+.copy-btn:hover { background: var(--border); color: var(--text); }
+.copy-btn.copied { color: var(--green); border-color: var(--green); }
+
+/* Syntax colour hints */
+.kw  { color: #c792ea; }
+.str { color: #c3e88d; }
+.cmt { color: #546e7a; font-style: italic; }
+.fn  { color: #82aaff; }
+.num { color: #f78c6c; }
+.var { color: #eeffff; }
+
+/* ── Tables ────────────────────────────────────────────────────────── */
+.table-wrap { overflow-x: auto; margin: 14px 0; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { background: var(--surface2); color: var(--text-head); font-weight: 600; text-align: left; padding: 9px 14px; border-bottom: 2px solid var(--border); }
+td { padding: 8px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+tr:hover td { background: var(--surface); }
+td code { font-size: .82em; }
+
+/* ── Step cards ────────────────────────────────────────────────────── */
+.steps { display: flex; flex-direction: column; gap: 1px; margin: 16px 0; }
+.step {
+  display: flex; gap: 16px; align-items: flex-start;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 0; padding: 14px 18px;
+}
+.step:first-child { border-radius: var(--radius) var(--radius) 0 0; }
+.step:last-child  { border-radius: 0 0 var(--radius) var(--radius); }
+.step-num {
+  width: 28px; height: 28px; flex-shrink: 0;
+  background: var(--accent); color: #fff;
+  border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700;
+}
+.step-body h4 { margin: 0 0 4px; font-size: .9em; color: var(--text-head); text-transform: none; letter-spacing: 0; }
+.step-body p  { margin: 0; font-size: 13.5px; }
+
+/* ── Feature grid ─────────────────────────────────────────────────── */
+.feature-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; margin: 16px 0; }
+.feature-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px;
+  transition: border-color .2s;
+}
+.feature-card:hover { border-color: var(--accent); }
+.feature-card .fc-icon { font-size: 22px; margin-bottom: 8px; }
+.feature-card h3 { margin: 0 0 6px; font-size: .95em; }
+.feature-card p  { margin: 0; font-size: 13px; color: var(--text-dim); }
+
+/* ── Skills table ─────────────────────────────────────────────────── */
+.skill-tier { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
+.tier-1 { background: #1a3a27; color: var(--green); }
+.tier-2 { background: #1a2640; color: var(--accent); }
+
+/* ── Env reference ─────────────────────────────────────────────────── */
+.env-table td:first-child  { font-family: var(--font-mono); font-size: .8em; color: #f4c78a; white-space: nowrap; }
+.env-table td:nth-child(2) { font-size: 13px; }
+.env-table td:nth-child(3) { font-family: var(--font-mono); font-size: .8em; color: var(--code-text); }
+
+/* ── Search highlight ─────────────────────────────────────────────── */
+mark { background: #4a3a00; color: #ffd060; border-radius: 2px; padding: 0 2px; }
+
+/* ── Responsive ────────────────────────────────────────────────────── */
+@media (max-width: 780px) {
+  #menu-btn { display: block; }
+  #sidebar { transform: translateX(-100%); z-index: 90; }
+  #sidebar.open { transform: translateX(0); box-shadow: 4px 0 20px #0008; }
+  #content { margin-left: 0; max-width: 100vw; }
+  .page-section { padding: 40px 20px 24px; }
+  #search-wrap { width: 160px; }
+  #header .tagline { display: none; }
+  .feature-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Scrollbar ─────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════ HEADER ═══════════════════════════ -->
+<header id="header">
+  <button id="menu-btn" aria-label="Toggle menu">☰</button>
+  <div class="logo">🦅 <span>Varys</span></div>
+  <div class="tagline">AI Data Science Assistant for JupyterLab — Documentation</div>
+  <div id="search-wrap">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+    <input id="search" type="search" placeholder="Search docs…" autocomplete="off">
+  </div>
+</header>
+
+<!-- ═══════════════════════════════ SIDEBAR ══════════════════════════ -->
+<div id="layout">
+<nav id="sidebar">
+  <div class="nav-section-title">Getting Started</div>
+  <a class="nav-link active" href="#overview"><span class="nav-icon">🏠</span>Overview</a>
+  <a class="nav-link" href="#installation"><span class="nav-icon">📦</span>Installation</a>
+  <a class="nav-link" href="#quickstart"><span class="nav-icon">⚡</span>Quick Start</a>
+
+  <div class="nav-section-title">Core Features</div>
+  <a class="nav-link" href="#chat"><span class="nav-icon">🗨️</span>Chat Interface</a>
+  <a class="nav-link" href="#commands"><span class="nav-icon">/</span>Slash Commands</a>
+  <a class="nav-link" href="#providers"><span class="nav-icon">🤖</span>LLM Providers</a>
+  <a class="nav-link" href="#settings"><span class="nav-icon">⚙️</span>Settings Panel</a>
+  <a class="nav-link" href="#notebook-ops"><span class="nav-icon">📓</span>Notebook Operations</a>
+  <a class="nav-link" href="#diff-view"><span class="nav-icon">🔀</span>Visual Diff View</a>
+  <a class="nav-link" href="#completion"><span class="nav-icon">✨</span>Inline Completion</a>
+
+  <div class="nav-section-title">Intelligence</div>
+  <a class="nav-link" href="#skills"><span class="nav-icon">🧠</span>Skills System</a>
+  <a class="nav-link" href="#composite"><span class="nav-icon">🔗</span>Composite Pipelines</a>
+  <a class="nav-link" href="#dataframes"><span class="nav-icon">🗃️</span>DataFrame Detection</a>
+  <a class="nav-link" href="#report"><span class="nav-icon">📄</span>Report Generation</a>
+  <a class="nav-link" href="#reproducibility"><span class="nav-icon">🛡️</span>Reproducibility</a>
+  <a class="nav-link" href="#memory"><span class="nav-icon">💾</span>Memory System</a>
+  <a class="nav-link" href="#rag"><span class="nav-icon">🔍</span>RAG Knowledge Base</a>
+
+  <div class="nav-section-title">Customisation</div>
+  <a class="nav-link" href="#custom-skills"><span class="nav-icon">✏️</span>Custom Skills</a>
+  <a class="nav-link" href="#composite-skills"><span class="nav-icon">⚙️</span>Composite Skills</a>
+  <a class="nav-link" href="#env-ref"><span class="nav-icon">🔧</span>.env Reference</a>
+
+  <div class="nav-section-title">Help</div>
+  <a class="nav-link" href="#faq"><span class="nav-icon">❓</span>FAQ</a>
+  <a class="nav-link" href="#troubleshoot"><span class="nav-icon">🔎</span>Troubleshooting</a>
+</nav>
+
+<!-- ═══════════════════════════════ CONTENT ══════════════════════════ -->
+<main id="content">
+
+<!-- ── OVERVIEW ──────────────────────────────────────────────────── -->
+<section class="page-section" id="overview">
+  <h1>🦅 Varys</h1>
+  <p>Varys is an AI-powered data science assistant that lives inside JupyterLab. Chat with it, ask it to write code, run EDA, generate plots, review your notebook, or complete your code inline — all without leaving the notebook interface.</p>
+  <p>No Node.js required. No cloud account lock-in. Works with Anthropic, OpenAI, Google, Ollama (local), AWS Bedrock, Azure OpenAI, and OpenRouter.</p>
+  <div class="hero-badges">
+    <span class="badge green">JupyterLab 4+</span>
+    <span class="badge">Python 3.9+</span>
+    <span class="badge">TypeScript / React</span>
+    <span class="badge purple">7 LLM Providers</span>
+    <span class="badge orange">Local-first with Ollama</span>
+  </div>
+
+  <h2>What makes it different</h2>
+  <div class="feature-grid">
+    <div class="feature-card">
+      <div class="fc-icon">🗃️</div>
+      <h3>Live DataFrame Context</h3>
+      <p>Queries your running kernel for every DataFrame's schema automatically — no more describing columns manually.</p>
+    </div>
+    <div class="feature-card">
+      <div class="fc-icon">🔗</div>
+      <h3>Composite Pipelines</h3>
+      <p>Chain multiple skills into a single command: load → EDA → annotate → README in one click.</p>
+    </div>
+    <div class="feature-card">
+      <div class="fc-icon">🔀</div>
+      <h3>Visual Diff View</h3>
+      <p>See exactly which lines were added (green) and removed (red) before accepting any AI edit.</p>
+    </div>
+    <div class="feature-card">
+      <div class="fc-icon">🧠</div>
+      <h3>File-Driven Skills</h3>
+      <p>Add new AI capabilities by dropping a SKILL.md file — no Python code changes required.</p>
+    </div>
+    <div class="feature-card">
+      <div class="fc-icon">🛡️</div>
+      <h3>Reproducibility Guardian</h3>
+      <p>Catches missing <code>random_state</code>, hardcoded paths, data leakage risks on every cell run.</p>
+    </div>
+    <div class="feature-card">
+      <div class="fc-icon">📦</div>
+      <h3>pip install &amp; done</h3>
+      <p>Pre-built frontend bundle ships with the Python package. No Node.js, no build steps needed.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ── INSTALLATION ───────────────────────────────────────────────── -->
+<section class="page-section" id="installation">
+  <h1>📦 Installation</h1>
+
+  <h2>Prerequisites</h2>
+  <ul>
+    <li>Python 3.9+</li>
+    <li>JupyterLab 4+</li>
+    <li>A virtual environment (recommended)</li>
+    <li>An API key for at least one LLM provider <em>or</em> Ollama running locally</li>
+  </ul>
+
+  <div class="callout success">
+    <div class="callout-title">✅ No Node.js required</div>
+    The frontend bundle is pre-built and ships with the Python package. A plain <code>pip install</code> is all it takes.
+  </div>
+
+  <h2>Quick install</h2>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <h4>Create and activate a virtual environment</h4>
+        <div class="code-block-wrap">
+          <button class="copy-btn">Copy</button>
+          <pre><code>python3 -m venv .varys
+source .varys/bin/activate   <span class="cmt"># Windows: .varys\Scripts\activate</span></code></pre>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <h4>Install Varys with your chosen provider</h4>
+        <div class="code-block-wrap">
+          <button class="copy-btn">Copy</button>
+          <pre><code><span class="cmt"># Anthropic (Claude) — recommended</span>
+pip install <span class="str">"varys[anthropic] @ git+https://github.com/brightappsllc/varys-ai"</span>
+
+<span class="cmt"># OpenAI (GPT / o-series)</span>
+pip install <span class="str">"varys[openai] @ git+https://github.com/brightappsllc/varys-ai"</span>
+
+<span class="cmt"># Local models only (Ollama)</span>
+pip install <span class="str">"varys[ollama] @ git+https://github.com/brightappsllc/varys-ai"</span>
+
+<span class="cmt"># Everything (all providers + RAG)</span>
+pip install <span class="str">"varys[all] @ git+https://github.com/brightappsllc/varys-ai"</span></code></pre>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <h4>Configure your API key</h4>
+        <p>Create or edit <code>~/.jupyter/varys.env</code>:</p>
+        <div class="code-block-wrap">
+          <span class="code-label">~/.jupyter/varys.env</span>
+          <button class="copy-btn" style="right:78px">Copy</button>
+          <pre><code><span class="cmt"># Provider selection</span>
+DS_CHAT_PROVIDER=ANTHROPIC
+DS_COMPLETION_PROVIDER=ANTHROPIC
+
+<span class="cmt"># API key</span>
+ANTHROPIC_API_KEY=sk-ant-...
+
+<span class="cmt"># Model names</span>
+ANTHROPIC_CHAT_MODEL=claude-sonnet-4-6
+ANTHROPIC_COMPLETION_MODEL=claude-haiku-4-5</code></pre>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <h4>Launch JupyterLab</h4>
+        <div class="code-block-wrap">
+          <button class="copy-btn">Copy</button>
+          <pre><code>jupyter lab</code></pre>
+        </div>
+        <p>The <strong>🦅 Varys</strong> icon appears in the left sidebar. Click it to open the assistant.</p>
+      </div>
+    </div>
+  </div>
+
+  <h2>Verify installation</h2>
+  <div class="code-block-wrap">
+    <button class="copy-btn">Copy</button>
+    <pre><code><span class="cmt"># Check frontend extension</span>
+jupyter labextension list
+<span class="cmt"># Expected: varys v0.1.0  enabled  OK</span>
+
+<span class="cmt"># Check server extension</span>
+jupyter server extension list
+<span class="cmt"># Expected: varys  enabled</span></code></pre>
+  </div>
+
+  <h2>Upgrade</h2>
+  <div class="code-block-wrap">
+    <button class="copy-btn">Copy</button>
+    <pre><code>pip install --upgrade <span class="str">"varys[all] @ git+https://github.com/brightappsllc/varys-ai"</span></code></pre>
+  </div>
+
+  <h2>Uninstall</h2>
+  <div class="code-block-wrap">
+    <button class="copy-btn">Copy</button>
+    <pre><code>pip uninstall varys</code></pre>
+  </div>
+</section>
+
+<!-- ── QUICK START ────────────────────────────────────────────────── -->
+<section class="page-section" id="quickstart">
+  <h1>⚡ Quick Start</h1>
+  <p>Once installed, open any notebook in JupyterLab and click the <strong>🦅</strong> icon in the left sidebar.</p>
+
+  <h2>First steps</h2>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body"><h4>Open a notebook</h4><p>Load any <code>.ipynb</code> file — or create a blank one.</p></div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body"><h4>Configure your provider</h4><p>Click ⚙ Settings → Routing, set your API key and choose a provider.</p></div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body"><h4>Start chatting or use a slash command</h4><p>Type naturally or use <code>/</code> to see available commands.</p></div>
+    </div>
+  </div>
+
+  <h2>Example prompts</h2>
+  <div class="table-wrap">
+    <table>
+      <tr><th>What you type</th><th>What happens</th></tr>
+      <tr><td><code>/load /data/sales.csv</code></td><td>Creates header + code cell that loads the file as a DataFrame and inspects it</td></tr>
+      <tr><td><code>/eda</code></td><td>Runs full EDA — distribution plots, correlation heatmap, summary stats — using your actual columns</td></tr>
+      <tr><td><code>/plot scatter of price vs sqft colored by neighborhood</code></td><td>Generates a seaborn chart wired to your DataFrame variable</td></tr>
+      <tr><td><code>/review</code></td><td>Code quality review with per-issue fix buttons</td></tr>
+      <tr><td><code>/ds-review</code></td><td>Data science methodology check: leakage, bias, statistical correctness</td></tr>
+      <tr><td><code>/generate</code></td><td>Full 4-step pipeline: load → EDA → annotate → README</td></tr>
+      <tr><td><code>what does cell [3] do?</code></td><td>Advisory streaming answer — no cell changes</td></tr>
+      <tr><td><code>/report</code></td><td>Generates a downloadable markdown report from the entire notebook</td></tr>
+    </table>
+  </div>
+
+  <h2>Keyboard shortcuts</h2>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Shortcut</th><th>Action</th></tr>
+      <tr><td><code>Enter</code></td><td>Send message</td></tr>
+      <tr><td><code>Shift+Enter</code></td><td>Insert newline in message</td></tr>
+      <tr><td><code>Tab</code></td><td>Accept inline completion ghost text</td></tr>
+      <tr><td><code>Esc</code></td><td>Dismiss inline completion</td></tr>
+    </table>
+  </div>
+
+  <div class="callout tip">
+    <div class="callout-title">💡 Tip — Type / to see all commands</div>
+    Typing a forward slash <code>/</code> in the chat input opens an autocomplete popup showing every available slash command, including any skills you've added.
+  </div>
+</section>
+
+<!-- ── CHAT INTERFACE ─────────────────────────────────────────────── -->
+<section class="page-section" id="chat">
+  <h1>🗨️ Chat Interface</h1>
+  <p>The sidebar chat is your primary interface with Varys. It streams responses token-by-token and shows live progress during all LLM phases.</p>
+
+  <h2>Message types</h2>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Bubble style</th><th>When it appears</th></tr>
+      <tr><td><strong>User</strong> (right-aligned, grey gradient)</td><td>Your messages</td></tr>
+      <tr><td><strong>Assistant</strong> (left, dark gradient)</td><td>Streaming AI responses, explanations, plans</td></tr>
+      <tr><td><strong>System</strong> (subdued, centred)</td><td>Operation confirmations, undo messages</td></tr>
+      <tr><td><strong>Warning</strong> (orange)</td><td>API errors, provider issues</td></tr>
+      <tr><td><strong>Report card</strong></td><td>After <code>/report</code> — filename, stats, download link</td></tr>
+      <tr><td><strong>Code-review card</strong></td><td>After <code>/review</code> or <code>/ds-review</code> — findings with per-issue <code>[Apply Fix]</code> buttons</td></tr>
+    </table>
+  </div>
+
+  <h2>Header controls</h2>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Button</th><th>Action</th></tr>
+      <tr><td>🌙 / ☀️</td><td>Toggle night/day theme (persisted across sessions)</td></tr>
+      <tr><td>⚙️ Settings</td><td>Open the Settings panel</td></tr>
+      <tr><td>?</td><td>Open this documentation</td></tr>
+    </table>
+  </div>
+
+  <h2>Bottom controls</h2>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Control</th><th>Description</th></tr>
+      <tr><td>Model button (e.g. <code>claude-sonnet-4-6 ˄</code>)</td><td>Click to open model switcher — select any model from your configured zoo</td></tr>
+      <tr><td>✏️ New session</td><td>Clear chat history and reset context (asks confirmation if history exists)</td></tr>
+      <tr><td>Send / Enter</td><td>Submit message</td></tr>
+    </table>
+  </div>
+
+  <h2>Action buttons on assistant messages</h2>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Button</th><th>Action</th></tr>
+      <tr><td>↵ Insert</td><td>Push the response content into the active notebook cell</td></tr>
+      <tr><td>⌄ / ⌃ Expand</td><td>Expand or collapse a long response bubble</td></tr>
+    </table>
+  </div>
+
+  <div class="callout info">
+    <div class="callout-title">ℹ️ Advisory auto-routing</div>
+    Messages that start with "what", "how", "why", "explain", or end with "?" are automatically answered in chat mode (no cell changes) — no configuration needed.
+  </div>
+</section>
+
+<!-- ── SLASH COMMANDS ─────────────────────────────────────────────── -->
+<section class="page-section" id="commands">
+  <h1>/ Slash Commands</h1>
+  <p>Type <code>/</code> in the chat input to see an autocomplete popup of all available commands. Commands are discovered dynamically — skills that define a <code>command:</code> in their front matter appear here automatically.</p>
+
+  <h2>Built-in commands</h2>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Command</th><th>Description</th></tr>
+      <tr><td><code>/eda</code></td><td>Run full EDA — distribution plots, correlation heatmap, summary statistics</td></tr>
+      <tr><td><code>/plot &lt;description&gt;</code></td><td>Generate a publication-quality visualisation from a natural language description</td></tr>
+      <tr><td><code>/review</code></td><td>Code quality review: bugs, style, maintainability — with per-issue fix buttons</td></tr>
+      <tr><td><code>/ds-review</code></td><td>Data science methodology review: leakage, bias, statistical correctness</td></tr>
+      <tr><td><code>/annotate</code></td><td>Number and title every code cell with a markdown header and description</td></tr>
+      <tr><td><code>/readme</code></td><td>Generate or update the top-cell README for the notebook</td></tr>
+      <tr><td><code>/report</code></td><td>Generate a downloadable markdown report of the full notebook</td></tr>
+      <tr><td><code>/load &lt;file&gt;</code></td><td>Load a CSV, Excel, or JSON as a pandas DataFrame with inspection code</td></tr>
+      <tr><td><code>/generate</code></td><td>Full pipeline: load → EDA → annotate → README in one command</td></tr>
+      <tr><td><code>/unittest</code></td><td>Generate pytest test cases for functions defined in the notebook</td></tr>
+      <tr><td><code>/ask &lt;query&gt;</code></td><td>Search the RAG knowledge base and answer using indexed documents</td></tr>
+      <tr><td><code>/learn &lt;preference&gt;</code></td><td>Save a preference or fact to long-term memory</td></tr>
+      <tr><td><code>/index [path]</code></td><td>Index files in <code>.jupyter-assistant/knowledge/</code> for RAG</td></tr>
+      <tr><td><code>/rag</code></td><td>Show knowledge-base status (document count, index size)</td></tr>
+      <tr><td><code>/chat &lt;message&gt;</code></td><td>Force chat-only mode — answer in chat, no notebook cells written</td></tr>
+      <tr><td><code>/clear</code></td><td>Start a new chat thread</td></tr>
+      <tr><td><code>/help</code></td><td>List all available commands</td></tr>
+      <tr><td><code>/skills</code></td><td>List installed skills and their associated commands</td></tr>
+    </table>
+  </div>
+
+  <div class="callout tip">
+    <div class="callout-title">💡 Commands tab in Settings</div>
+    Open ⚙ Settings and click the <strong>/ Commands</strong> tab to see every available command (built-in and skill-defined) with descriptions, updated dynamically as you add or remove skills.
+  </div>
+</section>
+
+<!-- ── LLM PROVIDERS ──────────────────────────────────────────────── -->
+<section class="page-section" id="providers">
+  <h1>🤖 LLM Providers</h1>
+  <p>Varys supports 7 providers. Chat and completion can use different providers — route the expensive calls to a powerful cloud model and completions to a fast local one.</p>
+
+  <h2>Supported providers</h2>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Provider</th><th>Key env var</th><th>Notes</th></tr>
+      <tr><td><strong>Anthropic</strong></td><td><code>ANTHROPIC_API_KEY</code></td><td>Claude models. Recommended for chat. Supports vision and tool-use streaming.</td></tr>
+      <tr><td><strong>OpenAI</strong></td><td><code>OPENAI_API_KEY</code></td><td>GPT-4o, o1, o3-mini, etc.</td></tr>
+      <tr><td><strong>Google Gemini</strong></td><td><code>GOOGLE_API_KEY</code></td><td>Gemini Pro / Flash via OpenAI-compatible endpoint.</td></tr>
+      <tr><td><strong>AWS Bedrock</strong></td><td><code>AWS_PROFILE</code> <em>or</em> <code>AWS_ACCESS_KEY_ID</code> + <code>AWS_SECRET_ACCESS_KEY</code></td><td>Claude on AWS via profile-based or explicit IAM credentials. See <a href="#bedrock-setup">Bedrock setup</a>.</td></tr>
+      <tr><td><strong>Azure OpenAI</strong></td><td><code>AZURE_OPENAI_API_KEY</code></td><td>Requires <code>AZURE_OPENAI_ENDPOINT</code> and <code>AZURE_OPENAI_DEPLOYMENT</code>.</td></tr>
+      <tr><td><strong>OpenRouter</strong></td><td><code>OPENROUTER_API_KEY</code></td><td>Access 400+ models via OpenAI-compatible API.</td></tr>
+      <tr><td><strong>Ollama</strong></td><td>—</td><td>Local inference, no API key. Requires <code>ollama serve</code> running. Default URL: <code>http://localhost:11434</code>.</td></tr>
+    </table>
+  </div>
+
+  <h2 id="bedrock-setup">AWS Bedrock setup</h2>
+  <p>Varys supports two authentication modes for Bedrock. <strong>Profile-based auth</strong> (recommended for enterprise environments using Azure AD / SSO) and <strong>explicit IAM key auth</strong>.</p>
+
+  <h3>Option A — Profile-based auth (SSO / aws-azure-login)</h3>
+  <p>Use this when your organisation manages AWS credentials through Azure AD or another SSO provider. No access keys are required in Varys.</p>
+  <ol>
+    <li>Run your org's credential-refresh tool once in a terminal to write a token to <code>~/.aws/credentials</code>:<br>
+      <code>aws-azure-login --profile ITOSS --no-prompt</code></li>
+    <li>In Varys Settings → Bedrock tab, set:
+      <ul>
+        <li><strong>AWS profile</strong>: the profile name written to <code>~/.aws/credentials</code> (e.g. <code>id-np</code>)</li>
+        <li><strong>Auth refresh command</strong>: the command to refresh expired tokens (e.g. <code>aws-azure-login --profile ITOSS --no-prompt</code>)</li>
+        <li><strong>Region</strong>: e.g. <code>us-east-1</code></li>
+        <li>Leave <em>Access key ID</em> and <em>Secret access key</em> blank.</li>
+      </ul>
+    </li>
+  </ol>
+  <p>With <strong>Auth refresh command</strong> set, Varys automatically re-runs it the moment credentials are within 5 minutes of expiry — no manual refresh needed between sessions.</p>
+
+  <div class="code-block-wrap">
+    <span class="code-label">~/.jupyter/varys.env</span>
+    <button class="copy-btn" style="right:78px">Copy</button>
+    <pre><code>DS_CHAT_PROVIDER=BEDROCK
+AWS_PROFILE=id-np
+AWS_AUTH_REFRESH=aws-azure-login --profile ITOSS --no-prompt
+AWS_REGION=us-east-1
+BEDROCK_CHAT_MODEL=us.anthropic.claude-sonnet-4-5-20250514-v1:0</code></pre>
+  </div>
+
+  <h3>Option B — Explicit IAM keys</h3>
+  <p>For direct IAM user credentials (long-lived keys with no SSO).</p>
+  <div class="code-block-wrap">
+    <span class="code-label">~/.jupyter/varys.env</span>
+    <button class="copy-btn" style="right:78px">Copy</button>
+    <pre><code>DS_CHAT_PROVIDER=BEDROCK
+AWS_ACCESS_KEY_ID=AKIA...
+AWS_SECRET_ACCESS_KEY=...
+AWS_REGION=us-east-1
+BEDROCK_CHAT_MODEL=us.anthropic.claude-sonnet-4-5-20250514-v1:0</code></pre>
+  </div>
+
+  <h3>Model ID format — cross-region inference profiles</h3>
+  <p>Newer Claude models on Bedrock require a <strong>cross-region inference profile ID</strong>, not the raw model ID. Prefix the model ID with your region code:</p>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Raw model ID (❌ unsupported on-demand)</th><th>Cross-region profile ID (✅ use this)</th></tr>
+      <tr><td><code>anthropic.claude-sonnet-4-5-20250514-v1:0</code></td><td><code>us.anthropic.claude-sonnet-4-5-20250514-v1:0</code></td></tr>
+      <tr><td><code>anthropic.claude-3-5-sonnet-20241022-v2:0</code></td><td><code>us.anthropic.claude-3-5-sonnet-20241022-v2:0</code></td></tr>
+      <tr><td><code>anthropic.claude-3-haiku-20240307-v1:0</code></td><td><code>us.anthropic.claude-3-haiku-20240307-v1:0</code></td></tr>
+    </table>
+  </div>
+  <p>Use <code>eu.</code> or <code>ap.</code> instead of <code>us.</code> if your Bedrock region is in Europe or Asia Pacific. You can also find the exact ARN in the AWS console under <em>Bedrock → Cross-region inference</em>.</p>
+
+  <h2>Per-task routing</h2>
+  <p>Set different providers for chat and completion in <code>~/.jupyter/varys.env</code>:</p>
+  <div class="code-block-wrap">
+    <span class="code-label">~/.jupyter/varys.env</span>
+    <button class="copy-btn" style="right:78px">Copy</button>
+    <pre><code><span class="cmt"># Use Claude for chat (best quality), Ollama for completions (local, free)</span>
+DS_CHAT_PROVIDER=ANTHROPIC
+DS_COMPLETION_PROVIDER=OLLAMA</code></pre>
+  </div>
+
+  <h2>Ollama setup</h2>
+  <div class="code-block-wrap">
+    <button class="copy-btn">Copy</button>
+    <pre><code><span class="cmt"># Install Ollama</span>
+curl -fsSL https://ollama.com/install.sh | sh
+
+<span class="cmt"># Pull a coder model</span>
+ollama pull qwen2.5-coder:1.5b-instruct   <span class="cmt"># fast, good for completion</span>
+ollama pull qwen2.5-coder:7b-instruct      <span class="cmt"># higher quality</span>
+
+<span class="cmt"># Start the server (keep running before launching JupyterLab)</span>
+ollama serve</code></pre>
+  </div>
+  <div class="code-block-wrap">
+    <span class="code-label">~/.jupyter/varys.env</span>
+    <button class="copy-btn" style="right:78px">Copy</button>
+    <pre><code>DS_COMPLETION_PROVIDER=OLLAMA
+OLLAMA_COMPLETION_MODEL=qwen2.5-coder:1.5b-instruct
+OLLAMA_URL=                  <span class="cmt"># blank = http://localhost:11434</span></code></pre>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠️ Ollama must be running before JupyterLab</div>
+    Start <code>ollama serve</code> in a terminal first, then launch JupyterLab. If Ollama is not running you'll see a connection error in the Varys chat.
+  </div>
+
+  <h2>Model Switcher</h2>
+  <p>The model name shown below the chat input is a clickable button. Click it to open a popup listing all models in your configured model zoo. The selected model applies to chat requests only; the completion model is set separately in the Routing tab.</p>
+</section>
+
+<!-- ── SETTINGS PANEL ─────────────────────────────────────────────── -->
+<section class="page-section" id="settings">
+  <h1>⚙️ Settings Panel</h1>
+  <p>Click the <strong>⚙ Settings</strong> button in the chat header to open the Settings panel. All changes are written to <code>~/.jupyter/varys.env</code> and take effect immediately — no JupyterLab restart required.</p>
+
+  <h2>Models tab</h2>
+  <p>Contains a sub-tab for each provider. Each provider tab includes:</p>
+  <ul>
+    <li><strong>API key</strong> — masked input field</li>
+    <li><strong>Chat model</strong> — model name used for chat requests</li>
+    <li><strong>Completion model</strong> — model used for inline ghost-text suggestions</li>
+    <li><strong>Model zoo</strong> — comma-separated list of model names to populate the model switcher dropdown</li>
+  </ul>
+
+  <h2>Routing tab</h2>
+  <p>Sets which provider handles each task:</p>
+  <ul>
+    <li><strong>Chat</strong> provider dropdown (<code>DS_CHAT_PROVIDER</code>)</li>
+    <li><strong>Completion</strong> provider dropdown + <strong>Token Limit</strong> input (<code>DS_COMPLETION_PROVIDER</code>, <code>COMPLETION_MAX_TOKENS</code>, default 128)</li>
+  </ul>
+
+  <h2>Skills tab</h2>
+  <p>Lists every skill folder in <code>~/.jupyter-assistant/skills/</code> and the bundled skills:</p>
+  <ul>
+    <li><strong>Toggle</strong> — enable or disable a skill</li>
+    <li><strong>Click a row</strong> — opens the skill editor with two tabs: <code>SKILL.md</code> and <code>README.md</code></li>
+    <li><strong>Ctrl+S</strong> — save the edited file</li>
+    <li><strong>Refresh</strong> — reloads all skill files from disk without restarting</li>
+  </ul>
+
+  <h2>/ Commands tab</h2>
+  <p>Lists every available slash command — both built-in and skill-defined — with their descriptions. Updated automatically when skills are added or removed.</p>
+</section>
+
+<!-- ── NOTEBOOK OPERATIONS ────────────────────────────────────────── -->
+<section class="page-section" id="notebook-ops">
+  <h1>📓 Notebook Operations</h1>
+  <p>Varys can insert, modify, and delete cells in your notebook through the JupyterLab kernel API. All operations are shown in the Visual Diff View before you accept them.</p>
+
+  <h2>Cell insertion modes</h2>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Mode</th><th>Behaviour</th><th>When to use</th></tr>
+      <tr><td><code>preview</code></td><td>Cells inserted with green border + Accept/Undo diff panel</td><td>Default — most operations</td></tr>
+      <tr><td><code>auto</code></td><td>Cells inserted immediately, no confirmation</td><td>Low-risk operations, pipeline steps</td></tr>
+      <tr><td><code>chat</code></td><td>Response appears in chat only, no cell changes</td><td>Advisory/explanatory skills</td></tr>
+      <tr><td><code>manual</code></td><td>Findings listed in chat with individual <code>[Apply Fix]</code> buttons</td><td>Code review, DS review</td></tr>
+    </table>
+  </div>
+
+  <h2>Safe auto-execution</h2>
+  <p>The <code>safe_operations</code> skill defines which operations are allowed to run automatically after insertion:</p>
+  <ul>
+    <li>✅ <strong>Auto-execute</strong>: <code>pd.read_csv</code>, <code>df.head()</code>, <code>df.describe()</code>, <code>print()</code>, plotting</li>
+    <li>❌ <strong>Require approval</strong>: <code>to_csv</code>, <code>to_excel</code>, <code>inplace=True</code>, <code>model.fit()</code>, API calls</li>
+  </ul>
+
+  <h2>Cell referencing</h2>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Reference</th><th>Meaning</th><th>Example</th></tr>
+      <tr><td><code>pos:N</code></td><td>Zero-based position index</td><td>"modify the cell at pos:2"</td></tr>
+      <tr><td><code>cell[N]</code> or <code>[N]</code></td><td>Execution count (shown in notebook gutter)</td><td>"using the output of cell[4]"</td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- ── VISUAL DIFF VIEW ───────────────────────────────────────────── -->
+<section class="page-section" id="diff-view">
+  <h1>🔀 Visual Diff View</h1>
+  <p>After the AI applies changes in <code>preview</code> mode, a diff panel appears in the sidebar showing exactly what changed — green lines for additions, red lines for removals — before you accept.</p>
+
+  <h2>Diff panel anatomy</h2>
+  <ul>
+    <li><strong>Header</strong> — cell count, description, total <code>+N / −N</code> line stats</li>
+    <li><strong>Per-cell accordion</strong> — click to expand. Shows badge (<code>new</code> / <code>modified</code> / <code>deleted</code>), cell type, position</li>
+    <li><strong>Diff lines</strong> — green background for additions (<code>+</code>), red for removals (<code>−</code>), ±3 context lines around changes</li>
+  </ul>
+
+  <h2>Action buttons</h2>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Button</th><th>Action</th></tr>
+      <tr><td>✓ <strong>Accept</strong></td><td>Remove highlighting, keep changes, close diff panel</td></tr>
+      <tr><td>▶ <strong>Accept &amp; Run</strong></td><td>Accept changes then immediately execute all code cells in the operation</td></tr>
+      <tr><td>✕ <strong>Undo</strong></td><td>Revert all cells to their state before the AI edit</td></tr>
+    </table>
+  </div>
+
+  <div class="callout info">
+    <div class="callout-title">ℹ️ Composite pipeline undo</div>
+    When a composite pipeline runs, one diff panel covers all changes across all steps. Accept/Undo affects the entire pipeline atomically.
+  </div>
+</section>
+
+<!-- ── INLINE COMPLETION ──────────────────────────────────────────── -->
+<section class="page-section" id="completion">
+  <h1>✨ Inline Completion</h1>
+
+  <h2>Ghost-text suggestions</h2>
+  <p>As you type in a code cell, Varys automatically suggests completions as greyed-out ghost text. It uses the last 5 cells before the cursor as context, so it knows what DataFrames and functions are in scope.</p>
+  <ul>
+    <li><strong>Trigger</strong>: automatic, after a short debounce</li>
+    <li><strong>Accept</strong>: <code>Tab</code></li>
+    <li><strong>Dismiss</strong>: <code>Esc</code></li>
+    <li><strong>Token limit</strong>: configurable in Settings → Routing (default 128)</li>
+    <li><strong>Enable/disable</strong>: JupyterLab Settings → Inline Completer → Varys</li>
+  </ul>
+
+  <h2>Language detection</h2>
+  <div class="table-wrap">
+    <table>
+      <tr><th>MIME type</th><th>Detected language</th></tr>
+      <tr><td><code>text/x-python</code></td><td>Python</td></tr>
+      <tr><td><code>text/x-r-source</code></td><td>R</td></tr>
+      <tr><td><code>text/x-julia</code></td><td>Julia</td></tr>
+    </table>
+  </div>
+
+  <div class="callout tip">
+    <div class="callout-title">💡 Use Ollama for free local completions</div>
+    Set <code>DS_COMPLETION_PROVIDER=OLLAMA</code> with <code>qwen2.5-coder:1.5b-instruct</code> for fast, free ghost-text suggestions with zero API cost.
+  </div>
+</section>
+
+<!-- ── SKILLS SYSTEM ──────────────────────────────────────────────── -->
+<section class="page-section" id="skills">
+  <h1>🧠 Skills System</h1>
+  <p>Skills are markdown files that extend Varys's capabilities. They are injected into the LLM system prompt automatically based on context or an explicit slash command. No Python code changes needed.</p>
+
+  <h2>Directory structure</h2>
+  <div class="code-block-wrap">
+    <button class="copy-btn">Copy</button>
+    <pre><code>~/.jupyter-assistant/skills/
+└── my-skill/
+    ├── SKILL.md       ← injected into the LLM system prompt
+    └── README.md      ← human-readable docs (not sent to LLM)</code></pre>
+  </div>
+
+  <h2>Three-tier activation</h2>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Tier</th><th>When loaded</th><th>How to configure</th></tr>
+      <tr><td><span class="skill-tier tier-1">Tier 1</span></td><td>Every request — always injected</td><td>No <code>keywords</code> in front matter</td></tr>
+      <tr><td><span class="skill-tier tier-2">Tier 2</span></td><td>When user message matches a keyword</td><td>Add <code>keywords: [eda, explore]</code> in front matter</td></tr>
+      <tr><td><span class="skill-tier tier-2">Tier 3</span></td><td>User types the skill's slash command</td><td>Add <code>command: /myskill</code> in front matter</td></tr>
+    </table>
+  </div>
+
+  <h2>Bundled skills</h2>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Skill</th><th>Tier</th><th>Trigger</th><th>What it does</th></tr>
+      <tr><td><code>code_style</code></td><td><span class="skill-tier tier-1">1</span></td><td>always</td><td>PEP8 + formatting conventions</td></tr>
+      <tr><td><code>dataframe-context</code></td><td><span class="skill-tier tier-1">1</span></td><td>always</td><td>Rules for using live DataFrame schemas</td></tr>
+      <tr><td><code>safe_operations</code></td><td><span class="skill-tier tier-1">1</span></td><td>always</td><td>Auto-execution whitelist</td></tr>
+      <tr><td><code>varys</code></td><td><span class="skill-tier tier-1">1</span></td><td>always</td><td>Core data scientist persona and behaviour rules</td></tr>
+      <tr><td><code>eda</code></td><td><span class="skill-tier tier-2">2</span></td><td><code>/eda</code>, eda, explore, visualiz…</td><td>EDA structure, seaborn plots, statistics</td></tr>
+      <tr><td><code>plot</code></td><td><span class="skill-tier tier-2">2</span></td><td><code>/plot</code>, plot, chart, graph…</td><td>Publication-quality matplotlib/seaborn charts</td></tr>
+      <tr><td><code>readme_gen</code></td><td><span class="skill-tier tier-2">2</span></td><td><code>/readme</code>, readme, document…</td><td>README template with emojis and tables</td></tr>
+      <tr><td><code>notebook-annotation</code></td><td><span class="skill-tier tier-2">2</span></td><td><code>/annotate</code>, annotate, add title…</td><td>Numbered section titles and descriptions</td></tr>
+      <tr><td><code>notebook-code-review</code></td><td><span class="skill-tier tier-2">2</span></td><td><code>/review</code>, review code, find bugs…</td><td>Code quality, PEP8 (manual mode)</td></tr>
+      <tr><td><code>notebook-ds-review</code></td><td><span class="skill-tier tier-2">2</span></td><td><code>/ds-review</code>, data leakage, methodology…</td><td>DS methodology validation (manual mode)</td></tr>
+      <tr><td><code>notebook-report-generation</code></td><td><span class="skill-tier tier-2">2</span></td><td><code>/report</code>, generate report…</td><td>Report orchestration pipeline</td></tr>
+      <tr><td><code>load-dataframe</code></td><td><span class="skill-tier tier-2">2</span></td><td><code>/load</code>, load file, read csv…</td><td>Load file as DataFrame with inspection</td></tr>
+      <tr><td><code>generate-notebook</code></td><td><span class="skill-tier tier-2">2</span></td><td><code>/generate</code>, full analysis…</td><td>Composite 4-step pipeline</td></tr>
+      <tr><td><code>unittest</code></td><td><span class="skill-tier tier-2">2</span></td><td><code>/unittest</code>, test, pytest…</td><td>Generate pytest test cases</td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- ── COMPOSITE PIPELINES ────────────────────────────────────────── -->
+<section class="page-section" id="composite">
+  <h1>🔗 Composite Pipelines</h1>
+  <p>Composite skills chain multiple individual skills into a single command. Each step is executed sequentially with a fresh notebook context — so step 4 (README) reads the cells created by steps 1–3.</p>
+
+  <h2>Built-in: /generate</h2>
+  <p>Trigger: <code>/generate</code> or <code>full analysis of /path/to/file.csv</code></p>
+  <div class="table-wrap">
+    <table>
+      <tr><th>#</th><th>Skill</th><th>What it generates</th></tr>
+      <tr><td>1</td><td><code>load-dataframe</code></td><td>Header cell + code: loads file, prints shape/columns/head(5)</td></tr>
+      <tr><td>2</td><td><code>eda</code></td><td>EDA header + comprehensive analysis with visualisations</td></tr>
+      <tr><td>3</td><td><code>notebook-annotation</code></td><td>Numbered section titles before each code cell</td></tr>
+      <tr><td>4</td><td><code>readme_gen</code></td><td>Polished README cell at position 0</td></tr>
+    </table>
+  </div>
+
+  <h2>Pipeline progress</h2>
+  <div class="code-block-wrap">
+    <pre><code>⚙️ <strong>Pipeline: generate notebook</strong> — 4 steps
+
+<strong>Step 1/4:</strong> load dataframe… ✓ (2 cells)
+<strong>Step 2/4:</strong> eda… ✓ (4 cells)
+<strong>Step 3/4:</strong> notebook annotation… ✓ (8 cells)
+<strong>Step 4/4:</strong> readme gen… ✓ (1 cell)
+
+✅ Pipeline complete — 15 cell changes across 4 steps.
+Review the diff below then Accept or Undo all.</code></pre>
+  </div>
+</section>
+
+<!-- ── DATAFRAME DETECTION ────────────────────────────────────────── -->
+<section class="page-section" id="dataframes">
+  <h1>🗃️ DataFrame Auto-Detection</h1>
+  <p>Before every chat request, Varys executes a small Python snippet silently in your kernel to collect the schema of every pandas DataFrame in memory. This is injected into the LLM prompt automatically — so the AI always knows what your data looks like without you having to describe it.</p>
+
+  <h2>What the AI sees</h2>
+  <div class="code-block-wrap">
+    <pre><code>## Live DataFrame Context (from kernel)
+
+`df_sales` — 10,000 rows × 6 cols  (2.4 MB)
+  product_id    int64
+  product_name  object
+  category      object
+  price         float64
+  quantity      int64
+  sale_date     datetime64[ns]
+  Sample (3 rows):
+    {product_id=1, product_name='Widget A', price=29.99}</code></pre>
+  </div>
+
+  <h2>Privacy</h2>
+  <p>Only schema metadata is sent to the LLM: column names, dtypes, and up to 3 sample rows (max 8 fields per row, truncated to 40 characters). No bulk data is transmitted. For full privacy, use Ollama — nothing leaves your machine.</p>
+
+  <h2>Caching</h2>
+  <p>The schema is cached by the maximum execution count across all cells. It is only re-fetched after you run a cell — rapid chat messages don't incur extra kernel round-trips.</p>
+</section>
+
+<!-- ── REPORT GENERATION ──────────────────────────────────────────── -->
+<section class="page-section" id="report">
+  <h1>📄 Report Generation</h1>
+  <p>Generate a professional markdown report from your entire notebook — including all visualisations — with a single command.</p>
+
+  <h2>Trigger</h2>
+  <p>Type <code>/report</code> in the chat, or any of: <em>"generate report"</em>, <em>"create a summary report"</em>, <em>"document my analysis"</em>.</p>
+
+  <h2>Pipeline</h2>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body"><h4>Parse notebook</h4><p>Reads all cells, outputs, and metadata from the <code>.ipynb</code> file.</p></div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body"><h4>Extract visualisations</h4><p>All <code>image/png</code> cell outputs are extracted as base64 strings and replaced with <code>![Figure N]</code> placeholders.</p></div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body"><h4>LLM generation</h4><p>The notebook is sent to the LLM with the <code>notebook-report-generation</code> skill, which generates a structured markdown document.</p></div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-body"><h4>Post-processing</h4><p>Placeholder references are replaced with actual base64 image tags so images render inline in markdown previews.</p></div>
+    </div>
+    <div class="step">
+      <div class="step-num">5</div>
+      <div class="step-body"><h4>Save &amp; display</h4><p>A timestamped <code>.md</code> file is saved alongside the notebook. A <strong>Report Card</strong> appears in chat with filename, word count, image count, and a download link.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── REPRODUCIBILITY ────────────────────────────────────────────── -->
+<section class="page-section" id="reproducibility">
+  <h1>🛡️ Reproducibility Guardian</h1>
+  <p>A passive monitoring module that runs automatically every time you execute a cell. It catches common reproducibility issues without any prompts.</p>
+
+  <h2>Detected issues</h2>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Severity</th><th>Issue</th><th>Example</th></tr>
+      <tr><td>🔴 Critical</td><td>Missing <code>random_state</code></td><td><code>train_test_split(X, y)</code> without <code>random_state=42</code></td></tr>
+      <tr><td>🔴 Critical</td><td>Sklearn estimator without <code>random_state</code></td><td><code>RandomForestClassifier()</code></td></tr>
+      <tr><td>🟡 Warning</td><td>Missing global seed</td><td>No <code>np.random.seed()</code> or <code>random.seed()</code></td></tr>
+      <tr><td>🟡 Warning</td><td>CUDA without fallback</td><td><code>device = 'cuda'</code> with no CPU fallback</td></tr>
+      <tr><td>🟠 Info</td><td>Hardcoded file path</td><td><code>pd.read_csv('/Users/john/data.csv')</code></td></tr>
+    </table>
+  </div>
+
+  <h2>UI panel</h2>
+  <p>Click the <strong>🛡️</strong> button in the sidebar header to open the Reproducibility panel:</p>
+  <ul>
+    <li>Issues are grouped by severity</li>
+    <li><strong>Fix</strong> button — applies an auto-corrected version of the cell</li>
+    <li><strong>Fix All</strong> button — applies all available fixes at once</li>
+    <li><strong>Dismiss</strong> button — hides the issue until next execution</li>
+  </ul>
+</section>
+
+<!-- ── MEMORY ─────────────────────────────────────────────────────── -->
+<section class="page-section" id="memory">
+  <h1>💾 Memory System</h1>
+  <p>Varys remembers your preferences per project, injecting them into every LLM request automatically.</p>
+
+  <h2>Storage</h2>
+  <p>Preferences are stored in <code>.jupyter-assistant/memory/preferences.md</code> — a human-readable markdown file. One file per project directory.</p>
+
+  <h2>What gets remembered</h2>
+  <ul>
+    <li>Preferences saved with <code>/learn</code> ("always use seaborn", "no print statements")</li>
+    <li>Declined suggestions (so the AI won't propose the same thing again)</li>
+    <li>Style preferences learned from your workflow</li>
+  </ul>
+
+  <h2>Editing manually</h2>
+  <p>Open <code>.jupyter-assistant/memory/preferences.md</code> in any editor and add preferences directly. The file is read fresh on every request.</p>
+
+  <div class="code-block-wrap">
+    <span class="code-label">preferences.md example</span>
+    <pre><code># Varys — Memory
+
+## User Preferences
+
+- Always use seaborn for visualisations
+- Prefer method chaining for pandas operations
+- Never suggest in-place mutations
+
+## Declined Suggestions
+
+- 2025-01-15: Consolidate sklearn imports — user prefers imports at cell level</code></pre>
+  </div>
+</section>
+
+<!-- ── RAG KNOWLEDGE BASE ─────────────────────────────────────────── -->
+<section class="page-section" id="rag">
+  <h1>🔍 RAG Knowledge Base</h1>
+  <p>Index your own documents — PDFs, notebooks, markdown files — and query them with <code>/ask</code> directly from the chat.</p>
+
+  <h2>Setup</h2>
+  <div class="code-block-wrap">
+    <button class="copy-btn">Copy</button>
+    <pre><code>pip install <span class="str">"varys[rag] @ git+https://github.com/brightappsllc/varys-ai"</span></code></pre>
+  </div>
+
+  <h2>Indexing documents</h2>
+  <ol>
+    <li>Drop files (PDF, <code>.ipynb</code>, <code>.md</code>) into <code>.jupyter-assistant/knowledge/</code></li>
+    <li>Run <code>/index</code> in the chat to build the vector index</li>
+    <li>Query with <code>/ask &lt;your question&gt;</code></li>
+  </ol>
+
+  <div class="code-block-wrap">
+    <button class="copy-btn">Copy</button>
+    <pre><code><span class="cmt"># Example</span>
+/ask what preprocessing steps are recommended for this dataset?
+/ask what does the paper say about cross-validation for time series?</code></pre>
+  </div>
+
+  <h2>Status</h2>
+  <p>Type <code>/rag</code> to see the current knowledge-base status: document count, index size, and last indexed time.</p>
+</section>
+
+<!-- ── CUSTOM SKILLS ───────────────────────────────────────────────── -->
+<section class="page-section" id="custom-skills">
+  <h1>✏️ Creating Custom Skills</h1>
+  <p>Adding a new skill is as simple as creating a folder and a markdown file — no Python changes required.</p>
+
+  <h2>Minimal skill</h2>
+  <div class="code-block-wrap">
+    <span class="code-label">~/.jupyter-assistant/skills/my-skill/SKILL.md</span>
+    <button class="copy-btn" style="right:78px">Copy</button>
+    <pre><code>---
+command: /myskill
+description: Does something useful
+keywords: [trigger word, another trigger]
+cell_insertion_mode: preview
+---
+
+# My Skill
+
+Everything below the front matter is injected into the LLM system prompt
+whenever this skill is active.
+
+## Rules
+- Always do X
+- Never do Y
+</code></pre>
+  </div>
+
+  <h2>Front matter reference</h2>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+      <tr><td><code>command</code></td><td>string</td><td>—</td><td>Slash command that triggers this skill (e.g. <code>/myskill</code>)</td></tr>
+      <tr><td><code>description</code></td><td>string</td><td>—</td><td>Short description shown in the Commands tab and <code>/help</code></td></tr>
+      <tr><td><code>keywords</code></td><td>list</td><td>—</td><td>Tier 2 trigger keywords. Absence → Tier 1.</td></tr>
+      <tr><td><code>cell_insertion_mode</code></td><td>string</td><td><code>preview</code></td><td>One of: <code>preview</code>, <code>auto</code>, <code>chat</code>, <code>manual</code></td></tr>
+      <tr><td><code>composite</code></td><td>bool</td><td><code>false</code></td><td>Set to <code>true</code> to make this a pipeline skill</td></tr>
+      <tr><td><code>steps</code></td><td>list</td><td>—</td><td>For composite skills: ordered list of child skill names</td></tr>
+      <tr><td><code>step_prompts</code></td><td>list</td><td>—</td><td>For composite skills: per-step prompt templates</td></tr>
+    </table>
+  </div>
+
+  <h2>Testing your skill</h2>
+  <ol>
+    <li>Create the folder and <code>SKILL.md</code></li>
+    <li>Click <strong>Refresh</strong> in the Skills tab of Settings</li>
+    <li>Check the <strong>/ Commands</strong> tab — your command should appear</li>
+    <li>Type your trigger keyword or slash command in the chat</li>
+  </ol>
+
+  <div class="callout info">
+    <div class="callout-title">ℹ️ Companion README</div>
+    Create a <code>README.md</code> in the same folder for user-facing documentation. This file is <em>not</em> sent to the LLM — it's displayed in the Skills tab's skill editor.
+  </div>
+</section>
+
+<!-- ── COMPOSITE SKILLS ───────────────────────────────────────────── -->
+<section class="page-section" id="composite-skills">
+  <h1>⚙️ Creating Composite Skills</h1>
+  <p>A composite skill chains multiple individual skills into a pipeline. Each step receives the notebook context updated by all previous steps.</p>
+
+  <h2>SKILL.md format</h2>
+  <div class="code-block-wrap">
+    <span class="code-label">~/.jupyter-assistant/skills/my-pipeline/SKILL.md</span>
+    <button class="copy-btn" style="right:78px">Copy</button>
+    <pre><code>---
+composite: true
+command: /mypipeline
+description: Full analysis workflow
+keywords: [run full workflow, end to end]
+steps: [load-dataframe, eda, my-custom-skill]
+step_prompts:
+  - "Load the file {file_path} as df. Print shape and columns."
+  - "Run EDA with visualisations for all numeric columns."
+  - "Apply my custom skill to the results."
+---
+
+# My Analysis Pipeline
+
+Orchestrates: Load → EDA → Custom analysis.
+Extract the file path from the user message.
+</code></pre>
+  </div>
+
+  <h2>Variable substitution</h2>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Variable</th><th>Value</th></tr>
+      <tr><td><code>{file_path}</code></td><td>First file path found in the user's message</td></tr>
+      <tr><td><code>{user_message}</code></td><td>The full original user message</td></tr>
+    </table>
+  </div>
+
+  <h2>Rules</h2>
+  <ul>
+    <li>All skills in <code>steps</code> must exist as folders in <code>~/.jupyter-assistant/skills/</code></li>
+    <li><code>step_prompts</code> and <code>steps</code> must have the same length</li>
+    <li>Use <code>cell_insertion_mode: preview</code> on the composite skill itself</li>
+    <li>The final Accept/Undo panel covers all steps atomically</li>
+  </ul>
+</section>
+
+<!-- ── .ENV REFERENCE ─────────────────────────────────────────────── -->
+<section class="page-section" id="env-ref">
+  <h1>🔧 .env Reference</h1>
+  <p>All configuration lives in <code>~/.jupyter/varys.env</code>. Changes take effect immediately — no restart required. Keys can also be set from ⚙ Settings inside JupyterLab.</p>
+
+  <h2>Provider selection</h2>
+  <div class="table-wrap">
+    <table class="env-table">
+      <tr><th>Variable</th><th>Description</th><th>Default</th></tr>
+      <tr><td>DS_CHAT_PROVIDER</td><td>Provider for chat requests</td><td>ANTHROPIC</td></tr>
+      <tr><td>DS_COMPLETION_PROVIDER</td><td>Provider for inline code completions</td><td>ANTHROPIC</td></tr>
+    </table>
+  </div>
+  <p>Valid values: <code>ANTHROPIC</code>, <code>OPENAI</code>, <code>GOOGLE</code>, <code>BEDROCK</code>, <code>AZURE</code>, <code>OPENROUTER</code>, <code>OLLAMA</code></p>
+
+  <h2>API keys</h2>
+  <div class="table-wrap">
+    <table class="env-table">
+      <tr><th>Variable</th><th>Provider</th></tr>
+      <tr><td>ANTHROPIC_API_KEY</td><td>Anthropic</td></tr>
+      <tr><td>OPENAI_API_KEY</td><td>OpenAI</td></tr>
+      <tr><td>GOOGLE_API_KEY</td><td>Google Gemini</td></tr>
+      <tr><td>AWS_PROFILE</td><td>AWS Bedrock — named profile from <code>~/.aws/credentials</code> (profile-based / SSO auth)</td></tr>
+      <tr><td>AWS_AUTH_REFRESH</td><td>AWS Bedrock — shell command run automatically when the profile token is expired (e.g. <code>aws-azure-login --profile ITOSS --no-prompt</code>)</td></tr>
+      <tr><td>AWS_ACCESS_KEY_ID</td><td>AWS Bedrock — explicit IAM access key (leave blank when using <code>AWS_PROFILE</code>)</td></tr>
+      <tr><td>AWS_SECRET_ACCESS_KEY</td><td>AWS Bedrock — explicit IAM secret key (leave blank when using <code>AWS_PROFILE</code>)</td></tr>
+      <tr><td>AWS_SESSION_TOKEN</td><td>AWS Bedrock — temporary session token (optional, for STS-issued credentials)</td></tr>
+      <tr><td>AWS_REGION</td><td>AWS Bedrock — region, e.g. <code>us-east-1</code></td></tr>
+      <tr><td>AZURE_OPENAI_API_KEY</td><td>Azure OpenAI</td></tr>
+      <tr><td>AZURE_OPENAI_ENDPOINT</td><td>Azure OpenAI</td></tr>
+      <tr><td>AZURE_OPENAI_DEPLOYMENT</td><td>Azure OpenAI</td></tr>
+      <tr><td>OPENROUTER_API_KEY</td><td>OpenRouter</td></tr>
+    </table>
+  </div>
+
+  <h2>Model names</h2>
+  <div class="table-wrap">
+    <table class="env-table">
+      <tr><th>Variable</th><th>Description</th><th>Example</th></tr>
+      <tr><td>ANTHROPIC_CHAT_MODEL</td><td>Claude model for chat</td><td>claude-sonnet-4-6</td></tr>
+      <tr><td>ANTHROPIC_COMPLETION_MODEL</td><td>Claude model for completions</td><td>claude-haiku-4-5</td></tr>
+      <tr><td>ANTHROPIC_CHAT_ZOO</td><td>Comma-separated models for the switcher</td><td>claude-sonnet-4-6,claude-opus-4</td></tr>
+      <tr><td>OLLAMA_CHAT_MODEL</td><td>Ollama model for chat</td><td>llama3.2</td></tr>
+      <tr><td>OLLAMA_COMPLETION_MODEL</td><td>Ollama model for completions</td><td>qwen2.5-coder:1.5b-instruct</td></tr>
+      <tr><td>OLLAMA_URL</td><td>Ollama server URL (blank = localhost)</td><td>http://localhost:11434</td></tr>
+    </table>
+  </div>
+
+  <h2>Completion settings</h2>
+  <div class="table-wrap">
+    <table class="env-table">
+      <tr><th>Variable</th><th>Description</th><th>Default</th></tr>
+      <tr><td>COMPLETION_MAX_TOKENS</td><td>Max tokens for inline completion responses</td><td>128</td></tr>
+    </table>
+  </div>
+
+  <h2>Skills &amp; features</h2>
+  <div class="table-wrap">
+    <table class="env-table">
+      <tr><th>Variable</th><th>Description</th><th>Default</th></tr>
+      <tr><td>DS_SKILLS_DISABLED</td><td>Comma-separated skill names to disable</td><td>(empty)</td></tr>
+      <tr><td>DS_DATAFRAME_DETECTION</td><td>Enable live DataFrame schema inspection</td><td>true</td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- ── FAQ ───────────────────────────────────────────────────────── -->
+<section class="page-section" id="faq">
+  <h1>❓ FAQ</h1>
+
+  <h3>Does Varys send my notebook data to external servers?</h3>
+  <p>Only the text content of your cells and their outputs (truncated) is sent to your configured LLM provider. Up to 3 sample rows per DataFrame are included for schema context. For full privacy, use <strong>Ollama</strong> — nothing leaves your machine.</p>
+
+  <h3>Can I use Varys without an internet connection?</h3>
+  <p>Yes — set both providers to <code>OLLAMA</code> and run <code>ollama serve</code> locally. No data leaves your machine.</p>
+
+  <h3>Where is the config file stored?</h3>
+  <p>At <code>~/.jupyter/varys.env</code>. It's shared across all projects and all JupyterLab sessions. Changes are hot-reloaded on save.</p>
+
+  <h3>My skill isn't being triggered. Why?</h3>
+  <ol>
+    <li>Make sure the folder contains <code>SKILL.md</code> (exact capitalisation)</li>
+    <li>Click <strong>Refresh</strong> in Settings → Skills tab</li>
+    <li>Check that the skill is not listed in <code>DS_SKILLS_DISABLED</code></li>
+    <li>For Tier 2 skills, verify your message contains one of the <code>keywords</code> (case-insensitive)</li>
+    <li>Check the <strong>/ Commands</strong> tab — if your skill's command appears there, the skill is loaded</li>
+  </ol>
+
+  <h3>How do I undo an AI change after accepting it?</h3>
+  <p>Once you click Accept, Varys no longer tracks the operation. Use JupyterLab's built-in undo (<code>Ctrl+Z</code>) inside a cell to revert content. For newly inserted cells, delete them manually.</p>
+
+  <h3>What is the difference between /review and /ds-review?</h3>
+  <p><code>/review</code> is a classic code quality review — PEP8, naming, complexity, maintainability. <code>/ds-review</code> is a data science methodology review — it looks for data leakage, train/test contamination, inappropriate statistical tests, and missing reproducibility controls.</p>
+
+  <h3>Can I use Varys with R or Julia notebooks?</h3>
+  <p>The chat and inline completion features detect <code>text/x-r-source</code> and <code>text/x-julia</code> MIME types. Most skills are Python-oriented, but you can create custom skills for R or Julia workflows.</p>
+
+  <h3>Can I run Python frontend changes without rebuilding?</h3>
+  <p>Yes — Python server extension changes take effect immediately (no rebuild). Frontend TypeScript changes require <code>jupyter labextension build .</code> and a browser hard-refresh (<code>Ctrl+Shift+R</code>).</p>
+</section>
+
+<!-- ── TROUBLESHOOTING ────────────────────────────────────────────── -->
+<section class="page-section" id="troubleshoot">
+  <h1>🔎 Troubleshooting</h1>
+
+  <h2>Varys icon not visible in sidebar</h2>
+  <ul>
+    <li>Hard-refresh: <code>Ctrl+Shift+R</code> (or <code>Cmd+Shift+R</code> on Mac)</li>
+    <li>Run <code>jupyter labextension list</code> — it should show <code>varys  enabled  OK</code></li>
+    <li>If missing: <code>pip install --force-reinstall "varys[all] @ git+https://github.com/brightappsllc/varys-ai"</code></li>
+  </ul>
+
+  <h2>Error: 404 on /varys/task</h2>
+  <ul>
+    <li>The server extension is not loaded: <code>jupyter server extension list</code></li>
+    <li>Reinstall: <code>pip install --force-reinstall varys</code> then restart JupyterLab</li>
+  </ul>
+
+  <h2>Anthropic model not found (404)</h2>
+  <p>The model name in your <code>.env</code> is not valid. Use the current aliases:</p>
+  <div class="code-block-wrap">
+    <span class="code-label">~/.jupyter/varys.env</span>
+    <pre><code>ANTHROPIC_CHAT_MODEL=claude-sonnet-4-6
+ANTHROPIC_COMPLETION_MODEL=claude-haiku-4-5</code></pre>
+  </div>
+
+  <h2>Ollama: "Request URL is missing protocol"</h2>
+  <p>This happens when <code>OLLAMA_URL</code> is set to an empty string in <code>.env</code>. Either leave the key out entirely or set it to the full URL:</p>
+  <div class="code-block-wrap">
+    <pre><code>OLLAMA_URL=http://localhost:11434</code></pre>
+  </div>
+
+  <h2>Inline completion not appearing</h2>
+  <ol>
+    <li>Open JupyterLab Settings → Inline Completer → ensure Varys is enabled</li>
+    <li>Type at least 3 characters before a completion is requested</li>
+    <li>Verify <code>DS_COMPLETION_PROVIDER</code> is set and the provider is reachable</li>
+    <li>Check the browser console (<code>F12</code>) for errors</li>
+  </ol>
+
+  <h2>DataFrame schemas not in LLM context</h2>
+  <ul>
+    <li>Make sure the kernel is running and at least one cell has been executed</li>
+    <li>DataFrames must be in the top-level namespace (not inside a function)</li>
+    <li>Only pandas DataFrames are detected; numpy arrays and polars frames are not</li>
+  </ul>
+
+  <div class="callout success">
+    <div class="callout-title">✅ Still stuck?</div>
+    Check the JupyterLab terminal for Python tracebacks prefixed with <code>Varys error:</code>. Most errors are fully logged there with the full stack trace. You can also <a href="https://github.com/brightappsllc/varys-ai/issues" target="_blank">open an issue on GitHub</a>.
+  </div>
+</section>
+
+</main>
+</div>
+
+<script>
+// ── Mobile sidebar toggle ───────────────────────────────────────────
+document.getElementById('menu-btn').addEventListener('click', () => {
+  document.getElementById('sidebar').classList.toggle('open');
+});
+
+document.querySelectorAll('.nav-link').forEach(a => {
+  a.addEventListener('click', () => {
+    if (window.innerWidth <= 780)
+      document.getElementById('sidebar').classList.remove('open');
+  });
+});
+
+// ── Active nav link tracking ────────────────────────────────────────
+const sections = document.querySelectorAll('.page-section');
+const navLinks = document.querySelectorAll('.nav-link');
+
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const id = entry.target.id;
+      navLinks.forEach(a => {
+        a.classList.toggle('active', a.getAttribute('href') === '#' + id);
+      });
+    }
+  });
+}, { rootMargin: '-50% 0px -45% 0px' });
+
+sections.forEach(s => observer.observe(s));
+
+// ── Copy code buttons ──────────────────────────────────────────────
+document.querySelectorAll('.copy-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const pre = btn.parentElement.querySelector('pre');
+    if (!pre) return;
+    navigator.clipboard.writeText(pre.innerText.trim()).then(() => {
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(() => {
+        btn.textContent = 'Copy';
+        btn.classList.remove('copied');
+      }, 1800);
+    });
+  });
+});
+
+// ── Search ─────────────────────────────────────────────────────────
+const searchInput = document.getElementById('search');
+let searchTimeout;
+
+searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(() => {
+    const q = searchInput.value.trim().toLowerCase();
+    clearHighlights();
+    if (q.length < 2) return;
+    highlightText(document.getElementById('content'), q);
+  }, 250);
+});
+
+function clearHighlights() {
+  document.querySelectorAll('mark').forEach(m => {
+    const parent = m.parentNode;
+    parent.replaceChild(document.createTextNode(m.textContent), m);
+    parent.normalize();
+  });
+}
+
+function highlightText(node, q) {
+  if (node.nodeType === 3) {
+    const text = node.textContent;
+    const idx = text.toLowerCase().indexOf(q);
+    if (idx === -1) return;
+    const mark = document.createElement('mark');
+    mark.textContent = text.slice(idx, idx + q.length);
+    const after = document.createTextNode(text.slice(idx + q.length));
+    node.textContent = text.slice(0, idx);
+    node.parentNode.insertBefore(mark, node.nextSibling);
+    node.parentNode.insertBefore(after, mark.nextSibling);
+    return;
+  }
+  if (['SCRIPT','STYLE','BUTTON','INPUT'].includes(node.tagName)) return;
+  Array.from(node.childNodes).forEach(child => highlightText(child, q));
+}
+
+searchInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    const first = document.querySelector('mark');
+    if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  if (e.key === 'Escape') {
+    searchInput.value = '';
+    clearHighlights();
+  }
+});
+</script>
+</body>
+</html>

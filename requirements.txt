@@ -1,0 +1,20 @@
+# Core (auto-installed with: pip install git+https://github.com/brightappsllc/varys-ai)
+jupyterlab>=4.0
+jupyter-server>=2.0
+python-dotenv>=1.0
+
+# Install the provider(s) you use:
+#
+#   pip install "varys[anthropic] @ git+https://github.com/brightappsllc/varys-ai"
+#   pip install "varys[openai]    @ git+https://github.com/brightappsllc/varys-ai"
+#   pip install "varys[ollama]    @ git+https://github.com/brightappsllc/varys-ai"
+#   pip install "varys[rag]       @ git+https://github.com/brightappsllc/varys-ai"
+#
+# Or install everything at once:
+#   pip install "varys[all] @ git+https://github.com/brightappsllc/varys-ai"
+
+# Uncomment what you need:
+# anthropic
+# openai
+# httpx       # for Ollama
+# chromadb    # for RAG

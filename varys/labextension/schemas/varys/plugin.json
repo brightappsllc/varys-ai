@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "title": "Varys",
+  "description": "Settings for Varys — your DS assistant for Jupyter Notebook. Model names and provider selection are configured via the .env file in your notebook directory.",
+  "type": "object",
+  "properties": {
+    "executionMode": {
+      "title": "Execution Mode",
+      "description": "Controls when cells are auto-executed after the assistant creates them.",
+      "type": "string",
+      "enum": ["always-ask", "auto-safe", "preview-only"],
+      "default": "auto-safe"
+    },
+    "inlineCompletion": {
+      "title": "Enable Inline Completion",
+      "description": "Show AI ghost-text suggestions as you type in code cells.",
+      "type": "boolean",
+      "default": true
+    },
+    "multilineCompletion": {
+      "title": "Enable Multi-line Completion",
+      "description": "When manually triggered (Ctrl+Space), suggest 3-5 lines instead of one.",
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "additionalProperties": false
+}
