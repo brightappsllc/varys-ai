@@ -4686,6 +4686,8 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
   const [agentOperationId, setAgentOperationId] = useState('');
   const [agentResolved, setAgentResolved] = useState<Record<string, boolean>>({});
   const [agentResultsReady, setAgentResultsReady] = useState(false);
+  /** ID of the assistant message that triggered the file agent run. */
+  const [agentMsgId, setAgentMsgId] = useState('');
 
   // Ref that always holds the latest agent panel state.  Used by focus-switch
   // callbacks (which are captured in useEffect([], []) and would otherwise read
@@ -5480,6 +5482,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
         setBlockedCmdDismissed({});
         setAgentOperationId(response.operationId);
         setAgentResolved({});
+        setAgentMsgId(streamMsgId);   // remember which bubble owns these file cards
         setAgentResultsReady(true);
         // Changes are already written to disk as a preview — open/reload
         // each file so the user sees the actual change in the editor.
@@ -6841,6 +6844,76 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
                 })()}
               </>
             )}
+          {/* File-agent FileChangeCards — inline inside the triggering assistant
+              bubble so all output (text + diffs) lives in one visual unit. */}
+          {msg.id === agentMsgId && agentResultsReady && agentFileChanges.length > 0 && (
+            <div className="ds-agent-file-cards">
+              {agentFileChanges.map(fc => (
+                <FileChangeCard
+                  key={fc.change_id}
+                  event={fc}
+                  operationId={agentOperationId}
+                  apiBaseUrl=""
+                  xsrfToken={getXsrfToken()}
+                  onResolved={(changeId, accepted) => {
+                    const newResolved = { ...agentResolved, [changeId]: accepted };
+                    setAgentResolved(newResolved);
+                    const changed = agentFileChanges.find(f => f.change_id === changeId);
+                    if (!changed) return;
+                    if (!accepted && changed.change_type === 'modified' && reloadFile) {
+                      reloadFile(changed.file_path);
+                    }
+                  }}
+                />
+              ))}
+              {agentFileChanges.length > 1 && (
+                <div className="ds-agent-bulk-actions">
+                  <button
+                    className="ds-assistant-btn ds-assistant-btn-accept"
+                    onClick={async () => {
+                      const token = getXsrfToken();
+                      for (const fc of agentFileChanges) {
+                        if (agentResolved[fc.change_id] === undefined) {
+                          try {
+                            const r = await fetch('/varys/agent/accept', {
+                              method: 'POST', credentials: 'same-origin',
+                              headers: { 'Content-Type': 'application/json', 'X-XSRFToken': token },
+                              body: JSON.stringify({ operation_id: agentOperationId, change_id: fc.change_id, confirmed_content: null, confirmed_path: fc.file_path }),
+                            });
+                            const data = await r.json();
+                            if (data.success) setAgentResolved(prev => ({ ...prev, [fc.change_id]: true }));
+                          } catch { /* ignore per-item errors */ }
+                        }
+                      }
+                    }}
+                  >✓ Accept All</button>
+                  <button
+                    className="ds-assistant-btn ds-assistant-btn-undo"
+                    onClick={async () => {
+                      const token = getXsrfToken();
+                      for (const fc of agentFileChanges) {
+                        if (agentResolved[fc.change_id] === undefined) {
+                          try {
+                            const r = await fetch('/varys/agent/reject', {
+                              method: 'POST', credentials: 'same-origin',
+                              headers: { 'Content-Type': 'application/json', 'X-XSRFToken': token },
+                              body: JSON.stringify({ operation_id: agentOperationId, change_id: fc.change_id }),
+                            });
+                            const data = await r.json();
+                            if (data.success) {
+                              setAgentResolved(prev => ({ ...prev, [fc.change_id]: false }));
+                              if (fc.change_type === 'modified' && reloadFile) reloadFile(fc.file_path);
+                            }
+                          } catch { /* ignore per-item errors */ }
+                        }
+                      }
+                    }}
+                  >✕ Reject All</button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Inline DiffView — lives INSIDE the assistant bubble so the code
               block is visually attached to the explanation text above it.
               Unresolved: shows Accept / Reject buttons.
@@ -6912,10 +6985,11 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
       </div>
 
       {/* Agent results section — shown after any /file_agent run */}
+      {/* Varys File Agent auxiliary info — context chips, error banner, config panel.
+          FileChangeCards are now rendered inline inside the triggering assistant bubble. */}
       {agentResultsReady && (
         <div className="ds-agent-results">
-
-          {/* Header with gear button for project settings */}
+          {/* ⚙ config button — kept accessible for project settings */}
           <div className="ds-agent-results-header">
             <span className="ds-agent-results-title">Varys File Agent</span>
             <button
@@ -6925,7 +6999,6 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
             >⚙</button>
           </div>
 
-          {/* Inline project config panel */}
           {agentConfigOpen && (
             <FileAgentConfigPanel
               notebookPath={currentNotebookPath || currentFilePath}
@@ -6934,13 +7007,10 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
             />
           )}
 
-          {/* Tool-use-not-supported error banner */}
           {agentToolError && (
             <AgentToolErrorBanner
               error={agentToolError}
-              onOpenAgentSettings={() => {
-                setSettingsOpenToAgent(true);
-              }}
+              onOpenAgentSettings={() => setSettingsOpenToAgent(true)}
             />
           )}
 
@@ -6951,148 +7021,6 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
                 <span key={i} className="ds-agent-context-chip" title={f}>{f}</span>
               ))}
             </div>
-          )}
-
-          {agentFileChanges.map(fc => (
-            <FileChangeCard
-              key={fc.change_id}
-              event={fc}
-              operationId={agentOperationId}
-              apiBaseUrl=""
-              xsrfToken={getXsrfToken()}
-              onResolved={(changeId, accepted) => {
-                const newResolved = { ...agentResolved, [changeId]: accepted };
-                setAgentResolved(newResolved);
-                const changed = agentFileChanges.find(f => f.change_id === changeId);
-                if (!changed) return;
-                if (!accepted) {
-                  // Reject: backend reverted the file; reload to show original.
-                  if (changed.change_type === 'modified' && reloadFile) {
-                    reloadFile(changed.file_path);
-                  }
-                  // created: file was deleted by backend — nothing to reload.
-                  // deleted: no preview was written — nothing to reload.
-                }
-                // Accept: preview is already on disk and shown — no reload needed.
-                // Once ALL changes are resolved, inject a persistent summary into
-                // the chat history so the diff is visible when reviewing history.
-                const allDone = agentFileChanges.every(
-                  fc => newResolved[fc.change_id] !== undefined
-                );
-                if (allDone) {
-                  // Build a code-block summary for each accepted change.
-                  const acceptedChanges = agentFileChanges.filter(
-                    fc => newResolved[fc.change_id] === true && fc.new_content
-                  );
-                  if (acceptedChanges.length > 0) {
-                    const summaryParts = acceptedChanges.map(fc => {
-                      const fname = fc.file_path.split('/').pop() ?? fc.file_path;
-                      const ext   = fname.includes('.') ? fname.split('.').pop()!.toLowerCase() : '';
-                      const lang  = ({ py:'python', js:'javascript', ts:'typescript',
-                        tsx:'tsx', jsx:'jsx', md:'markdown', sh:'bash',
-                        yml:'yaml', yaml:'yaml', json:'json', rs:'rust',
-                        go:'go', rb:'ruby', r:'r', sql:'sql' } as Record<string,string>)[ext] ?? ext;
-                      // Show only lines that were added (simple line-diff).
-                      const origLines = (fc.original_content ?? '').split('\n');
-                      const newLines  = (fc.new_content ?? '').split('\n');
-                      const addedLines = newLines.filter(l => !origLines.includes(l) && l.trim() !== '');
-                      const codeBlock = addedLines.length > 0 && addedLines.length <= 60
-                        ? addedLines.join('\n')
-                        : (fc.new_content ?? '');
-                      return `**✓ ${fc.change_type === 'created' ? 'Created' : 'Modified'}: \`${fname}\`**\n\`\`\`${lang}\n${codeBlock}\n\`\`\``;
-                    });
-                    const summaryMsg: Message = {
-                      id:        `file-change-summary-${Date.now()}`,
-                      role:      'assistant',
-                      content:   summaryParts.join('\n\n'),
-                      timestamp: new Date(),
-                    };
-                    setMessages(prev => {
-                      const updated = [...prev, summaryMsg];
-                      // Persist immediately — don't wait for the debounce timer.
-                      const activePath = currentFilePathRef.current || currentNotebookPathRef.current;
-                      const tid = currentThreadIdRef.current;
-                      if (activePath && tid) {
-                        const tName = threadsRef.current.find(t => t.id === tid)?.name ?? 'Thread';
-                        void _saveThread(tid, tName, updated, activePath);
-                      }
-                      return updated;
-                    });
-                  }
-                  // Clear the cached agent panel so it doesn't reappear.
-                  const activePath = currentFilePathRef.current || currentNotebookPathRef.current;
-                  if (activePath) {
-                    const entry = historyCacheRef.current.get(activePath);
-                    if (entry) historyCacheRef.current.set(activePath, { ...entry, agentPanel: undefined });
-                  }
-                }
-              }}
-            />
-          ))}
-
-          {agentFileChanges.length > 1 && (
-          <div className="ds-agent-bulk-actions">
-            <button
-              className="ds-assistant-btn ds-assistant-btn-accept"
-              onClick={async () => {
-                const token = getXsrfToken();
-                for (const fc of agentFileChanges) {
-                  if (agentResolved[fc.change_id] === undefined) {
-                    try {
-                      const r = await fetch('/varys/agent/accept', {
-                        method: 'POST',
-                        credentials: 'same-origin',
-                        headers: { 'Content-Type': 'application/json', 'X-XSRFToken': token },
-                        body: JSON.stringify({
-                          operation_id: agentOperationId,
-                          change_id: fc.change_id,
-                          confirmed_content: null,
-                          confirmed_path: fc.file_path,
-                        }),
-                      });
-                      const data = await r.json();
-                      if (data.success) {
-                        setAgentResolved(prev => ({ ...prev, [fc.change_id]: true }));
-                        // Accept: preview already on disk — no reload needed.
-                      }
-                    } catch { /* ignore per-item errors in bulk accept */ }
-                  }
-                }
-              }}
-            >
-              ✓ Accept All
-            </button>
-            <button
-              className="ds-assistant-btn ds-assistant-btn-undo"
-              onClick={async () => {
-                const token = getXsrfToken();
-                for (const fc of agentFileChanges) {
-                  if (agentResolved[fc.change_id] === undefined) {
-                    try {
-                      const r = await fetch('/varys/agent/reject', {
-                        method: 'POST',
-                        credentials: 'same-origin',
-                        headers: { 'Content-Type': 'application/json', 'X-XSRFToken': token },
-                        body: JSON.stringify({
-                          operation_id: agentOperationId,
-                          change_id: fc.change_id,
-                        }),
-                      });
-                      const data = await r.json();
-                      if (data.success) {
-                        setAgentResolved(prev => ({ ...prev, [fc.change_id]: false }));
-                        // Reload so the editor shows the reverted original content.
-                        if (fc.change_type === 'modified' && reloadFile) reloadFile(fc.file_path);
-                      }
-                    } catch { /* ignore per-item errors in bulk reject */ }
-                  }
-                }
-              }}
-            >
-              ✕ Reject All
-            </button>
-          </div>
-
           )}
 
           {agentIncomplete && (

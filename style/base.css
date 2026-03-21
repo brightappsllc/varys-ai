@@ -3452,13 +3452,36 @@
   font-size: 12px;
   background: var(--jp-layout-color0, #fff);
 }
+/* Resolved state — mirrors ds-diff-view--accepted / --undone */
+.ds-file-change-card--resolved {
+  opacity: 0.82;
+}
 .ds-file-change-card--accepted {
-  border-color: var(--jp-success-color1, #388e3c);
-  opacity: 0.7;
+  border-left: 3px solid #2e7d32;
 }
 .ds-file-change-card--rejected {
-  border-color: var(--jp-error-color1, #c62828);
-  opacity: 0.55;
+  border-left: 3px solid #999;
+}
+.ds-file-change-card--accepted .ds-file-change-card__header {
+  border-left: none; /* handled by card border-left */
+}
+.ds-file-change-card__resolved-label {
+  font-size: 12px;
+  font-weight: 500;
+  flex: 1;
+}
+.ds-file-change-card--accepted .ds-file-change-card__resolved-label {
+  color: #2e7d32;
+}
+.ds-file-change-card--rejected .ds-file-change-card__resolved-label {
+  color: #999;
+}
+/* Inline cards inside an assistant bubble — top margin only */
+.ds-agent-file-cards {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 .ds-file-change-card__header {
   display: flex;
