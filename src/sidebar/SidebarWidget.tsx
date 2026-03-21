@@ -283,14 +283,6 @@ interface Message {
   errorProvider?: string;
   /** True when a context_too_long error occurred and the context had at least one image. */
   errorHasImages?: boolean;
-  /**
-   * Diff data for this turn's cell operations.
-   * Embedded at response time so the DiffView persists permanently in the
-   * chat history regardless of pendingOps state.
-   */
-  diffs?: DiffInfo[];
-  /** Resolved status of this turn's diff — updated when the user accepts or undoes. */
-  diffResolved?: 'accepted' | 'undone';
 }
 
 // Report generation is triggered only by the explicit /report command.
@@ -4107,6 +4099,12 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     agent: 'Agent — assistant decides when to write code or content directly into cells',
   };
   const [pendingOps, setPendingOps] = useState<PendingOp[]>([]);
+  /**
+   * Dedicated diff store — completely decoupled from message state.
+   * Maps operationId → { diffs, resolved }. Never wiped by message
+   * pipeline updates, persists for the entire session.
+   */
+  const [diffStore, setDiffStore] = useState<Map<string, { diffs: DiffInfo[]; resolved?: 'accepted' | 'undone' }>>(new Map());
   // Tracks which fix indices have been applied per code-review message id
   const [appliedFixes, setAppliedFixes] = useState<Map<string, Set<number>>>(new Map());
   const [progressText, setProgressText] = useState<string>('');
@@ -5289,14 +5287,16 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
       };
 
       // Helper: mark the streaming message as having produced cell operations.
-      // Embeds diffs permanently into the message so DiffView persists in the
-      // chat history regardless of pendingOps lifecycle.
+      // Stores diffs in the dedicated diffStore (keyed by operationId) which
+      // is completely decoupled from message state and never wiped by
+      // message pipeline updates.
       const markHadCellOps = (opId: string, opDiffs?: DiffInfo[]) => {
         setMessages(prev => prev.map(m =>
-          m.id === streamMsgId
-            ? { ...m, hadCellOps: true, operationId: opId, ...(opDiffs ? { diffs: opDiffs } : {}) }
-            : m
+          m.id === streamMsgId ? { ...m, hadCellOps: true, operationId: opId } : m
         ));
+        if (opDiffs && opDiffs.length > 0) {
+          setDiffStore(prev => new Map(prev).set(opId, { diffs: opDiffs }));
+        }
       };
 
       // If a skill command is active, show a badge in the chat so the user knows
@@ -5863,9 +5863,11 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     setPendingOps(prev =>
       prev.map(o => o.operationId === operationId ? { ...o, resolved: 'accepted' as const } : o)
     );
-    setMessages(prev =>
-      prev.map(m => m.operationId === operationId ? { ...m, diffResolved: 'accepted' as const } : m)
-    );
+    setDiffStore(prev => {
+      const entry = prev.get(operationId);
+      if (!entry) return prev;
+      return new Map(prev).set(operationId, { ...entry, resolved: 'accepted' });
+    });
   };
 
   const handleUndo = (operationId: string): void => {
@@ -5879,9 +5881,11 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     setPendingOps(prev =>
       prev.map(o => o.operationId === operationId ? { ...o, resolved: 'undone' as const } : o)
     );
-    setMessages(prev =>
-      prev.map(m => m.operationId === operationId ? { ...m, diffResolved: 'undone' as const } : m)
-    );
+    setDiffStore(prev => {
+      const entry = prev.get(operationId);
+      if (!entry) return prev;
+      return new Map(prev).set(operationId, { ...entry, resolved: 'undone' });
+    });
   };
 
   // -------------------------------------------------------------------------
@@ -6774,16 +6778,19 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
               </>
             )}
           </div>
-          {/* Diff view permanently embedded with this message */}
-          {msg.diffs && msg.diffs.length > 0 && (
-            <DiffView
-              operationId={msg.operationId!}
-              diffs={msg.diffs}
-              onAccept={handleAccept}
-              onUndo={handleUndo}
-              resolved={msg.diffResolved}
-            />
-          )}
+          {/* Diff view — persists for the entire session via diffStore */}
+          {msg.operationId && diffStore.has(msg.operationId) && (() => {
+            const entry = diffStore.get(msg.operationId!)!;
+            return (
+              <DiffView
+                operationId={msg.operationId!}
+                diffs={entry.diffs}
+                onAccept={handleAccept}
+                onUndo={handleUndo}
+                resolved={entry.resolved}
+              />
+            );
+          })()}
           </React.Fragment>
         ))}
 
