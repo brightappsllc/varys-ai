@@ -5,7 +5,7 @@ Never reads usage.jsonl at runtime — only the pre-aggregated cache.
 
 import json
 import logging
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ class UsageReader:
 
         Days with no usage are included with value 0.
         """
-        today     = date.today()
+        today     = datetime.now(timezone.utc).date()
         start     = today - timedelta(days=364)
         result    = {}
         current   = start
@@ -79,7 +79,7 @@ class UsageReader:
         period: "day" | "week" | "month" | "year" | "all"
         Returns {"in": int, "out": int, "total": int}.
         """
-        today = date.today()
+        today = datetime.now(timezone.utc).date()
 
         if period == "day":
             date_range = {today.isoformat()}

@@ -5,7 +5,7 @@ Supports actions: heatmap, totals, models, export.
 
 import json
 import logging
-from datetime import date
+from datetime import datetime, timezone
 from pathlib import Path
 
 from jupyter_server.base.handlers import JupyterHandler
@@ -47,7 +47,7 @@ class UsageHandler(JupyterHandler):
             self.finish(json.dumps({"data": data}))
 
         elif action == "export":
-            today    = date.today().isoformat()
+            today    = datetime.now(timezone.utc).date().isoformat()
             filename = f"varys_usage_export_{today}.jsonl"
             self.set_header("Content-Type", "application/x-ndjson")
             self.set_header(
