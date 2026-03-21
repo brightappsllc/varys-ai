@@ -294,10 +294,10 @@ export const DiffView: React.FC<DiffViewProps> = ({
     : totalDeletions  > 0 ? `−${totalDeletions}`
     : '';
 
-  // When resolved, start collapsed; user can expand to re-read the diff.
+  // Unresolved: start expanded. Resolved: always show as collapsed static strip.
   const [expanded, setExpanded] = useState(!resolved);
 
-  // If the resolved prop changes (e.g. after accept/undo), collapse immediately.
+  // Collapse immediately when resolved prop changes (e.g. just after user clicks Accept).
   React.useEffect(() => {
     if (resolved) setExpanded(false);
   }, [resolved]);
@@ -327,14 +327,9 @@ export const DiffView: React.FC<DiffViewProps> = ({
           )}
         </div>
 
+        {/* Buttons: Accept/Reject when pending; nothing when resolved (static strip). */}
         <div className="ds-diff-header-actions">
-          {resolved ? (
-            <button
-              className="ds-diff-expand-btn"
-              onClick={() => setExpanded(e => !e)}
-              title={expanded ? 'Collapse diff' : 'Expand diff'}
-            >{expanded ? '⌃ Hide' : '⌄ Show'}</button>
-          ) : (
+          {!resolved && (
             <>
               <button
                 className="ds-assistant-btn ds-assistant-btn-accept"
@@ -360,8 +355,8 @@ export const DiffView: React.FC<DiffViewProps> = ({
         </div>
       )}
 
-      {/* ── Resolved preview: first 2 changed lines, always visible when collapsed ── */}
-      {resolved && !expanded && (() => {
+      {/* ── Resolved: always show a 2-line static preview (no expand toggle) ── */}
+      {resolved && (() => {
         const previewLines: DiffLine[] = [];
         for (const d of diffs) {
           const lines = computeLineDiff(d.original, d.modified)
@@ -374,17 +369,13 @@ export const DiffView: React.FC<DiffViewProps> = ({
             {previewLines.slice(0, 2).map((line, i) => (
               <DiffLineRow key={i} line={line} />
             ))}
-            {previewLines.length > 2 || diffs.some(d =>
-              computeLineDiff(d.original, d.modified).filter(l => l.type !== 'equal').length > 0
-            ) ? (
-              <div className="ds-diff-preview-more">···</div>
-            ) : null}
+            <div className="ds-diff-preview-more">···</div>
           </div>
         ) : null;
       })()}
 
-      {/* ── Per-cell diffs — shown when expanded ── */}
-      {expanded && (
+      {/* ── Per-cell diffs — shown when expanded (unresolved only) ── */}
+      {!resolved && expanded && (
         <div className="ds-diff-cells">
           {diffs.map((d, i) => (
             <CellDiffSection

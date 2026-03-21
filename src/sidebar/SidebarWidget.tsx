@@ -6842,7 +6842,31 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
               </>
             )}
           </div>
-          {/* DiffViews are shown in the pinned section below, not inline here. */}
+          {/* Inline DiffView — attached to the assistant message that produced it.
+              Unresolved: shows Accept / Reject buttons.
+              Resolved:   shows a static collapsed strip with a 2-line preview (no buttons). */}
+          {msg.role === 'assistant' && msg.operationId && (() => {
+            // Primary: diffs stored directly on the message (survive refreshes).
+            // Fallback: look up the live pendingOps entry (covers the window between
+            //           markHadCellOps and the next save).
+            const op = pendingOps.find(o => o.operationId === msg.operationId);
+            const diffsToShow = (msg.diffs && msg.diffs.length > 0)
+              ? msg.diffs
+              : op?.diffs;
+            if (!diffsToShow || !diffsToShow.length) return null;
+            const resolvedStatus = msg.diffResolved ?? op?.resolved;
+            return (
+              <DiffView
+                key={msg.operationId}
+                operationId={msg.operationId}
+                description={op?.description}
+                diffs={diffsToShow}
+                onAccept={handleAccept}
+                onUndo={handleUndo}
+                resolved={resolvedStatus}
+              />
+            );
+          })()}
           </React.Fragment>
         ))}
 
@@ -6886,25 +6910,6 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
 
         <div ref={messagesEndRef} />
       </div>
-
-      {/* All operations — pinned below messages. Unresolved: Accept/Reject buttons.
-          Resolved: collapsed "✓ Changes accepted / ↩ Changes undone" strip.
-          This section is always at the bottom so users never lose track of diffs. */}
-      {pendingOps.length > 0 && (
-        <div className="ds-assistant-pending-ops">
-          {pendingOps.map(op => (
-            <DiffView
-              key={op.operationId}
-              operationId={op.operationId}
-              description={op.description}
-              diffs={op.diffs}
-              onAccept={handleAccept}
-              onUndo={handleUndo}
-              resolved={op.resolved}
-            />
-          ))}
-        </div>
-      )}
 
       {/* Agent results section — shown after any /file_agent run */}
       {agentResultsReady && (
