@@ -180,22 +180,37 @@ class AnthropicProvider(BaseLLMProvider):
         user: Any,  # str or List[content blocks] (e.g. from _build_content_blocks_from_text)
         chat_history: Optional[List[Dict[str, str]]] = None,
     ) -> str:
+        import anthropic as _anthropic
+        _OverloadedErr = getattr(_anthropic, "OverloadedError", _anthropic.InternalServerError)
         if not self._chat_client._aclient:
             return "No API key configured."
         messages = self._chat_client._prepend_history(chat_history, user)
-        resp = await self._chat_client._aclient.messages.create(
-            model=self._chat_client.model,
-            max_tokens=8192,
-            system=system,
-            messages=messages,
-        )
-        if hasattr(resp, "usage") and resp.usage:
-            self._set_usage(
-                getattr(resp.usage, "input_tokens", 0),
-                getattr(resp.usage, "output_tokens", 0),
-            )
-        text_block = next((b for b in resp.content if hasattr(b, "text")), None)
-        return text_block.text if text_block else ""
+        max_retries = 3
+        base_delay  = 2.0
+        for attempt in range(max_retries):
+            try:
+                resp = await self._chat_client._aclient.messages.create(
+                    model=self._chat_client.model,
+                    max_tokens=8192,
+                    system=system,
+                    messages=messages,
+                )
+                if hasattr(resp, "usage") and resp.usage:
+                    self._set_usage(
+                        getattr(resp.usage, "input_tokens", 0),
+                        getattr(resp.usage, "output_tokens", 0),
+                    )
+                text_block = next((b for b in resp.content if hasattr(b, "text")), None)
+                return text_block.text if text_block else ""
+            except (_OverloadedErr, _anthropic.RateLimitError,
+                    _anthropic.InternalServerError, _anthropic.APIConnectionError) as e:
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(base_delay * (2 ** attempt))
+                    continue
+                raise RuntimeError(
+                    f"Claude API unavailable after {max_retries} attempts: {e}"
+                ) from e
+        return ""  # unreachable
 
     async def stream_chat(
         self,
