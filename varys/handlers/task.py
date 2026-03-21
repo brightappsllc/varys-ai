@@ -1607,8 +1607,25 @@ class TaskHandler(JupyterHandler):
                 self.finish()
                 return
 
-            # Check for prompt-too-long errors (context budget exceeded).
+            # Check for API overload / rate-limit errors.
             _err_lower = str(e).lower()
+            _is_overloaded = (
+                "overloaded" in _err_lower
+                or "overload_error" in _err_lower
+                or "529" in _err_lower
+            )
+            if _is_overloaded:
+                _msg = (
+                    "⚠️ The Anthropic API is temporarily overloaded. "
+                    "Please wait a few seconds and try again."
+                )
+                self.set_status(200)
+                self.set_header("Content-Type", "text/event-stream")
+                self.write(f"data: {json.dumps({'type': 'done', 'operationId': operation_id, 'steps': [], 'requiresApproval': False, 'clarificationNeeded': None, 'cellInsertionMode': 'chat', 'chatResponse': _msg, 'summary': 'API overloaded'})}\n\n")
+                self.finish()
+                return
+
+            # Check for prompt-too-long errors (context budget exceeded).
             _is_ctx_long = (
                 "prompt is too long" in _err_lower
                 or "context length exceeded" in _err_lower
