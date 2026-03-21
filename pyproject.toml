@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "varys"
 version = "0.6.0"
 description = "Varys — your DS assistant for Jupyter Notebook"
-license = { file = "LICENSE.md" }
+license = { file = "LICENSE" }
 requires-python = ">=3.9"
 authors = [{ name = "Jean-Marc Beaujour", email = "jeanmarc@brightappsllc.com" }]
 keywords = ["jupyter", "jupyterlab", "jupyterlab-extension", "ai", "data-science", "agent"]
