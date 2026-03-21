@@ -4100,11 +4100,14 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
   };
   const [pendingOps, setPendingOps] = useState<PendingOp[]>([]);
   /**
-   * Dedicated diff store — completely decoupled from message state.
-   * Maps operationId → { diffs, resolved }. Never wiped by message
-   * pipeline updates, persists for the entire session.
+   * Dedicated diff store — stored in a ref so it is NEVER re-initialised
+   * by React state updates or re-renders. The version counter is the only
+   * thing that changes in React state, triggering re-renders when needed.
+   * Maps operationId → { diffs, resolved }.
    */
-  const [diffStore, setDiffStore] = useState<Map<string, { diffs: DiffInfo[]; resolved?: 'accepted' | 'undone' }>>(new Map());
+  const diffStoreRef = useRef<Map<string, { diffs: DiffInfo[]; resolved?: 'accepted' | 'undone' }>>(new Map());
+  const [, setDiffStoreVersion] = useState(0);
+  const bumpDiffStore = () => setDiffStoreVersion(v => v + 1);
   // Tracks which fix indices have been applied per code-review message id
   const [appliedFixes, setAppliedFixes] = useState<Map<string, Set<number>>>(new Map());
   const [progressText, setProgressText] = useState<string>('');
@@ -5295,7 +5298,8 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           m.id === streamMsgId ? { ...m, hadCellOps: true, operationId: opId } : m
         ));
         if (opDiffs && opDiffs.length > 0) {
-          setDiffStore(prev => new Map(prev).set(opId, { diffs: opDiffs }));
+          diffStoreRef.current.set(opId, { diffs: opDiffs });
+          bumpDiffStore();
         }
       };
 
@@ -5863,11 +5867,8 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     setPendingOps(prev =>
       prev.map(o => o.operationId === operationId ? { ...o, resolved: 'accepted' as const } : o)
     );
-    setDiffStore(prev => {
-      const entry = prev.get(operationId);
-      if (!entry) return prev;
-      return new Map(prev).set(operationId, { ...entry, resolved: 'accepted' });
-    });
+    const _ae = diffStoreRef.current.get(operationId);
+    if (_ae) { diffStoreRef.current.set(operationId, { ..._ae, resolved: 'accepted' }); bumpDiffStore(); }
   };
 
   const handleUndo = (operationId: string): void => {
@@ -5881,11 +5882,8 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     setPendingOps(prev =>
       prev.map(o => o.operationId === operationId ? { ...o, resolved: 'undone' as const } : o)
     );
-    setDiffStore(prev => {
-      const entry = prev.get(operationId);
-      if (!entry) return prev;
-      return new Map(prev).set(operationId, { ...entry, resolved: 'undone' });
-    });
+    const _ue = diffStoreRef.current.get(operationId);
+    if (_ue) { diffStoreRef.current.set(operationId, { ..._ue, resolved: 'undone' }); bumpDiffStore(); }
   };
 
   // -------------------------------------------------------------------------
@@ -6778,9 +6776,9 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
               </>
             )}
           </div>
-          {/* Diff view — persists for the entire session via diffStore */}
-          {msg.operationId && diffStore.has(msg.operationId) && (() => {
-            const entry = diffStore.get(msg.operationId!)!;
+          {/* Diff view — persists for the entire session via diffStoreRef */}
+          {msg.operationId && diffStoreRef.current.has(msg.operationId) && (() => {
+            const entry = diffStoreRef.current.get(msg.operationId!)!;
             return (
               <DiffView
                 operationId={msg.operationId!}
