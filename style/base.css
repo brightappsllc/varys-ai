@@ -3508,8 +3508,9 @@
 .ds-file-change-card__stats {
   font-family: var(--jp-code-font-family, monospace);
   font-size: 11px;
-  color: var(--jp-ui-font-color2, #777);
+  color: var(--ds-text-dim, #5a5f72);   /* light mode */
   white-space: nowrap;
+  margin-left: auto;                     /* push to right edge */
 }
 .ds-file-change-card__path {
   font-family: var(--jp-code-font-family, monospace);
@@ -3598,8 +3599,10 @@
 .ds-chat-night .ds-file-change-card__header {
   background: var(--ds-surface2, #252535);
 }
-.ds-chat-night .ds-file-change-card__toggle { color: var(--ds-text-dim, #666); }
-.ds-chat-night .ds-file-change-card__path   { color: var(--ds-text, #c5c5cc); }
+.ds-chat-night .ds-file-change-card__toggle  { color: var(--ds-text-dim, #666); }
+.ds-chat-night .ds-file-change-card__path    { color: var(--ds-text, #c5c5cc); }
+.ds-chat-night .ds-file-change-card__fname   { color: var(--ds-text, #c5c5cc); }
+.ds-chat-night .ds-file-change-card__stats   { color: var(--ds-text-dim, #8a8fa8); }
 .ds-chat-night .ds-file-change-card__counter { color: var(--ds-text-muted, #555); }
 .ds-chat-night .ds-file-change-card__body {
   border-top-color: var(--ds-border, #2e2e3e);
