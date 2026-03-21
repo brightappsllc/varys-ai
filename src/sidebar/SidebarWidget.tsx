@@ -4305,7 +4305,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     threadsRef.current = cached.threads;
     setCurrentThreadId(lastId);
     currentThreadIdRef.current = lastId;
-    setMessages(
+    const _restoredMsgs: Message[] =
       lastThread && lastThread.messages.length > 0
         ? lastThread.messages.map(m => ({
             id: m.id,
@@ -4318,8 +4318,9 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
             ...(m.diffs && m.diffs.length > 0 ? { diffs: m.diffs as DiffInfo[] } : {}),
             ...(m.diffResolved  ? { diffResolved: m.diffResolved }   : {}),
           }))
-        : []
-    );
+        : [];
+    setMessages(_restoredMsgs);
+    setPendingOps(_opsFromMessages(_restoredMsgs));
     // Restore agent panel if there was one pending when we left this file.
     if (cached.agentPanel?.ready) {
       setAgentResultsReady(true);
@@ -4429,7 +4430,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           threadsRef.current = chatFile.threads;
           setCurrentThreadId(lastId);
           currentThreadIdRef.current = lastId;
-          setMessages(
+          const _diskMsgs: Message[] =
             lastThread && lastThread.messages.length > 0
               ? lastThread.messages.map(m => ({
                   id: m.id,
@@ -4442,8 +4443,9 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
                   ...(m.diffs && m.diffs.length > 0 ? { diffs: m.diffs as DiffInfo[] } : {}),
                   ...(m.diffResolved  ? { diffResolved: m.diffResolved } : {}),
                 }))
-              : []
-          );
+              : [];
+          setMessages(_diskMsgs);
+          setPendingOps(_opsFromMessages(_diskMsgs));
           _updateCache(newPath, chatFile.threads, lastId);
         } else {
           const t = makeNewThread('Main');
@@ -4577,7 +4579,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           threadsRef.current = chatFile.threads;
           setCurrentThreadId(lastId);
           currentThreadIdRef.current = lastId;
-          setMessages(
+          const _fileMsgs: Message[] =
             lastThread && lastThread.messages.length > 0
               ? lastThread.messages.map(m => ({
                   id: m.id,
@@ -4590,8 +4592,9 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
                   ...(m.diffs && m.diffs.length > 0 ? { diffs: m.diffs as DiffInfo[] } : {}),
                   ...(m.diffResolved  ? { diffResolved: m.diffResolved } : {}),
                 }))
-              : []
-          );
+              : [];
+          setMessages(_fileMsgs);
+          setPendingOps(_opsFromMessages(_fileMsgs));
           _updateCache(filePath, chatFile.threads, lastId);
         } else {
           const t = makeNewThread('Main');
@@ -4807,6 +4810,25 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
       if (thinkEl) thinkEl.scrollTop = thinkEl.scrollHeight;
     }
   }, [messages, isLoading, activeStreamId]);
+
+  /**
+   * Reconstruct pendingOps from a list of loaded messages.
+   * Every message with diffs stored produces a PendingOp so the pinned section
+   * shows the full diff history (resolved ones collapsed, pending ones active).
+   */
+  const _opsFromMessages = (msgs: Message[]): PendingOp[] =>
+    msgs
+      .filter(m => m.diffs && m.diffs.length > 0 && m.operationId)
+      .map(m => ({
+        operationId: m.operationId!,
+        cellIndices: [],
+        steps: [],
+        description: m.diffResolved
+          ? (m.diffResolved === 'accepted' ? '✓ Changes accepted' : '↩ Changes undone')
+          : 'Restored from history',
+        diffs: m.diffs!,
+        resolved: m.diffResolved,
+      }));
 
   const addMessage = (
     role: Message['role'],
@@ -5880,10 +5902,21 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     setPendingOps(prev =>
       prev.map(o => o.operationId === operationId ? { ...o, resolved: 'accepted' as const } : o)
     );
-    // Also stamp diffResolved on the message so it persists across re-renders and refreshes.
+    // Stamp diffResolved on the message so it persists across re-renders and refreshes.
     setMessages(prev =>
       prev.map(m => m.operationId === operationId ? { ...m, diffResolved: 'accepted' as const } : m)
     );
+    // Immediate save — don't rely on the 1.5s debounce so a hard-refresh
+    // right after Accept still shows the resolved diff.
+    const tid    = currentThreadIdRef.current;
+    const nbPath = currentNotebookPathRef.current || currentFilePathRef.current || '';
+    const tName  = threadsRef.current.find(t => t.id === tid)?.name ?? 'Thread';
+    if (tid && nbPath) {
+      const updatedMsgs = messagesRef.current.map(
+        m => m.operationId === operationId ? { ...m, diffResolved: 'accepted' as const } : m
+      );
+      void _saveThread(tid, tName, updatedMsgs, nbPath);
+    }
   };
 
   const handleUndo = (operationId: string): void => {
@@ -5897,10 +5930,20 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     setPendingOps(prev =>
       prev.map(o => o.operationId === operationId ? { ...o, resolved: 'undone' as const } : o)
     );
-    // Also stamp diffResolved on the message so it persists across re-renders and refreshes.
+    // Stamp diffResolved on the message so it persists across re-renders and refreshes.
     setMessages(prev =>
       prev.map(m => m.operationId === operationId ? { ...m, diffResolved: 'undone' as const } : m)
     );
+    // Immediate save.
+    const tid    = currentThreadIdRef.current;
+    const nbPath = currentNotebookPathRef.current || currentFilePathRef.current || '';
+    const tName  = threadsRef.current.find(t => t.id === tid)?.name ?? 'Thread';
+    if (tid && nbPath) {
+      const updatedMsgs = messagesRef.current.map(
+        m => m.operationId === operationId ? { ...m, diffResolved: 'undone' as const } : m
+      );
+      void _saveThread(tid, tName, updatedMsgs, nbPath);
+    }
   };
 
   // -------------------------------------------------------------------------
@@ -5985,7 +6028,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     stopStreamQueue();
     stopJsonCodeCounter();
     setMessages(restored);
-    setPendingOps([]);
+    setPendingOps(_opsFromMessages(restored));
     setAppliedFixes(new Map());
     setProgressText('');
     setActiveStreamId('');
@@ -6045,7 +6088,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           timestamp: new Date(),
         }];
     setMessages(restored);
-    setPendingOps([]);
+    setPendingOps(_opsFromMessages(restored));
     setAppliedFixes(new Map());
     setProgressText('');
     setActiveStreamId('');
@@ -6799,18 +6842,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
               </>
             )}
           </div>
-          {/* Resolved diff — shown inline (collapsed) once the user accepts/rejects.
-              Reads from msg.diffs and msg.diffResolved which are stored directly on
-              the Message object so they survive re-renders, new turns, and refreshes. */}
-          {msg.diffs && msg.diffs.length > 0 && msg.diffResolved && msg.operationId && (
-            <DiffView
-              operationId={msg.operationId}
-              diffs={msg.diffs}
-              onAccept={handleAccept}
-              onUndo={handleUndo}
-              resolved={msg.diffResolved}
-            />
-          )}
+          {/* DiffViews are shown in the pinned section below, not inline here. */}
           </React.Fragment>
         ))}
 
@@ -6855,10 +6887,12 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Active (unresolved) operations — pinned below messages for easy Accept/Reject */}
-      {pendingOps.some(op => !op.resolved) && (
+      {/* All operations — pinned below messages. Unresolved: Accept/Reject buttons.
+          Resolved: collapsed "✓ Changes accepted / ↩ Changes undone" strip.
+          This section is always at the bottom so users never lose track of diffs. */}
+      {pendingOps.length > 0 && (
         <div className="ds-assistant-pending-ops">
-          {pendingOps.filter(op => !op.resolved).map(op => (
+          {pendingOps.map(op => (
             <DiffView
               key={op.operationId}
               operationId={op.operationId}
@@ -6866,6 +6900,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
               diffs={op.diffs}
               onAccept={handleAccept}
               onUndo={handleUndo}
+              resolved={op.resolved}
             />
           ))}
         </div>
