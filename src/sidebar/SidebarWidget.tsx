@@ -4099,15 +4099,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     agent: 'Agent — assistant decides when to write code or content directly into cells',
   };
   const [pendingOps, setPendingOps] = useState<PendingOp[]>([]);
-  /**
-   * Dedicated diff store — stored in a ref so it is NEVER re-initialised
-   * by React state updates or re-renders. The version counter is the only
-   * thing that changes in React state, triggering re-renders when needed.
-   * Maps operationId → { diffs, resolved }.
-   */
-  const diffStoreRef = useRef<Map<string, { diffs: DiffInfo[]; resolved?: 'accepted' | 'undone' }>>(new Map());
-  const [, setDiffStoreVersion] = useState(0);
-  const bumpDiffStore = () => setDiffStoreVersion(v => v + 1);
+  // diffStoreRef removed — inline DiffViews now read directly from pendingOps
   // Tracks which fix indices have been applied per code-review message id
   const [appliedFixes, setAppliedFixes] = useState<Map<string, Set<number>>>(new Map());
   const [progressText, setProgressText] = useState<string>('');
@@ -5293,14 +5285,10 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
       // Stores diffs in the dedicated diffStore (keyed by operationId) which
       // is completely decoupled from message state and never wiped by
       // message pipeline updates.
-      const markHadCellOps = (opId: string, opDiffs?: DiffInfo[]) => {
+      const markHadCellOps = (opId: string) => {
         setMessages(prev => prev.map(m =>
           m.id === streamMsgId ? { ...m, hadCellOps: true, operationId: opId } : m
         ));
-        if (opDiffs && opDiffs.length > 0) {
-          diffStoreRef.current.set(opId, { diffs: opDiffs });
-          bumpDiffStore();
-        }
       };
 
       // If a skill command is active, show a badge in the chat so the user knows
@@ -5612,7 +5600,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
                 compositeOpIds: allOpIds,
               }
             ]);
-            markHadCellOps(masterOpId, allDiffs);
+            markHadCellOps(masterOpId);
             appendToStream(
               `\n\n✅ Pipeline complete — ${allDiffs.length} cell change(s) across ${pipelineSteps.length} steps.\nReview the diff below then Accept or Undo all.`
             );
@@ -5798,7 +5786,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
       setPendingOps(prev => [...prev, op]);
       // Mark the chat bubble so the Push-to-cell button is hidden while the
       // diff view is shown (and after the user accepts/undoes).
-      markHadCellOps(response.operationId, diffs);
+      markHadCellOps(response.operationId);
 
       // Append step summary + review prompt to the streamed explanation bubble
       const reviewPrompt = response.requiresApproval
@@ -5867,8 +5855,6 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     setPendingOps(prev =>
       prev.map(o => o.operationId === operationId ? { ...o, resolved: 'accepted' as const } : o)
     );
-    const _ae = diffStoreRef.current.get(operationId);
-    if (_ae) { diffStoreRef.current.set(operationId, { ..._ae, resolved: 'accepted' }); bumpDiffStore(); }
   };
 
   const handleUndo = (operationId: string): void => {
@@ -5882,8 +5868,6 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     setPendingOps(prev =>
       prev.map(o => o.operationId === operationId ? { ...o, resolved: 'undone' as const } : o)
     );
-    const _ue = diffStoreRef.current.get(operationId);
-    if (_ue) { diffStoreRef.current.set(operationId, { ..._ue, resolved: 'undone' }); bumpDiffStore(); }
   };
 
   // -------------------------------------------------------------------------
@@ -6776,16 +6760,18 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
               </>
             )}
           </div>
-          {/* Diff view — persists for the entire session via diffStoreRef */}
-          {msg.operationId && diffStoreRef.current.has(msg.operationId) && (() => {
-            const entry = diffStoreRef.current.get(msg.operationId!)!;
+          {/* Resolved diff — shown inline (collapsed) once the user accepts/rejects.
+              Reads straight from pendingOps which is the single source of truth. */}
+          {msg.operationId && (() => {
+            const op = pendingOps.find(o => o.operationId === msg.operationId);
+            if (!op?.resolved) return null;
             return (
               <DiffView
-                operationId={msg.operationId!}
-                diffs={entry.diffs}
+                operationId={op.operationId}
+                diffs={op.diffs}
                 onAccept={handleAccept}
                 onUndo={handleUndo}
-                resolved={entry.resolved}
+                resolved={op.resolved}
               />
             );
           })()}
