@@ -1621,12 +1621,31 @@ class TaskHandler(JupyterHandler):
             )
             if _is_overloaded:
                 _msg = (
-                    "⚠️ The Anthropic API is temporarily overloaded. "
+                    "⚠️ The API is temporarily overloaded. "
                     "Please wait a few seconds and try again."
                 )
                 self.set_status(200)
                 self.set_header("Content-Type", "text/event-stream")
                 self.write(f"data: {json.dumps({'type': 'done', 'operationId': operation_id, 'steps': [], 'requiresApproval': False, 'clarificationNeeded': None, 'cellInsertionMode': 'chat', 'chatResponse': _msg, 'summary': 'API overloaded'})}\n\n")
+                self.finish()
+                return
+
+            # Check for billing / credit errors.
+            _is_billing = (
+                "credit balance is too low" in _err_lower
+                or "billing" in _err_lower
+                or "payment" in _err_lower
+                or "your account" in _err_lower and "upgrade" in _err_lower
+            )
+            if _is_billing:
+                _msg = (
+                    "💳 Your API credit balance is too low. "
+                    "Please add credits in your provider's billing dashboard. "
+                    "Note: it can take **5–15 minutes** for new credits to become active."
+                )
+                self.set_status(200)
+                self.set_header("Content-Type", "text/event-stream")
+                self.write(f"data: {json.dumps({'type': 'done', 'operationId': operation_id, 'steps': [], 'requiresApproval': False, 'clarificationNeeded': None, 'cellInsertionMode': 'chat', 'chatResponse': _msg, 'summary': 'Billing error'})}\n\n")
                 self.finish()
                 return
 
