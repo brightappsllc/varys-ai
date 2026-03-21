@@ -510,6 +510,8 @@ interface PendingOp {
    * registered in CellEditor, in execution order.  Accept/Undo iterates these.
    */
   compositeOpIds?: string[];
+  /** Set after the user resolves the op — keeps the diff visible but collapsed. */
+  resolved?: 'accepted' | 'undone';
 }
 
 export interface SidebarProps {
@@ -5847,8 +5849,9 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
   const handleAccept = (operationId: string): void => {
     const op = pendingOps.find(o => o.operationId === operationId);
     if (op) _acceptSingleOrComposite(op);
-    setPendingOps(prev => prev.filter(o => o.operationId !== operationId));
-    addMessage('system', 'Changes accepted.');
+    setPendingOps(prev =>
+      prev.map(o => o.operationId === operationId ? { ...o, resolved: 'accepted' as const } : o)
+    );
   };
 
   const handleUndo = (operationId: string): void => {
@@ -5859,8 +5862,9 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     } else {
       cellEditor.undoOperation(operationId);
     }
-    setPendingOps(prev => prev.filter(o => o.operationId !== operationId));
-    addMessage('system', 'Changes undone.');
+    setPendingOps(prev =>
+      prev.map(o => o.operationId === operationId ? { ...o, resolved: 'undone' as const } : o)
+    );
   };
 
   // -------------------------------------------------------------------------
@@ -6807,6 +6811,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
               diffs={op.diffs}
               onAccept={handleAccept}
               onUndo={handleUndo}
+              resolved={op.resolved}
             />
           ))}
         </div>

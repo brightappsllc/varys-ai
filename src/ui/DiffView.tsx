@@ -53,6 +53,8 @@ export interface DiffViewProps {
   diffs: DiffInfo[];
   onAccept: (operationId: string) => void;
   onUndo:   (operationId: string) => void;
+  /** When set, the diff is resolved and rendered collapsed (no action buttons). */
+  resolved?: 'accepted' | 'undone';
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -272,6 +274,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
   diffs,
   onAccept,
   onUndo,
+  resolved,
 }) => {
   const totalCells   = diffs.length;
   const cellLabel    = totalCells > 0
@@ -291,54 +294,85 @@ export const DiffView: React.FC<DiffViewProps> = ({
     : totalDeletions  > 0 ? `−${totalDeletions}`
     : '';
 
+  // When resolved, start collapsed; user can expand to re-read the diff.
+  const [expanded, setExpanded] = useState(!resolved);
+
+  // If the resolved prop changes (e.g. after accept/undo), collapse immediately.
+  React.useEffect(() => {
+    if (resolved) setExpanded(false);
+  }, [resolved]);
+
+  const resolvedLabel = resolved === 'accepted' ? '✓ Changes accepted' : '↩ Changes undone';
+  const resolvedMod   = resolved === 'accepted' ? 'ds-diff-view--accepted' : 'ds-diff-view--undone';
+
   return (
-    <div className="ds-diff-view">
+    <div className={`ds-diff-view${resolved ? ` ds-diff-view--resolved ${resolvedMod}` : ''}`}>
       {/* ── Header ── */}
       <div className="ds-diff-header">
         <div className="ds-diff-header-info">
-          {cellLabel && (
-            <span className="ds-diff-header-cells">{cellLabel}</span>
+          {resolved ? (
+            <>
+              <span className="ds-diff-resolved-label">{resolvedLabel}</span>
+              {cellLabel && <span className="ds-diff-header-cells">{cellLabel}</span>}
+              {statsLabel && <span className="ds-diff-header-stats">{statsLabel}</span>}
+            </>
+          ) : (
+            <>
+              {cellLabel && <span className="ds-diff-header-cells">{cellLabel}</span>}
+              {description && (
+                <span className="ds-diff-header-desc" title={description}>{description}</span>
+              )}
+              {statsLabel && <span className="ds-diff-header-stats">{statsLabel}</span>}
+            </>
           )}
-          {description && (
-            <span className="ds-diff-header-desc" title={description}>{description}</span>
-          )}
-          {statsLabel && <span className="ds-diff-header-stats">{statsLabel}</span>}
         </div>
 
         <div className="ds-diff-header-actions">
-          <button
-            className="ds-assistant-btn ds-assistant-btn-accept"
-            onClick={() => onAccept(operationId)}
-            title="Accept all changes in all cells"
-          >✓ Accept</button>
+          {resolved ? (
+            <button
+              className="ds-diff-expand-btn"
+              onClick={() => setExpanded(e => !e)}
+              title={expanded ? 'Collapse diff' : 'Expand diff'}
+            >{expanded ? '⌃ Hide' : '⌄ Show'}</button>
+          ) : (
+            <>
+              <button
+                className="ds-assistant-btn ds-assistant-btn-accept"
+                onClick={() => onAccept(operationId)}
+                title="Accept all changes in all cells"
+              >✓ Accept</button>
 
-          <button
-            className="ds-assistant-btn ds-assistant-btn-undo"
-            onClick={() => onUndo(operationId)}
-            title="Reject all changes"
-          >✕ Reject</button>
+              <button
+                className="ds-assistant-btn ds-assistant-btn-undo"
+                onClick={() => onUndo(operationId)}
+                title="Reject all changes"
+              >✕ Reject</button>
+            </>
+          )}
         </div>
       </div>
 
-      {/* Hint — only shown when there are actual diff cells to review */}
-      {totalCells > 0 && (
+      {/* Hint — only shown when active (not yet resolved) */}
+      {!resolved && totalCells > 0 && (
         <div className="ds-diff-hint">
           Use ✓ / ✕ buttons on each change block to review individual hunks,
           or use <strong>✓ Accept</strong> / <strong>✕ Reject</strong> to act on all changes at once.
         </div>
       )}
 
-      {/* ── Per-cell diffs ── */}
-      <div className="ds-diff-cells">
-        {diffs.map((d, i) => (
-          <CellDiffSection
-            key={i}
-            info={d}
-            defaultOpen={defaultOpen}
-            onCellDecisions={() => {}}
-          />
-        ))}
-      </div>
+      {/* ── Per-cell diffs — hidden when collapsed ── */}
+      {expanded && (
+        <div className="ds-diff-cells">
+          {diffs.map((d, i) => (
+            <CellDiffSection
+              key={i}
+              info={d}
+              defaultOpen={defaultOpen}
+              onCellDecisions={() => {}}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 };

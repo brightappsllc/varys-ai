@@ -36,6 +36,8 @@ export interface DiffViewProps {
     diffs: DiffInfo[];
     onAccept: (operationId: string) => void;
     onUndo: (operationId: string) => void;
+    /** When set, the diff is resolved and rendered collapsed (no action buttons). */
+    resolved?: 'accepted' | 'undone';
 }
 export declare const DiffView: React.FC<DiffViewProps>;
 //# sourceMappingURL=DiffView.d.ts.map

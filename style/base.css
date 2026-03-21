@@ -698,6 +698,45 @@
   flex-shrink: 0;
 }
 
+/* Resolved diff states */
+.ds-diff-view--resolved {
+  opacity: 0.82;
+}
+
+.ds-diff-view--accepted .ds-diff-header {
+  border-left: 3px solid #2e7d32;
+}
+
+.ds-diff-view--undone .ds-diff-header {
+  border-left: 3px solid #999;
+}
+
+.ds-diff-resolved-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ds-text-dim);
+}
+
+.ds-diff-view--accepted .ds-diff-resolved-label {
+  color: #2e7d32;
+}
+
+.ds-diff-expand-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--ds-border, #d0d0d0);
+  background: transparent;
+  color: var(--ds-text-dim);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ds-diff-expand-btn:hover { background: var(--ds-surface2); }
+
+/* Night-mode resolved diff */
+.ds-chat-night .ds-diff-view--accepted .ds-diff-header { border-left-color: #81c784; }
+.ds-chat-night .ds-diff-view--accepted .ds-diff-resolved-label { color: #81c784; }
+
 /* Per-cell sections */
 .ds-diff-cells {
   display: flex;
