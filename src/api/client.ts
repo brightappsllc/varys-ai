@@ -14,6 +14,15 @@ export interface SlashCommand {
 // ── Chat thread types ──────────────────────────────────────────────────────
 
 /** A single saved message inside a chat thread. */
+export interface SavedDiff {
+  cellIndex: number;
+  opType: 'insert' | 'modify' | 'delete';
+  cellType: 'code' | 'markdown';
+  original: string;
+  modified: string;
+  description?: string;
+}
+
 export interface SavedMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -21,6 +30,12 @@ export interface SavedMessage {
   timestamp: string;
   /** Reasoning trace from sequential thinking — displayed but never sent as LLM context. */
   thoughts?: string;
+  /** operationId of the cell-edit operation this assistant turn produced, if any. */
+  operationId?: string;
+  /** Persisted diff data for the cell-edit operation — enables restoring the DiffView on reload. */
+  diffs?: SavedDiff[];
+  /** Resolution status — set after the user accepts or rejects the diff. */
+  diffResolved?: 'accepted' | 'undone';
 }
 
 /** Accumulated token counts for a thread. */
