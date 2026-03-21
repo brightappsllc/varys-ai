@@ -8,6 +8,8 @@ log = logging.getLogger(__name__)
 
 
 class AzureProvider(OpenAIProvider):
+    VENDOR = "azure"
+
     """Calls Azure OpenAI Service using the openai SDK with Azure settings."""
 
     def __init__(

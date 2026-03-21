@@ -87,6 +87,8 @@ _SEQUENTIAL_THINKING_TOOL = {
 
 
 class OpenAIProvider(BaseLLMProvider):
+    VENDOR = "openai"
+
     """Calls the OpenAI API (or any OpenAI-compatible endpoint)."""
 
     def __init__(

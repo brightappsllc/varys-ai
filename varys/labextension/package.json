@@ -1,6 +1,6 @@
 {
   "name": "varys",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Varys — your DS assistant for Jupyter Notebook",
   "keywords": [
     "jupyter",
@@ -82,7 +82,7 @@
     "outputDir": "varys/labextension",
     "schemaDir": "schema",
     "_build": {
-      "load": "static/remoteEntry.c4e31cea6ccc82bec46c.js",
+      "load": "static/remoteEntry.e62066520427f63f06cb.js",
       "extension": "./extension",
       "style": "./style"
     }

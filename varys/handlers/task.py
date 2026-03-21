@@ -21,8 +21,40 @@ from ..memory.injection import (
     detect_explicit_preference as _detect_explicit_pref,
 )
 from ..utils.config import get_config as _get_cfg
+from ..usage_writer import UsageWriter
 
 log = logging.getLogger(__name__)
+
+_usage_writer = UsageWriter()
+
+
+def _fire_usage(provider, notebook_path: str, context: str) -> None:
+    """Fire-and-forget usage write; all errors are swallowed."""
+    try:
+        usage = getattr(provider, "last_usage", None)
+        if not usage:
+            return
+        vendor = getattr(provider, "VENDOR", "unknown")
+        # AnthropicProvider stores the model on its inner ClaudeClient
+        _inner = getattr(provider, "_chat_client", None)
+        model = (
+            getattr(_inner, "model", None)
+            or getattr(provider, "chat_model", None)
+            or "unknown"
+        )
+        asyncio.create_task(
+            asyncio.to_thread(
+                _usage_writer.write,
+                vendor=vendor,
+                model=model,
+                tokens_in=usage.get("input", 0),
+                tokens_out=usage.get("output", 0),
+                chat_id=notebook_path or None,
+                context=context,
+            )
+        )
+    except Exception as _ue:
+        log.warning("Usage write failed: %s", _ue)
 
 
 def _strip_null(text: str) -> str:
@@ -1225,6 +1257,7 @@ class TaskHandler(JupyterHandler):
                     log.info("TOKEN_DEBUG chat last_usage=%r  provider=%r", usage, type(provider).__name__)
                     if usage:
                         done_event["tokenUsage"] = usage
+                    _fire_usage(provider, notebook_path, "chat")
                     if warnings:
                         done_event["warnings"] = warnings
                     if rag_sources:
@@ -1528,6 +1561,11 @@ class TaskHandler(JupyterHandler):
             log.info("TOKEN_DEBUG last_usage=%r  provider=%r", usage, type(provider).__name__)
             if usage:
                 response["tokenUsage"] = usage
+            _fire_usage(
+                provider,
+                notebook_path,
+                "skill" if _skill_meta else "chat",
+            )
 
             if warnings:
                 response["warnings"] = warnings

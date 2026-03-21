@@ -14,6 +14,8 @@ except ImportError:
 
 
 class AnthropicProvider(BaseLLMProvider):
+    VENDOR = "anthropic"
+
     """
     Delegates to the existing ClaudeClient (tool-use structured output)
     for task planning, and to CompletionEngine (Haiku/Sonnet) for inline

@@ -104,6 +104,8 @@ Use this exact structure:
 """
 
 class OllamaProvider(BaseLLMProvider):
+    VENDOR = "ollama"
+
     """
     Calls a local Ollama server for all LLM operations.
 

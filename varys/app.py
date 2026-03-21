@@ -39,6 +39,7 @@ from .handlers.agent_handler import AgentHandler
 from .handlers.agent_settings import AgentSettingsHandler, AgentToolSupportHandler
 from .handlers.notebook_opened import NotebookOpenedHandler
 from .handlers.warnings import WarningsHandler
+from .handlers.usage import UsageHandler
 
 
 class DSAssistantExtension(ExtensionApp):
@@ -375,4 +376,5 @@ class DSAssistantExtension(ExtensionApp):
             (url_path_join(base, "agent-settings"),                  AgentSettingsHandler),
             (url_path_join(base, "notebook-opened"),        NotebookOpenedHandler),
             (url_path_join(base, "warnings"),               WarningsHandler),
+            (url_path_join(base, "usage"),                  UsageHandler),
         ])

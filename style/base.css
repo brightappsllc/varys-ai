@@ -8258,3 +8258,231 @@ body[data-jp-theme-light="false"] .ds-tag-add-input::placeholder {
 .ds-chat-night .ds-agent-prov-tool-ok      { color: #81c784; }
 .ds-chat-night .ds-agent-prov-tool-warn    { color: #e57373; }
 .ds-chat-night .ds-agent-prov-tool-checking{ color: var(--ds-text-dim, #666); }
+
+/* ===========================================================================
+   Usage heatmap intensity tokens  (Task 7)
+   Derived from --ds-accent (#7b9cff) — 5-step opacity scale.
+   --ds-heatmap-1 = lightest non-zero, --ds-heatmap-5 = darkest.
+   =========================================================================== */
+
+/* Day mode */
+:root,
+.ds-chat-day {
+  --ds-heatmap-0: rgba(123,156,255,0.06);  /* empty cell  */
+  --ds-heatmap-1: rgba(123,156,255,0.20);
+  --ds-heatmap-2: rgba(123,156,255,0.40);
+  --ds-heatmap-3: rgba(123,156,255,0.60);
+  --ds-heatmap-4: rgba(123,156,255,0.78);
+  --ds-heatmap-5: rgba(123,156,255,0.95);
+}
+
+/* Night mode */
+.ds-chat-night {
+  --ds-heatmap-0: rgba(123,156,255,0.08);
+  --ds-heatmap-1: rgba(123,156,255,0.22);
+  --ds-heatmap-2: rgba(123,156,255,0.42);
+  --ds-heatmap-3: rgba(123,156,255,0.62);
+  --ds-heatmap-4: rgba(123,156,255,0.80);
+  --ds-heatmap-5: rgba(123,156,255,1.00);
+}
+
+/* ===========================================================================
+   UsageTab — token usage heatmap and summary cards  (Task 6)
+   =========================================================================== */
+
+.ds-usage-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px 0;
+}
+
+.ds-usage-loading {
+  padding: 16px;
+  color: var(--ds-text-dim);
+  font-size: 13px;
+}
+
+/* Filter bar */
+.ds-usage-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ds-usage-filter-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ds-usage-filter-label {
+  font-size: 12px;
+  color: var(--ds-text-dim);
+  white-space: nowrap;
+}
+
+.ds-usage-model-select {
+  min-width: 160px;
+  max-width: 220px;
+}
+
+.ds-usage-export-btn {
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 5px;
+  border: 1px solid var(--ds-btn-border, #c6c8d4);
+  background: var(--ds-btn-bg, #e4e5ed);
+  color: var(--ds-btn-text, #3b3e55);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ds-usage-export-btn:hover { opacity: 0.82; }
+
+/* Summary cards */
+.ds-usage-cards {
+  display: flex;
+  gap: 10px;
+}
+
+.ds-usage-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--ds-surface2, rgba(0,0,0,0.04));
+  border: 1px solid var(--ds-border);
+  min-width: 0;
+}
+
+.ds-usage-card-label {
+  font-size: 11px;
+  color: var(--ds-text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ds-usage-card-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ds-text);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Period pills */
+.ds-usage-period-pills {
+  display: flex;
+  gap: 6px;
+}
+
+.ds-usage-pill {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--ds-border);
+  background: transparent;
+  color: var(--ds-text-dim);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.ds-usage-pill:hover { background: var(--ds-surface2); }
+.ds-usage-pill--active {
+  background: var(--ds-heatmap-3);
+  color: var(--ds-text);
+  border-color: transparent;
+}
+
+/* Heatmap */
+.ds-usage-heatmap-wrap {
+  overflow-x: auto;
+}
+
+.ds-usage-heatmap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: max-content;
+}
+
+.ds-usage-heatmap-months {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding-bottom: 2px;
+}
+
+.ds-usage-heatmap-dow-spacer {
+  width: 16px;
+  flex-shrink: 0;
+}
+
+.ds-usage-heatmap-month-cell {
+  width: 12px;
+  flex-shrink: 0;
+  height: 14px;
+  position: relative;
+}
+
+.ds-usage-heatmap-month-label {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  font-size: 10px;
+  color: var(--ds-text-dim);
+  white-space: nowrap;
+}
+
+.ds-usage-heatmap-grid {
+  display: flex;
+  gap: 2px;
+  align-items: flex-start;
+}
+
+.ds-usage-heatmap-dow-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 16px;
+  flex-shrink: 0;
+}
+
+.ds-usage-heatmap-dow-label {
+  width: 16px;
+  height: 12px;
+  font-size: 9px;
+  color: var(--ds-text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.ds-usage-heatmap-week {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ds-usage-heatmap-cell {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  cursor: default;
+}
+
+/* Night-mode card tweaks */
+.ds-chat-night .ds-usage-export-btn {
+  background: var(--ds-surface2, #28283a);
+  border-color: var(--ds-border, #35354a);
+  color: var(--ds-text, #c5c5cc);
+}
+
+.ds-chat-night .ds-usage-card {
+  background: var(--ds-surface2, #28283a);
+  border-color: var(--ds-border, #35354a);
+}

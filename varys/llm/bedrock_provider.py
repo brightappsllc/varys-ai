@@ -60,6 +60,8 @@ _TOOL_CONFIG = {
 
 
 class BedrockProvider(BaseLLMProvider):
+    VENDOR = "bedrock"
+
     """Calls AWS Bedrock via the Converse API (boto3)."""
 
     # Refresh this many minutes before the token actually expires to avoid

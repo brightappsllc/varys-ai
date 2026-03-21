@@ -1423,6 +1423,22 @@ const SETTINGS_NAV_GROUPS: NavGroup[] = [
       },
     ],
   },
+  {
+    label: 'Analytics',
+    items: [
+      {
+        id: 'usage',
+        label: 'Usage',
+        icon: (
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.3">
+            <rect x="1" y="9" width="3" height="5" rx="0.5"/>
+            <rect x="6" y="5" width="3" height="9" rx="0.5"/>
+            <rect x="11" y="1" width="3" height="13" rx="0.5"/>
+          </svg>
+        ),
+      },
+    ],
+  },
 ];
 
 const SECTION_HEADING_MAP: Record<string, string> = {
@@ -1434,6 +1450,7 @@ const SECTION_HEADING_MAP: Record<string, string> = {
   'indexing':        'Indexing & Docs',
   'tags':            'Tags',
   'memory':          'Long-term memory',
+  'usage':           'Usage',
 };
 
 const SUB_SECTION_LABEL_MAP: Record<string, string> = {
@@ -2879,6 +2896,245 @@ const AgentToolErrorBanner: React.FC<{
 
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// UsageTab — LLM token usage heatmap + summary
+// ---------------------------------------------------------------------------
+
+const USAGE_BASE = '/varys/usage';
+const PERIODS = ['Day', 'Week', 'Month', 'Year', 'All'] as const;
+type UsagePeriod = typeof PERIODS[number];
+
+interface UsageTotals { in: number; out: number; total: number; }
+interface HeatmapData  { [date: string]: number; }
+
+function _usageFetch(action: string, params: Record<string, string> = {}): Promise<Response> {
+  const qs = new URLSearchParams({ action, ...params }).toString();
+  return fetch(`${USAGE_BASE}?${qs}`);
+}
+
+function _buildHeatmapGrid(data: HeatmapData): Array<Array<{ date: string | null; value: number }>> {
+  const today   = new Date();
+  today.setHours(0, 0, 0, 0);
+  const start   = new Date(today);
+  start.setDate(today.getDate() - 364);
+
+  // Build week columns. Each column = 7 slots (Sun–Sat), null = padding.
+  const startDow = start.getDay(); // 0=Sun
+  const columns: Array<Array<{ date: string | null; value: number }>> = [];
+  let col: Array<{ date: string | null; value: number }> = Array.from({ length: startDow }, () => ({ date: null, value: 0 }));
+
+  const cur = new Date(start);
+  while (cur <= today) {
+    const iso   = cur.toISOString().slice(0, 10);
+    const value = data[iso] ?? 0;
+    col.push({ date: iso, value });
+    if (col.length === 7) { columns.push(col); col = []; }
+    cur.setDate(cur.getDate() + 1);
+  }
+  if (col.length > 0) {
+    while (col.length < 7) col.push({ date: null, value: 0 });
+    columns.push(col);
+  }
+  return columns;
+}
+
+function _heatmapColor(value: number, max: number): string {
+  if (value === 0 || max === 0) return 'var(--ds-heatmap-0)';
+  const ratio = value / max;
+  if (ratio <= 0.20) return 'var(--ds-heatmap-1)';
+  if (ratio <= 0.40) return 'var(--ds-heatmap-2)';
+  if (ratio <= 0.65) return 'var(--ds-heatmap-3)';
+  if (ratio <= 0.85) return 'var(--ds-heatmap-4)';
+  return 'var(--ds-heatmap-5)';
+}
+
+function _monthLabel(columns: Array<Array<{ date: string | null; value: number }>>, colIdx: number): string | null {
+  const firstCell = columns[colIdx].find(c => c.date !== null);
+  if (!firstCell || !firstCell.date) return null;
+  const d = new Date(firstCell.date + 'T00:00:00');
+  if (colIdx === 0) return d.toLocaleString('default', { month: 'short' });
+  const prevCell = columns[colIdx - 1].find(c => c.date !== null);
+  if (!prevCell || !prevCell.date) return null;
+  const prev = new Date(prevCell.date + 'T00:00:00');
+  return d.getMonth() !== prev.getMonth() ? d.toLocaleString('default', { month: 'short' }) : null;
+}
+
+const DOW_LABELS: Record<number, string> = { 1: 'M', 3: 'W', 5: 'F' };
+
+const UsageTab: React.FC<{ apiClient: APIClient }> = ({ apiClient }) => {
+  const [models,        setModels]        = React.useState<string[]>([]);
+  const [selectedModel, setSelectedModel] = React.useState<string>('');
+  const [period,        setPeriod]        = React.useState<UsagePeriod>('Month');
+  const [totals,        setTotals]        = React.useState<UsageTotals>({ in: 0, out: 0, total: 0 });
+  const [heatmap,       setHeatmap]       = React.useState<HeatmapData>({});
+  const [loading,       setLoading]       = React.useState(true);
+
+  const fetchHeatmap = React.useCallback(async (model: string) => {
+    const params: Record<string, string> = {};
+    if (model) params.model = model;
+    try {
+      const r = await _usageFetch('heatmap', params);
+      const j = await r.json();
+      setHeatmap(j.data ?? {});
+    } catch { /* swallowed */ }
+  }, []);
+
+  const fetchTotals = React.useCallback(async (model: string, p: UsagePeriod) => {
+    const params: Record<string, string> = { period: p.toLowerCase() };
+    if (model) params.model = model;
+    try {
+      const r = await _usageFetch('totals', params);
+      const j = await r.json();
+      setTotals(j.data ?? { in: 0, out: 0, total: 0 });
+    } catch { /* swallowed */ }
+  }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const [rModels, rHeatmap, rTotals] = await Promise.all([
+          _usageFetch('models'),
+          _usageFetch('heatmap'),
+          _usageFetch('totals', { period: 'month' }),
+        ]);
+        if (cancelled) return;
+        const [jM, jH, jT] = await Promise.all([rModels.json(), rHeatmap.json(), rTotals.json()]);
+        if (cancelled) return;
+        setModels(jM.data ?? []);
+        setHeatmap(jH.data ?? {});
+        setTotals(jT.data ?? { in: 0, out: 0, total: 0 });
+      } catch { /* swallowed */ } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleModelChange = async (model: string) => {
+    setSelectedModel(model);
+    await Promise.all([fetchHeatmap(model), fetchTotals(model, period)]);
+  };
+
+  const handlePeriodChange = async (p: UsagePeriod) => {
+    setPeriod(p);
+    await fetchTotals(selectedModel, p);
+  };
+
+  const handleExport = async () => {
+    try {
+      const r = await _usageFetch('export');
+      const blob = await r.blob();
+      const cd   = r.headers.get('Content-Disposition') ?? '';
+      const match = /filename="([^"]+)"/.exec(cd);
+      const fname = match ? match[1] : `varys_usage_export_${new Date().toISOString().slice(0, 10)}.jsonl`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = fname; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch { /* swallowed */ }
+  };
+
+  const columns  = _buildHeatmapGrid(heatmap);
+  const maxValue = Math.max(...Object.values(heatmap), 0);
+
+  if (loading) {
+    return <div className="ds-usage-loading">Loading usage data…</div>;
+  }
+
+  return (
+    <div className="ds-usage-tab">
+      {/* Filter bar */}
+      <div className="ds-usage-filter-bar">
+        <div className="ds-usage-filter-left">
+          <label className="ds-usage-filter-label">Model</label>
+          <select
+            className="ds-settings-select ds-usage-model-select"
+            value={selectedModel}
+            onChange={e => handleModelChange(e.target.value)}
+          >
+            <option value="">All</option>
+            {models.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
+        <button className="ds-usage-export-btn" onClick={handleExport}>Export</button>
+      </div>
+
+      {/* Summary cards */}
+      <div className="ds-usage-cards">
+        <div className="ds-usage-card">
+          <span className="ds-usage-card-label">Tokens in</span>
+          <span className="ds-usage-card-value">{totals.in.toLocaleString()}</span>
+        </div>
+        <div className="ds-usage-card">
+          <span className="ds-usage-card-label">Tokens out</span>
+          <span className="ds-usage-card-value">{totals.out.toLocaleString()}</span>
+        </div>
+        <div className="ds-usage-card">
+          <span className="ds-usage-card-label">Total</span>
+          <span className="ds-usage-card-value">{totals.total.toLocaleString()}</span>
+        </div>
+      </div>
+
+      {/* Period pills */}
+      <div className="ds-usage-period-pills">
+        {PERIODS.map(p => (
+          <button
+            key={p}
+            className={`ds-usage-pill${period === p ? ' ds-usage-pill--active' : ''}`}
+            onClick={() => handlePeriodChange(p)}
+          >{p}</button>
+        ))}
+      </div>
+
+      {/* Heatmap */}
+      <div className="ds-usage-heatmap-wrap">
+        <div className="ds-usage-heatmap">
+          {/* Month labels row */}
+          <div className="ds-usage-heatmap-months">
+            <div className="ds-usage-heatmap-dow-spacer" />
+            {columns.map((_, ci) => (
+              <div key={ci} className="ds-usage-heatmap-month-cell">
+                {_monthLabel(columns, ci) && (
+                  <span className="ds-usage-heatmap-month-label">{_monthLabel(columns, ci)}</span>
+                )}
+              </div>
+            ))}
+          </div>
+          {/* Grid rows */}
+          <div className="ds-usage-heatmap-grid">
+            {/* Day-of-week labels */}
+            <div className="ds-usage-heatmap-dow-col">
+              {[0,1,2,3,4,5,6].map(row => (
+                <div key={row} className="ds-usage-heatmap-dow-label">
+                  {DOW_LABELS[row] ?? ''}
+                </div>
+              ))}
+            </div>
+            {/* Week columns */}
+            {columns.map((week, ci) => (
+              <div key={ci} className="ds-usage-heatmap-week">
+                {week.map((cell, row) => (
+                  <div
+                    key={row}
+                    className="ds-usage-heatmap-cell"
+                    style={{ background: cell.date ? _heatmapColor(cell.value, maxValue) : 'transparent' }}
+                    title={cell.date
+                      ? `${cell.date} — ${cell.value.toLocaleString()} tokens`
+                      : undefined
+                    }
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // MemoryTab — placeholder for long-term memory configuration
 // ---------------------------------------------------------------------------
 
@@ -2962,6 +3218,12 @@ const SettingsPanel: React.FC<{
         );
       case 'memory':
         return <MemoryTab />;
+      case 'usage':
+        return (
+          <div className="ds-settings-section-body">
+            <UsageTab apiClient={apiClient} />
+          </div>
+        );
       default:
         return null;
     }
@@ -6068,7 +6330,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     <div className={`ds-assistant-sidebar ds-chat-${chatTheme}`}>
       {/* Header */}
       <div className="ds-assistant-header">
-        <span className="ds-assistant-title"><span className="ds-varys-spider">🕷️</span> Varys <span className="ds-varys-version">v0.5.0</span></span>
+        <span className="ds-assistant-title"><span className="ds-varys-spider">🕷️</span> Varys <span className="ds-varys-version">v0.6.0</span></span>
         <button
           className="ds-tags-panel-btn"
           onClick={() => setShowTags(true)}
