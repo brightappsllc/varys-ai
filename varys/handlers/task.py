@@ -816,8 +816,8 @@ class TaskHandler(JupyterHandler):
         # directory (the common case) are NOT visible to the global loader.
         # We therefore check the global loader first, then fall back to a
         # per-request loader that uses the notebook path.
+        _skill_meta = None
         if slash_command:
-            _skill_meta = None
             # 1. Try the global pre-loaded loader (fast path, startup-time root)
             _global_loader = self.settings.get("ds_assistant_skill_loader")
             if _global_loader is not None:
