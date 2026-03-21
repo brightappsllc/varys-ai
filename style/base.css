@@ -943,6 +943,16 @@
 .ds-chat-night .ds-diff-op-badge--modify { background: #1a2e3a; color: #6bbfdb; }
 .ds-chat-night .ds-diff-op-badge--delete { background: #3a1a1e; color: #e07a83; }
 
+/* Cell header text — light theme already uses jp-ui-font-color2; override for dark */
+.ds-chat-night .ds-diff-cell-type { color: #8890a8; }
+.ds-chat-night .ds-diff-cell-pos  { color: #a0a8c0; }
+.ds-chat-night .ds-diff-cell-desc { color: #c8d0e7; }
+
+/* Light-mode explicit values (fallback for non-JupyterLab contexts) */
+.ds-chat-day .ds-diff-cell-type { color: #5a5f72; }
+.ds-chat-day .ds-diff-cell-pos  { color: #444; }
+.ds-chat-day .ds-diff-cell-desc { color: #2a2d3e; }
+
 .ds-chat-night .ds-diff-line--insert  { background: rgba(74, 201, 120, 0.12); color: #aab0c7; }
 .ds-chat-night .ds-diff-line--insert .ds-diff-gutter { color: #4dc97a; background: rgba(74, 201, 120, 0.2); }
 .ds-chat-night .ds-diff-line--delete  { background: rgba(224, 82, 99, 0.14); color: #aab0c7; }
