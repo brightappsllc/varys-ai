@@ -653,6 +653,11 @@
   background: var(--jp-layout-color1, #fff);
 }
 
+/* DiffView sits inside the assistant bubble — add breathing room above it */
+.ds-assistant-message .ds-diff-view {
+  margin-top: 8px;
+}
+
 /* Header row: summary + accept/undo */
 .ds-diff-header {
   display: flex;

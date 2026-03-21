@@ -6841,14 +6841,13 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
                 })()}
               </>
             )}
-          </div>
-          {/* Inline DiffView — attached to the assistant message that produced it.
+          {/* Inline DiffView — lives INSIDE the assistant bubble so the code
+              block is visually attached to the explanation text above it.
               Unresolved: shows Accept / Reject buttons.
               Resolved:   shows a static collapsed strip with a 2-line preview (no buttons). */}
           {msg.role === 'assistant' && msg.operationId && (() => {
             // Primary: diffs stored directly on the message (survive refreshes).
-            // Fallback: look up the live pendingOps entry (covers the window between
-            //           markHadCellOps and the next save).
+            // Fallback: live pendingOps entry covers the window before the next save.
             const op = pendingOps.find(o => o.operationId === msg.operationId);
             const diffsToShow = (msg.diffs && msg.diffs.length > 0)
               ? msg.diffs
@@ -6867,6 +6866,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
               />
             );
           })()}
+          </div>
           </React.Fragment>
         ))}
 
