@@ -6797,13 +6797,26 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           </div>
         )}
 
+        {/* Resolved diffs — rendered inside the message flow so they don't create a gap */}
+        {pendingOps.filter(op => op.resolved).map(op => (
+          <DiffView
+            key={op.operationId}
+            operationId={op.operationId}
+            description={op.description}
+            diffs={op.diffs}
+            onAccept={handleAccept}
+            onUndo={handleUndo}
+            resolved={op.resolved}
+          />
+        ))}
+
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Pending operations — visual diff view */}
-      {pendingOps.length > 0 && (
+      {/* Pending (unresolved) operations — pinned below messages for easy Accept/Reject */}
+      {pendingOps.some(op => !op.resolved) && (
         <div className="ds-assistant-pending-ops">
-          {pendingOps.map(op => (
+          {pendingOps.filter(op => !op.resolved).map(op => (
             <DiffView
               key={op.operationId}
               operationId={op.operationId}
@@ -6811,7 +6824,6 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
               diffs={op.diffs}
               onAccept={handleAccept}
               onUndo={handleUndo}
-              resolved={op.resolved}
             />
           ))}
         </div>
