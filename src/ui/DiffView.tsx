@@ -327,9 +327,15 @@ export const DiffView: React.FC<DiffViewProps> = ({
           )}
         </div>
 
-        {/* Buttons: Accept/Reject when pending; nothing when resolved (static strip). */}
         <div className="ds-diff-header-actions">
-          {!resolved && (
+          {resolved ? (
+            /* Resolved: expand / collapse toggle only — no Accept/Reject */
+            <button
+              className="ds-diff-expand-btn"
+              onClick={() => setExpanded(e => !e)}
+              title={expanded ? 'Collapse diff' : 'Expand diff'}
+            >{expanded ? '⌃ Hide' : '⌄ Show'}</button>
+          ) : (
             <>
               <button
                 className="ds-assistant-btn ds-assistant-btn-accept"
@@ -355,8 +361,8 @@ export const DiffView: React.FC<DiffViewProps> = ({
         </div>
       )}
 
-      {/* ── Resolved: always show a 2-line static preview (no expand toggle) ── */}
-      {resolved && (() => {
+      {/* ── Resolved collapsed: 2-line preview ── */}
+      {resolved && !expanded && (() => {
         const previewLines: DiffLine[] = [];
         for (const d of diffs) {
           const lines = computeLineDiff(d.original, d.modified)
@@ -374,8 +380,8 @@ export const DiffView: React.FC<DiffViewProps> = ({
         ) : null;
       })()}
 
-      {/* ── Per-cell diffs — shown when expanded (unresolved only) ── */}
-      {!resolved && expanded && (
+      {/* ── Per-cell diffs — shown when expanded (both pending and resolved) ── */}
+      {expanded && (
         <div className="ds-diff-cells">
           {diffs.map((d, i) => (
             <CellDiffSection
