@@ -20,14 +20,13 @@ export interface DiffInfo {
     description?: string;
 }
 /**
- * Per-cell decision returned when the user clicks "Apply Selection".
+ * Per-cell decision shape — used by CellEditor.partialAcceptOperation.
+ * The per-cell UI is removed; the type is kept for the backend API.
  */
 export interface CellDecision {
     cellIndex: number;
     opType: 'insert' | 'modify' | 'delete';
-    /** For 'modify': the reconstructed content; for 'insert'/'delete': undefined */
     finalContent?: string;
-    /** Whether the whole-cell change is accepted (for insert/delete) */
     accept: boolean;
 }
 export interface DiffViewProps {
