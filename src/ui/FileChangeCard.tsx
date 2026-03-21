@@ -6,7 +6,7 @@
  * name, change type and Accept / Reject controls.  The inline diff is
  * available collapsed for quick reference.
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { FileDiffView } from './FileDiffView';
 
 export interface FileChangeEvent {
@@ -38,7 +38,7 @@ export const FileChangeCard: React.FC<FileChangeCardProps> = ({
   xsrfToken,
   onResolved,
 }) => {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);   // start open so diff is visible immediately
   const [state, setState] = useState<CardState>(event.content_deferred ? 'pending' : 'loaded');
   const [loadedOriginal, setLoadedOriginal] = useState<string | null>(event.original_content);
   const [loadedNew, setLoadedNew] = useState<string | null>(event.new_content);
@@ -46,6 +46,14 @@ export const FileChangeCard: React.FC<FileChangeCardProps> = ({
 
   const effectiveOriginal = loadedOriginal;
   const effectiveNew = loadedNew;
+
+  // Auto-load deferred content on mount so the diff is visible immediately.
+  useEffect(() => {
+    if (event.content_deferred && state === 'pending') {
+      void handleLoadDiff();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleLoadDiff = async () => {
     setState('loading');
