@@ -360,7 +360,30 @@ export const DiffView: React.FC<DiffViewProps> = ({
         </div>
       )}
 
-      {/* ── Per-cell diffs — hidden when collapsed ── */}
+      {/* ── Resolved preview: first 2 changed lines, always visible when collapsed ── */}
+      {resolved && !expanded && (() => {
+        const previewLines: DiffLine[] = [];
+        for (const d of diffs) {
+          const lines = computeLineDiff(d.original, d.modified)
+            .filter(l => l.type !== 'equal');
+          previewLines.push(...lines);
+          if (previewLines.length >= 2) break;
+        }
+        return previewLines.length > 0 ? (
+          <div className="ds-diff-preview">
+            {previewLines.slice(0, 2).map((line, i) => (
+              <DiffLineRow key={i} line={line} />
+            ))}
+            {previewLines.length > 2 || diffs.some(d =>
+              computeLineDiff(d.original, d.modified).filter(l => l.type !== 'equal').length > 0
+            ) ? (
+              <div className="ds-diff-preview-more">···</div>
+            ) : null}
+          </div>
+        ) : null;
+      })()}
+
+      {/* ── Per-cell diffs — shown when expanded ── */}
       {expanded && (
         <div className="ds-diff-cells">
           {diffs.map((d, i) => (

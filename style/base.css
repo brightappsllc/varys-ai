@@ -733,6 +733,24 @@
 }
 .ds-diff-expand-btn:hover { background: var(--ds-surface2); }
 
+/* Resolved diff: 2-line code preview strip */
+.ds-diff-preview {
+  border-top: 1px solid var(--jp-border-color3, rgba(0,0,0,0.06));
+  opacity: 0.75;
+  pointer-events: none;
+  overflow: hidden;
+}
+.ds-diff-preview .ds-diff-line {
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+.ds-diff-preview-more {
+  font-size: 10px;
+  color: var(--ds-text-dim);
+  padding: 1px 6px 3px 22px;
+  font-style: italic;
+}
+
 /* Night-mode resolved diff */
 .ds-chat-night .ds-diff-view--accepted .ds-diff-header { border-left-color: #81c784; }
 .ds-chat-night .ds-diff-view--accepted .ds-diff-resolved-label { color: #81c784; }
