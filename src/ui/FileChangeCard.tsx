@@ -6,8 +6,9 @@
  * name, change type and Accept / Reject controls.  The inline diff is
  * available collapsed for quick reference.
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { FileDiffView } from './FileDiffView';
+import { computeLineDiff, getDiffStats } from '../utils/diffUtils';
 
 export interface FileChangeEvent {
   change_id: string;
@@ -135,6 +136,19 @@ export const FileChangeCard: React.FC<FileChangeCardProps> = ({
     : event.change_type === 'deleted' ? 'deleted'
     : 'modified';
 
+  // Compute line-change stats to show in the header (replaces the FileDiffView header).
+  const diffStats = useMemo(() => {
+    const orig = effectiveOriginal ?? '';
+    const next = effectiveNew ?? '';
+    return getDiffStats(computeLineDiff(orig, next));
+  }, [effectiveOriginal, effectiveNew]);
+  const statsLabel =
+    event.change_type === 'created' ? `+${diffStats.insertions}`
+    : event.change_type === 'deleted' ? `−${diffStats.deletions}`
+    : diffStats.insertions > 0 || diffStats.deletions > 0
+      ? `+${diffStats.insertions} / −${diffStats.deletions}`
+      : '';
+
   const showDiffBody =
     (state === 'loaded') ||
     (!event.content_deferred && state !== 'error' && state !== 'pending');
@@ -174,7 +188,7 @@ export const FileChangeCard: React.FC<FileChangeCardProps> = ({
 
   return (
     <div className={`ds-file-change-card ds-file-change-card--${state}`}>
-      {/* Card header — always clickable to expand/collapse */}
+      {/* Card header — toggle + change-type badge + stats (no redundant path) */}
       <div
         className="ds-file-change-card__header"
         onClick={() => setExpanded(e => !e)}
@@ -184,9 +198,10 @@ export const FileChangeCard: React.FC<FileChangeCardProps> = ({
         <span className={`ds-file-diff-type-badge ds-file-diff-type-badge--${event.change_type}`}>
           {changeTypeBadge}
         </span>
-        <span className="ds-file-change-card__path" title={event.file_path}>
-          {event.file_path}
-        </span>
+        <span className="ds-file-change-card__fname" title={event.file_path}>{fname}</span>
+        {statsLabel && (
+          <span className="ds-file-change-card__stats">{statsLabel}</span>
+        )}
         {event.total_changes > 1 && (
           <span className="ds-file-change-card__counter">
             {event.index} of {event.total_changes}
