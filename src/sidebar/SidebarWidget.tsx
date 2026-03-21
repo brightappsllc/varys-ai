@@ -283,6 +283,14 @@ interface Message {
   errorProvider?: string;
   /** True when a context_too_long error occurred and the context had at least one image. */
   errorHasImages?: boolean;
+  /**
+   * Diff data for this turn's cell operations.
+   * Embedded at response time so the DiffView persists permanently in the
+   * chat history regardless of pendingOps state.
+   */
+  diffs?: DiffInfo[];
+  /** Resolved status of this turn's diff — updated when the user accepts or undoes. */
+  diffResolved?: 'accepted' | 'undone';
 }
 
 // Report generation is triggered only by the explicit /report command.
@@ -5281,10 +5289,13 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
       };
 
       // Helper: mark the streaming message as having produced cell operations.
-      // This suppresses the "Push code to cell" fallback button.
-      const markHadCellOps = (opId: string) => {
+      // Embeds diffs permanently into the message so DiffView persists in the
+      // chat history regardless of pendingOps lifecycle.
+      const markHadCellOps = (opId: string, opDiffs?: DiffInfo[]) => {
         setMessages(prev => prev.map(m =>
-          m.id === streamMsgId ? { ...m, hadCellOps: true, operationId: opId } : m
+          m.id === streamMsgId
+            ? { ...m, hadCellOps: true, operationId: opId, ...(opDiffs ? { diffs: opDiffs } : {}) }
+            : m
         ));
       };
 
@@ -5597,7 +5608,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
                 compositeOpIds: allOpIds,
               }
             ]);
-            markHadCellOps(masterOpId);
+            markHadCellOps(masterOpId, allDiffs);
             appendToStream(
               `\n\n✅ Pipeline complete — ${allDiffs.length} cell change(s) across ${pipelineSteps.length} steps.\nReview the diff below then Accept or Undo all.`
             );
@@ -5783,7 +5794,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
       setPendingOps(prev => [...prev, op]);
       // Mark the chat bubble so the Push-to-cell button is hidden while the
       // diff view is shown (and after the user accepts/undoes).
-      markHadCellOps(response.operationId);
+      markHadCellOps(response.operationId, diffs);
 
       // Append step summary + review prompt to the streamed explanation bubble
       const reviewPrompt = response.requiresApproval
@@ -5852,6 +5863,9 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     setPendingOps(prev =>
       prev.map(o => o.operationId === operationId ? { ...o, resolved: 'accepted' as const } : o)
     );
+    setMessages(prev =>
+      prev.map(m => m.operationId === operationId ? { ...m, diffResolved: 'accepted' as const } : m)
+    );
   };
 
   const handleUndo = (operationId: string): void => {
@@ -5864,6 +5878,9 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     }
     setPendingOps(prev =>
       prev.map(o => o.operationId === operationId ? { ...o, resolved: 'undone' as const } : o)
+    );
+    setMessages(prev =>
+      prev.map(m => m.operationId === operationId ? { ...m, diffResolved: 'undone' as const } : m)
     );
   };
 
@@ -6412,8 +6429,8 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
         }}
       >
         {messages.map(msg => (
+          <React.Fragment key={msg.id}>
           <div
-            key={msg.id}
             className={[
               'ds-assistant-message',
               `ds-assistant-message-${msg.role}`,
@@ -6757,6 +6774,17 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
               </>
             )}
           </div>
+          {/* Diff view permanently embedded with this message */}
+          {msg.diffs && msg.diffs.length > 0 && (
+            <DiffView
+              operationId={msg.operationId!}
+              diffs={msg.diffs}
+              onAccept={handleAccept}
+              onUndo={handleUndo}
+              resolved={msg.diffResolved}
+            />
+          )}
+          </React.Fragment>
         ))}
 
         {isLoading && progressText && !activeStreamId && (
@@ -6797,23 +6825,10 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           </div>
         )}
 
-        {/* Resolved diffs — rendered inside the message flow so they don't create a gap */}
-        {pendingOps.filter(op => op.resolved).map(op => (
-          <DiffView
-            key={op.operationId}
-            operationId={op.operationId}
-            description={op.description}
-            diffs={op.diffs}
-            onAccept={handleAccept}
-            onUndo={handleUndo}
-            resolved={op.resolved}
-          />
-        ))}
-
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Pending (unresolved) operations — pinned below messages for easy Accept/Reject */}
+      {/* Active (unresolved) operations — pinned below messages for easy Accept/Reject */}
       {pendingOps.some(op => !op.resolved) && (
         <div className="ds-assistant-pending-ops">
           {pendingOps.filter(op => !op.resolved).map(op => (
