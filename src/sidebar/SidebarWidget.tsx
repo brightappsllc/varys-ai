@@ -2692,7 +2692,7 @@ const FILE_AGENT_CONFIG_KEYS = [
   'VARYS_AGENT_PROVIDER',
 ] as const;
 
-const FileAgentConfigPanel: React.FC<{
+export const FileAgentConfigPanel: React.FC<{
   notebookPath: string;
   apiClient: APIClient;
   onClose: () => void;
@@ -4706,7 +4706,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
   }, [agentResultsReady, agentFileChanges, agentFilesRead,
       agentOperationId, agentResolved, agentIncomplete, agentBashCount]);
 
-  const [agentConfigOpen, setAgentConfigOpen] = useState(false);
+  // agentConfigOpen removed — config panel no longer shown in the UI
   const [agentToolError, setAgentToolError] = useState<AgentToolErrorInfo | null>(null);
   const [settingsOpenToAgent, setSettingsOpenToAgent] = useState(false);
 
@@ -5017,7 +5017,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
         setShowCmdPopup(false);
         setAgentResultsReady(false);
         setAgentToolError(null);
-        setAgentConfigOpen(false);
+        // agentConfigOpen removed
         slashCommand = parsed.command;
         message      = parsed.rest?.trim() ?? '';
         // Fall through to the main task flow below.
@@ -6985,42 +6985,18 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
       </div>
 
       {/* Agent results section — shown after any /file_agent run */}
-      {/* Varys File Agent auxiliary info — context chips, error banner, config panel.
-          FileChangeCards are now rendered inline inside the triggering assistant bubble. */}
-      {agentResultsReady && (
+      {/* File-agent auxiliary banners — only rendered when there is actually
+          something worth surfacing (error, warnings, incomplete, bash activity).
+          The title, context chips, and config button are removed: they were
+          redundant since the user already knows which file is in focus. */}
+      {agentResultsReady && (agentToolError || agentIncomplete || agentBashCount > 0 ||
+          agentBashWarnings.length > 0 || agentBlockedCmds.length > 0) && (
         <div className="ds-agent-results">
-          {/* ⚙ config button — kept accessible for project settings */}
-          <div className="ds-agent-results-header">
-            <span className="ds-agent-results-title">Varys File Agent</span>
-            <button
-              className={`ds-agent-config-btn${agentConfigOpen ? ' ds-agent-config-btn--active' : ''}`}
-              onClick={() => setAgentConfigOpen(o => !o)}
-              title="Project settings (.jupyter-assistant/local_varys.env)"
-            >⚙</button>
-          </div>
-
-          {agentConfigOpen && (
-            <FileAgentConfigPanel
-              notebookPath={currentNotebookPath || currentFilePath}
-              apiClient={apiClient}
-              onClose={() => setAgentConfigOpen(false)}
-            />
-          )}
-
           {agentToolError && (
             <AgentToolErrorBanner
               error={agentToolError}
               onOpenAgentSettings={() => setSettingsOpenToAgent(true)}
             />
-          )}
-
-          {agentFilesRead.length > 0 && (
-            <div className="ds-agent-context-chips">
-              <span className="ds-agent-context-label">Context used:</span>
-              {agentFilesRead.map((f, i) => (
-                <span key={i} className="ds-agent-context-chip" title={f}>{f}</span>
-              ))}
-            </div>
           )}
 
           {agentIncomplete && (
