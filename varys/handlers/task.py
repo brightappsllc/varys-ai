@@ -29,10 +29,11 @@ _usage_writer = UsageWriter()
 
 
 def _fire_usage(provider, notebook_path: str, context: str) -> None:
-    """Fire-and-forget usage write; all errors are swallowed."""
+    """Fire-and-forget usage write; all errors are logged."""
     try:
         usage = getattr(provider, "last_usage", None)
         if not usage:
+            log.debug("_fire_usage: no last_usage on provider %s", type(provider).__name__)
             return
         vendor = getattr(provider, "VENDOR", "unknown")
         # AnthropicProvider stores the model on its inner ClaudeClient
@@ -41,6 +42,10 @@ def _fire_usage(provider, notebook_path: str, context: str) -> None:
             getattr(_inner, "model", None)
             or getattr(provider, "chat_model", None)
             or "unknown"
+        )
+        log.info(
+            "usage: vendor=%s model=%s in=%s out=%s context=%s",
+            vendor, model, usage.get("input", 0), usage.get("output", 0), context,
         )
         asyncio.create_task(
             asyncio.to_thread(
@@ -54,7 +59,7 @@ def _fire_usage(provider, notebook_path: str, context: str) -> None:
             )
         )
     except Exception as _ue:
-        log.warning("Usage write failed: %s", _ue)
+        log.warning("Usage write failed: %s", _ue, exc_info=True)
 
 
 def _strip_null(text: str) -> str:
