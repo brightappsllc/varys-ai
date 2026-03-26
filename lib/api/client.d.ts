@@ -46,6 +46,8 @@ export interface ChatThread {
     tokenUsage?: TokenUsage;
     /** Whether to include notebook cells as context in every request (default true). */
     notebookAware?: boolean;
+    /** Interaction mode for this thread: 'agent' (default) or 'chat'. */
+    cellMode?: 'chat' | 'agent';
 }
 /** The persisted chat file containing all threads for one notebook. */
 export interface ChatFile {

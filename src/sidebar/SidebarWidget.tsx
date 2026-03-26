@@ -4014,7 +4014,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     });
   };
 
-  // Cell-writing mode toggle — persisted across sessions.
+  // Cell-writing mode toggle — persisted per thread and across sessions.
   // 'chat'  = never write cells (discussion only)
   // 'agent' = skill/heuristic decides (default)
   type CellMode = 'chat' | 'agent';
@@ -4030,6 +4030,9 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
       return 'agent';
     }
   });
+  // Ref so closures (e.g. _saveThread) always read the latest mode.
+  const cellModeRef = useRef<CellMode>(cellMode);
+  useEffect(() => { cellModeRef.current = cellMode; }, [cellMode]);
 
   // ── Input area resize (drag from top) ─────────────────────────────────────
   const MIN_INPUT_HEIGHT = 56;
@@ -4230,6 +4233,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
       messages: saved,
       tokenUsage:    existing?.tokenUsage,
       notebookAware: existing?.notebookAware,
+      cellMode:      cellModeRef.current,
     };
     // Retry up to 3 times with back-off for transient network failures
     // (e.g. server restarting).  Each attempt is independent of React state.
@@ -4302,6 +4306,15 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
   };
 
   /** Restore state from the in-memory cache.  Returns true if a cache hit was found. */
+  /** Restore the per-thread cell mode when switching to a different thread. */
+  const _restoreThreadMode = (thread: ChatThread | undefined): void => {
+    if (!thread) return;
+    const mode: CellMode = thread.cellMode === 'chat' ? 'chat' : 'agent';
+    setCellMode(mode);
+    cellModeRef.current = mode;
+    try { localStorage.setItem('ds-assistant-cell-mode', mode); } catch { /* ignore */ }
+  };
+
   const _restoreFromCache = (path: string): boolean => {
     const cached = historyCacheRef.current.get(path);
     if (!cached || cached.threads.length === 0) return false;
@@ -4327,6 +4340,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
         : [];
     setMessages(_restoredMsgs);
     setPendingOps(_opsFromMessages(_restoredMsgs));
+    _restoreThreadMode(lastThread);
     // Restore agent panel if there was one pending when we left this file.
     if (cached.agentPanel?.ready) {
       setAgentResultsReady(true);
@@ -4452,6 +4466,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
               : [];
           setMessages(_diskMsgs);
           setPendingOps(_opsFromMessages(_diskMsgs));
+          _restoreThreadMode(lastThread);
           _updateCache(newPath, chatFile.threads, lastId);
         } else {
           const t = makeNewThread('Main');
@@ -4601,6 +4616,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
               : [];
           setMessages(_fileMsgs);
           setPendingOps(_opsFromMessages(_fileMsgs));
+          _restoreThreadMode(lastThread);
           _updateCache(filePath, chatFile.threads, lastId);
         } else {
           const t = makeNewThread('Main');
@@ -6038,6 +6054,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     stopJsonCodeCounter();
     setMessages(restored);
     setPendingOps(_opsFromMessages(restored));
+    _restoreThreadMode(thread);
     setAppliedFixes(new Map());
     setProgressText('');
     setActiveStreamId('');
