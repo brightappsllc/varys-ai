@@ -5913,6 +5913,12 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
       }
     } finally {
       abortControllerRef.current = null;
+      // Unconditionally stop the stream queue.  ensureStreamStarted() may have
+      // been called inside the try block (after the earlier stopStreamQueue call)
+      // to guarantee a streamMsgId message exists for markHadCellOps.  Without
+      // this second stop, activeStreamId stays set and the streaming animation
+      // (blue bars / typing cursor) persists indefinitely.
+      stopStreamQueue();
       setIsLoading(false);
       setProgressText('');
     }

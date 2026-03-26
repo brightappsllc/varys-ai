@@ -463,7 +463,9 @@ class BedrockProvider(BaseLLMProvider):
         await self._ensure_credentials()
         op_id = operation_id or f"op_{uuid.uuid4().hex[:8]}"
 
-        if self.enable_thinking and self._supports_thinking():
+        # Always use thinking for supported models (matches Anthropic behaviour
+        # where extended thinking is always on for plan_task on capable models).
+        if self._supports_thinking():
             system = self._build_system(skills, memory, reasoning_mode=reasoning_mode)
             user_msg = _build_context(user_message, notebook_context)
 
@@ -531,8 +533,11 @@ class BedrockProvider(BaseLLMProvider):
             plan_data.setdefault("clarificationNeeded", None)
             return plan_data
 
-        # No thinking — fall back to synchronous converse plan_task.
-        return await self.plan_task(
+        # Non-thinking model path: run plan_task synchronously, then stream the
+        # summary as text so the frontend receives at least one chunk event.
+        # This ensures ensureStreamStarted() is triggered naturally from the
+        # SSE onChunk handler — giving a proper stream start/stop cycle.
+        plan = await self.plan_task(
             user_message=user_message,
             notebook_context=notebook_context,
             skills=skills,
@@ -541,6 +546,15 @@ class BedrockProvider(BaseLLMProvider):
             chat_history=chat_history,
             reasoning_mode=reasoning_mode,
         )
+        summary = plan.get("summary", "")
+        if summary and on_text_chunk:
+            words = summary.split(" ")
+            for i, word in enumerate(words):
+                chunk = word if i == len(words) - 1 else word + " "
+                if chunk:
+                    await on_text_chunk(chunk)
+                    await asyncio.sleep(0)
+        return plan
 
     async def plan_task(
         self,
