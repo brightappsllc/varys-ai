@@ -62,7 +62,17 @@ class GoogleProvider(BaseLLMProvider):
             import google.generativeai as genai
             genai.configure(api_key=self.api_key)
             return genai
-        except ImportError:
+        except (ImportError, ModuleNotFoundError):
+            raise RuntimeError(
+                "google-generativeai not installed. Run: pip install google-generativeai"
+            )
+
+    def _gtypes(self):
+        """Return google.generativeai.types, with a friendly error if not installed."""
+        try:
+            import google.generativeai.types as gtypes
+            return gtypes
+        except (ImportError, ModuleNotFoundError):
             raise RuntimeError(
                 "google-generativeai not installed. Run: pip install google-generativeai"
             )
@@ -84,7 +94,8 @@ class GoogleProvider(BaseLLMProvider):
         system = self._build_system(skills, memory, reasoning_mode=reasoning_mode)
         user_msg = _build_context(user_message, notebook_context)
 
-        import google.generativeai.types as gtypes
+        genai  = self._genai()
+        gtypes = self._gtypes()
 
         parts: List[Any] = [user_msg]
         if self.has_vision():
@@ -100,8 +111,6 @@ class GoogleProvider(BaseLLMProvider):
                         mime_type=mime,
                         data=base64.b64decode(img),
                     ))
-
-        genai = self._genai()
         model = genai.GenerativeModel(
             model_name=self.chat_model,
             system_instruction=system,
