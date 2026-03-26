@@ -263,44 +263,52 @@ class BedrockProvider(BaseLLMProvider):
             result.append({"role": msg["role"], "content": parts})
         return result
 
-    def _invoke_with_thinking(
-        self, system: str, messages: List[Dict[str, Any]]
-    ) -> tuple:
-        """Call invoke_model directly using the Anthropic Messages API with thinking enabled.
+    def _invoke_model_raw(
+        self,
+        system: str,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        """Call invoke_model using the Anthropic Messages API with thinking enabled.
 
-        Extended thinking is not available through the Converse API; it requires
-        the raw InvokeModel endpoint with the Anthropic Messages API payload.
+        This is the low-level primitive used by both _invoke_with_thinking() and
+        _run_thinking_mcp_loop().  Messages must already be in Anthropic format
+        (not Bedrock Converse format).
 
-        Returns:
-            (thinking_text, response_text) — thinking_text may be empty string
-            when the model returns no thinking block (e.g. summarised thinking
-            on Claude 4 models where full thinking is not exposed by default).
+        Returns the raw decoded JSON response dict from Bedrock.
         """
-        import json as _json
-
-        anthropic_messages = self._converse_messages_to_anthropic(messages)
-        max_tokens = self.thinking_budget + 8192  # budget + generous text response headroom
-        body = {
+        max_tokens = self.thinking_budget + 8192
+        body: Dict[str, Any] = {
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": max_tokens,
-            "thinking": {
-                "type": "enabled",
-                "budget_tokens": self.thinking_budget,
-            },
+            "thinking": {"type": "enabled", "budget_tokens": self.thinking_budget},
             "system": system,
-            "messages": anthropic_messages,
+            "messages": messages,
         }
+        if tools:
+            body["tools"] = tools
+            body["tool_choice"] = {"type": "auto"}
 
         resp = self._boto_client.invoke_model(
             modelId=self.chat_model,
-            body=_json.dumps(body),
+            body=json.dumps(body),
             contentType="application/json",
             accept="application/json",
         )
-        result = _json.loads(resp["body"].read())
-
+        result = json.loads(resp["body"].read())
         usage = result.get("usage", {})
         self._set_usage(usage.get("input_tokens", 0), usage.get("output_tokens", 0))
+        return result
+
+    def _invoke_with_thinking(
+        self, system: str, messages: List[Dict[str, Any]]
+    ) -> tuple:
+        """Call invoke_model with thinking enabled (no tools).
+
+        Returns (thinking_text, response_text).
+        """
+        anthropic_messages = self._converse_messages_to_anthropic(messages)
+        result = self._invoke_model_raw(system, anthropic_messages)
 
         content_blocks = result.get("content", [])
         block_types = [b.get("type", "?") for b in content_blocks]
@@ -318,6 +326,97 @@ class BedrockProvider(BaseLLMProvider):
                 text_parts.append(block.get("text", ""))
 
         return "\n".join(thinking_parts), "\n".join(text_parts)
+
+    async def _run_thinking_mcp_loop(
+        self,
+        system: str,
+        messages: List[Dict[str, Any]],
+        mcp_tools: List[Dict[str, Any]],
+        mcp_manager,
+        on_chunk,
+        on_thought=None,
+        max_rounds: int = 8,
+    ) -> str:
+        """invoke_model multi-turn loop: thinking + MCP tool use.
+
+        Uses the Anthropic Messages API (via invoke_model) which supports both
+        extended thinking and tool use in the same request — unlike the Converse
+        API which supports tools but not the thinking parameter.
+
+        Thinking blocks are preserved across turns (with their signatures) as
+        required by the Anthropic multi-turn thinking spec.
+
+        Args:
+            messages: Already in Anthropic Messages API format (not Converse format).
+            mcp_tools: Tools in Anthropic format (as returned by mcp_manager.get_all_tools()).
+        """
+        msgs = list(messages)
+        all_thinking: List[str] = []
+        full_response = ""
+
+        for _round in range(max_rounds):
+            def _call(msgs=msgs):
+                return self._invoke_model_raw(system, msgs, tools=mcp_tools)
+
+            try:
+                result = await self._call_with_auto_refresh(_call)
+            except Exception as e:
+                log.error("Bedrock thinking MCP loop error (round %d): %s", _round, e)
+                raise RuntimeError(f"AWS Bedrock error: {e}") from e
+
+            content_blocks = result.get("content", [])
+            stop_reason = result.get("stop_reason", "")
+            log.info(
+                "Bedrock thinking MCP round %d: stop_reason=%s blocks=%s",
+                _round, stop_reason,
+                [b.get("type", "?") for b in content_blocks],
+            )
+
+            # Collect thinking and text from this round.
+            for block in content_blocks:
+                btype = block.get("type", "")
+                if btype == "thinking":
+                    t = block.get("thinking", "")
+                    if t:
+                        all_thinking.append(t)
+                elif btype == "text":
+                    full_response = block.get("text", "")
+
+            tool_use_blocks = [b for b in content_blocks if b.get("type") == "tool_use"]
+
+            if not tool_use_blocks:
+                break  # Pure text response — done.
+
+            # Preserve full assistant response (incl. thinking + signatures) in history.
+            msgs.append({"role": "assistant", "content": content_blocks})
+
+            # Execute tools and collect results.
+            tool_results: List[Dict[str, Any]] = []
+            for block in tool_use_blocks:
+                name = block["name"]
+                inp = block.get("input", {})
+                use_id = block["id"]
+                log.info("Bedrock thinking MCP: calling tool %s", name)
+                try:
+                    result_text = await mcp_manager.call_tool(name, inp)
+                except Exception as exc:
+                    result_text = f"[Tool error: {exc}]"
+                    log.warning("Bedrock thinking MCP tool %s error: %s", name, exc)
+
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": use_id,
+                    "content": str(result_text),
+                })
+
+            msgs.append({"role": "user", "content": tool_results})
+
+        # Emit thinking first so the bubble appears above the text response.
+        if all_thinking and on_thought:
+            await on_thought("\n\n".join(all_thinking))
+        if full_response:
+            await on_chunk(full_response)
+        return full_response
 
     def _build_system(self, skills: List[Dict[str, str]], memory: str, reasoning_mode: str = "off") -> str:
         return _build_system_prompt_shared(skills, memory, reasoning_mode=reasoning_mode)
@@ -532,21 +631,48 @@ class BedrockProvider(BaseLLMProvider):
         on_thought=None,
         max_rounds: int = 8,
     ) -> str:
-        """Converse-API agentic loop for MCP tool use.
+        """Agentic loop for MCP tool use.
 
-        Translates MCP tool definitions to Bedrock toolSpec format, drives a
-        multi-turn Converse loop that executes any tool calls via mcp_manager,
-        and streams the final text response via on_chunk.
+        When extended thinking is enabled, routes through _run_thinking_mcp_loop
+        which uses invoke_model (Anthropic Messages API) — the only Bedrock path
+        that supports both thinking and tool use simultaneously.
 
-        Thinking is intentionally disabled here: the Converse API does not
-        support the thinking parameter, so we keep it simple and fast.
+        Otherwise falls back to the Converse API tool loop (faster, no thinking).
         """
         await self._ensure_credentials()
 
-        # Build the initial messages list from history + user turn.
+        mcp_tools = mcp_manager.get_all_tools() if mcp_manager else []
+
+        # Build history in Anthropic Messages API format (used by both paths).
         history = list(chat_history or [])
         while history and history[0].get("role") != "user":
             history = history[1:]
+        converse_history = [
+            {"role": h["role"], "content": [{"text": h["content"]}]} for h in history
+        ]
+        anthropic_msgs = self._converse_messages_to_anthropic(converse_history)
+        if isinstance(user, str):
+            anthropic_msgs.append({"role": "user", "content": user})
+        else:
+            anthropic_msgs.append({"role": "user", "content": user})
+
+        if self.enable_thinking and self._supports_thinking():
+            log.info(
+                "Bedrock MCP: routing through thinking loop (budget=%d, tools=%d)",
+                self.thinking_budget, len(mcp_tools),
+            )
+            return await self._run_thinking_mcp_loop(
+                system=system,
+                messages=anthropic_msgs,
+                mcp_tools=mcp_tools,
+                mcp_manager=mcp_manager,
+                on_chunk=on_chunk,
+                on_thought=on_thought,
+                max_rounds=max_rounds,
+            )
+
+        # Converse API path — no thinking, but fast.
+        # Re-build messages in Converse format for this path.
         msgs: List[Dict[str, Any]] = [
             {"role": h["role"], "content": [{"text": h["content"]}]} for h in history
         ]
@@ -556,7 +682,6 @@ class BedrockProvider(BaseLLMProvider):
             # Vision content-block list
             msgs.append({"role": "user", "content": user})
 
-        mcp_tools = mcp_manager.get_all_tools() if mcp_manager else []
         tool_config: Dict[str, Any] = {
             "tools": self._mcp_tools_to_bedrock(mcp_tools),
             "toolChoice": {"auto": {}},
