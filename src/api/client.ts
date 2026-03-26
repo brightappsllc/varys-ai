@@ -748,6 +748,9 @@ export class APIClient {
               output: (t.token_usage as Record<string,number>).output ?? 0 }
           : undefined,
         notebookAware: t.notebook_aware !== undefined ? Boolean(t.notebook_aware) : undefined,
+        cellMode: (t.cell_mode === 'chat' || t.cell_mode === 'agent')
+          ? (t.cell_mode as 'chat' | 'agent')
+          : undefined,
       })) as ChatThread[],
     };
   }
@@ -769,6 +772,7 @@ export class APIClient {
           messages: thread.messages,
           ...(thread.tokenUsage    ? { token_usage:      thread.tokenUsage }    : {}),
           ...(thread.notebookAware !== undefined ? { notebook_aware: thread.notebookAware } : {}),
+          ...(thread.cellMode !== undefined      ? { cell_mode:      thread.cellMode }      : {}),
         },
       }),
     });
