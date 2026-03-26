@@ -2,15 +2,16 @@
 
 Skills are shipped inside the Python package at:
   varys/bundled_skills/<name>/SKILL.md
-                                                  README.md   (optional)
+                              README.md   (optional)
 
 GET  /varys/bundled-skills
     Returns the full catalogue: name, description, command, whether it is
-    already present in the current project's .jupyter-assistant/skills/.
+    already present in the global ~/.jupyter/skills/ directory.
 
 POST /varys/bundled-skills
     Body: {"name": "<skill_name>", "notebookPath": "..."}
-    Copies the bundled skill directory into the project's skills folder.
+    Copies the bundled skill into the global ~/.jupyter/skills/<name>/ so that
+    it is immediately visible in the Skills UI and available to the loader.
     Skips if a skill with the same name already exists (safe by default);
     pass {"overwrite": true} to replace it.
 """
@@ -22,11 +23,13 @@ from jupyter_server.base.handlers import JupyterHandler
 from tornado.web import authenticated
 
 from ..skills.loader import _parse_front_matter
-from ..utils.paths import nb_base
 
 
 # Bundled skills live next to this handler file.
 _BUNDLED_DIR = Path(__file__).parent.parent / "bundled_skills"
+
+# Global skills directory — same root used by skills.py and the loader.
+_GLOBAL_SKILLS_DIR = Path.home() / ".jupyter" / "skills"
 
 
 def _bundled_skill_meta(name: str) -> dict:
@@ -51,15 +54,15 @@ def _bundled_skill_meta(name: str) -> dict:
     }
 
 
-def _list_bundled(project_skills_dir: Path) -> list:
+def _list_bundled() -> list:
     """Return all bundled skills, annotated with whether they are imported."""
     if not _BUNDLED_DIR.exists():
         return []
     installed = {
         d.name
-        for d in project_skills_dir.iterdir()
+        for d in _GLOBAL_SKILLS_DIR.iterdir()
         if d.is_dir() and (d / "SKILL.md").exists()
-    } if project_skills_dir.exists() else set()
+    } if _GLOBAL_SKILLS_DIR.exists() else set()
 
     result = []
     for entry in sorted(_BUNDLED_DIR.iterdir()):
@@ -72,16 +75,13 @@ def _list_bundled(project_skills_dir: Path) -> list:
 
 class BundledSkillsHandler(JupyterHandler):
     """GET  → catalogue of bundled skills.
-       POST → import one bundled skill into the project.
+       POST → import one bundled skill into the global skills directory.
     """
 
     @authenticated
     def get(self):
-        nb = self.get_query_argument("notebookPath", "")
-        root = self.settings.get("ds_assistant_root_dir", ".")
-        skills_dir = nb_base(root, nb) / "skills"
         self.set_header("Content-Type", "application/json")
-        self.finish(json.dumps({"bundled": _list_bundled(skills_dir)}))
+        self.finish(json.dumps({"bundled": _list_bundled()}))
 
     @authenticated
     def post(self):
@@ -94,7 +94,6 @@ class BundledSkillsHandler(JupyterHandler):
             return
 
         name = str(body.get("name", "")).strip()
-        nb = str(body.get("notebookPath", ""))
         overwrite = bool(body.get("overwrite", False))
 
         if not name or not (src := _BUNDLED_DIR / name).is_dir():
@@ -102,8 +101,7 @@ class BundledSkillsHandler(JupyterHandler):
             self.finish(json.dumps({"error": f"Bundled skill '{name}' not found"}))
             return
 
-        root = self.settings.get("ds_assistant_root_dir", ".")
-        dest = nb_base(root, nb) / "skills" / name
+        dest = _GLOBAL_SKILLS_DIR / name
         dest.parent.mkdir(parents=True, exist_ok=True)
 
         if dest.exists() and not overwrite:
@@ -114,7 +112,7 @@ class BundledSkillsHandler(JupyterHandler):
             shutil.rmtree(dest)
         shutil.copytree(src, dest)
 
-        # Refresh the in-memory skill cache.
+        # Refresh the in-memory skill cache so the new skill is available immediately.
         loader = self.settings.get("ds_assistant_skill_loader")
         if loader is not None:
             loader.refresh()
