@@ -1042,68 +1042,32 @@ class BedrockProvider(BaseLLMProvider):
         )
 
         if self.enable_thinking and self._supports_thinking():
-            # Build messages in Anthropic Messages API format.
-            converse_history = [
-                {"role": h["role"], "content": [{"text": h["content"]}]} for h in history
-            ]
-            anthropic_msgs = self._converse_messages_to_anthropic(converse_history)
-            if isinstance(user, str):
-                anthropic_msgs.append({"role": "user", "content": user})
-            else:
-                anthropic_msgs.append({"role": "user", "content": user})
-
             log.info(
-                "Bedrock stream_chat: entering THINKING path "
-                "(budget=%d max_tokens=%d model=%s)",
-                self.thinking_budget, self.thinking_budget + 8192, self.chat_model,
+                "Bedrock stream_chat: THINKING path "
+                "(enable_thinking=%s budget=%d model=%s)",
+                self.enable_thinking, self.thinking_budget, self.chat_model,
             )
-            # Use _invoke_model_raw (synchronous invoke_model) which is confirmed to
-            # return thinking blocks.  We then emit the thinking content via on_thought
-            # and stream the text response in word-sized chunks for a live feel.
+            # Delegate to chat() which is confirmed to call _invoke_with_thinking()
+            # and populate self._last_thinking.  We then emit thinking first via
+            # on_thought, then stream the text word-by-word for a live UX.
             try:
-                def _call_raw(msgs=anthropic_msgs):
-                    return self._invoke_model_raw(system, msgs)
-
-                result = await self._call_with_auto_refresh(_call_raw)
-                content_blocks = result.get("content", [])
-                log.info(
-                    "Bedrock stream_chat (thinking) raw result blocks: %s",
-                    [b.get("type", "?") for b in content_blocks],
+                text = await self.chat(
+                    system=system, user=user, chat_history=chat_history
                 )
-
-                thinking_parts = []
-                text_parts = []
-                for block in content_blocks:
-                    btype = block.get("type", "")
-                    if btype == "thinking":
-                        t = block.get("thinking", "")
-                        if t:
-                            thinking_parts.append(t)
-                    elif btype == "text":
-                        t = block.get("text", "")
-                        if t:
-                            text_parts.append(t)
-
-                thinking_text = "\n\n".join(thinking_parts)
-                self._last_thinking = thinking_text
-
-                # Emit thinking bubble before the response text.
-                if thinking_text and on_thought:
-                    await on_thought(thinking_text)
-
-                # Stream the text response word-by-word for a live UX.
-                full_text = "".join(text_parts)
-                words = full_text.split(" ")
-                for i, word in enumerate(words):
-                    chunk = word if i == len(words) - 1 else word + " "
-                    if chunk:
-                        await on_chunk(chunk)
-                        await asyncio.sleep(0)  # yield to event loop between words
-
                 log.info(
-                    "Bedrock stream_chat thinking_len=%d text_len=%d",
-                    len(thinking_text), len(full_text),
+                    "Bedrock stream_chat (thinking) chat() done: "
+                    "thinking_len=%d text_len=%d",
+                    len(self._last_thinking), len(text or ""),
                 )
+                if self._last_thinking and on_thought:
+                    await on_thought(self._last_thinking)
+                if text:
+                    words = text.split(" ")
+                    for i, word in enumerate(words):
+                        chunk = word if i == len(words) - 1 else word + " "
+                        if chunk:
+                            await on_chunk(chunk)
+                            await asyncio.sleep(0)
             except Exception as e:
                 log.error("Bedrock stream_chat (thinking) error: %s", e)
                 raise RuntimeError(f"AWS Bedrock error: {e}") from e
