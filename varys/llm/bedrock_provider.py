@@ -95,6 +95,8 @@ class BedrockProvider(BaseLLMProvider):
         self.thinking_budget = max(1024, int(thinking_budget or 8000))
         # User-configured override; None means "use the model-aware default".
         self._max_tokens_override: Optional[int] = int(max_tokens) if max_tokens else None
+        # Set by chat() when thinking is enabled; consumed by stream_chat().
+        self._last_thinking: str = ""
         self._cache = CompletionCache()
         self._boto_client = self._make_client()
 
@@ -261,11 +263,18 @@ class BedrockProvider(BaseLLMProvider):
             result.append({"role": msg["role"], "content": parts})
         return result
 
-    def _invoke_with_thinking(self, system: str, messages: List[Dict[str, Any]]) -> str:
+    def _invoke_with_thinking(
+        self, system: str, messages: List[Dict[str, Any]]
+    ) -> tuple:
         """Call invoke_model directly using the Anthropic Messages API with thinking enabled.
 
         Extended thinking is not available through the Converse API; it requires
         the raw InvokeModel endpoint with the Anthropic Messages API payload.
+
+        Returns:
+            (thinking_text, response_text) — thinking_text may be empty string
+            when the model returns no thinking block (e.g. summarised thinking
+            on Claude 4 models where full thinking is not exposed by default).
         """
         import json as _json
 
@@ -293,12 +302,16 @@ class BedrockProvider(BaseLLMProvider):
         usage = result.get("usage", {})
         self._set_usage(usage.get("input_tokens", 0), usage.get("output_tokens", 0))
 
-        text_parts = [
-            block["text"]
-            for block in result.get("content", [])
-            if block.get("type") == "text"
-        ]
-        return "\n".join(text_parts)
+        thinking_parts: List[str] = []
+        text_parts: List[str] = []
+        for block in result.get("content", []):
+            btype = block.get("type", "")
+            if btype == "thinking":
+                thinking_parts.append(block.get("thinking", ""))
+            elif btype == "text":
+                text_parts.append(block.get("text", ""))
+
+        return "\n".join(thinking_parts), "\n".join(text_parts)
 
     def _build_system(self, skills: List[Dict[str, str]], memory: str, reasoning_mode: str = "off") -> str:
         return _build_system_prompt_shared(skills, memory, reasoning_mode=reasoning_mode)
@@ -446,12 +459,17 @@ class BedrockProvider(BaseLLMProvider):
         if self.enable_thinking and self._supports_thinking():
             log.info("Bedrock: extended thinking enabled (budget=%d tokens)", self.thinking_budget)
             try:
-                return await self._call_with_auto_refresh(
+                _thinking, _text = await self._call_with_auto_refresh(
                     lambda: self._invoke_with_thinking(system, messages)
                 )
+                # Store thinking for stream_chat() to forward to on_thought callback.
+                self._last_thinking = _thinking
+                return _text
             except Exception as e:
                 log.error("Bedrock chat (thinking) error: %s", e)
                 raise RuntimeError(f"AWS Bedrock error: {e}") from e
+
+        self._last_thinking = ""
 
         def _call():
             resp = self._boto_client.converse(
@@ -471,6 +489,26 @@ class BedrockProvider(BaseLLMProvider):
         except Exception as e:
             log.error("Bedrock chat error: %s", e)
             raise RuntimeError(f"AWS Bedrock error: {e}") from e
+
+    async def stream_chat(
+        self,
+        system: str,
+        user,
+        on_chunk,
+        on_thought=None,
+        chat_history=None,
+    ) -> None:
+        """Override base stream_chat to forward thinking blocks to on_thought.
+
+        When extended thinking is enabled, chat() stores the thinking text in
+        self._last_thinking.  We emit it via on_thought before the main text so
+        the UI renders the same reddish 🧠 thinking bubble as the Anthropic path.
+        """
+        text = await self.chat(system=system, user=user, chat_history=chat_history)
+        if self._last_thinking and on_thought:
+            await on_thought(self._last_thinking)
+        if text:
+            await on_chunk(text)
 
     def has_vision(self) -> bool:
         name = self.chat_model.lower()
