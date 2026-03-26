@@ -205,6 +205,18 @@ class BedrockProvider(BaseLLMProvider):
                 return await loop.run_in_executor(None, fn)
             raise
 
+    def _max_chat_tokens(self) -> int:
+        """Return the safe max-output-token limit for the active chat model.
+
+        Bedrock enforces per-model hard limits that differ from Anthropic's API:
+        - Claude Haiku 4.5 (anthropic.claude-haiku-4-5-*): 4 096 tokens
+        - All other Claude models currently tested: 8 192 tokens
+        """
+        name = self.chat_model.lower()
+        if "haiku-4-5" in name or "haiku_4_5" in name:
+            return 4096
+        return 8192
+
     def _supports_thinking(self) -> bool:
         """True when the active chat model is an Anthropic Claude Sonnet or Opus model."""
         name = self.chat_model.lower()
@@ -439,7 +451,7 @@ class BedrockProvider(BaseLLMProvider):
                 modelId=self.chat_model,
                 system=[{"text": system}],
                 messages=messages,
-                inferenceConfig={"maxTokens": 8192, "temperature": 0.3},
+                inferenceConfig={"maxTokens": self._max_chat_tokens(), "temperature": 0.3},
             )
             u = resp.get("usage", {})
             self._set_usage(u.get("inputTokens", 0), u.get("outputTokens", 0))
