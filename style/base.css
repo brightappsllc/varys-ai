@@ -6607,9 +6607,9 @@ body[data-jp-theme-light="false"] .ds-overlay-add-btn:hover {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
+  width: 16px;
   height: 14px;
-  border-radius: 50%;
+  border-radius: 3px;
   border: 1px solid var(--jp-border-color2, #ccc);
   background: transparent;
   color: var(--ds-text-dim, #888);
