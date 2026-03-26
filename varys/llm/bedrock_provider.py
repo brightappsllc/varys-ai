@@ -628,6 +628,7 @@ class BedrockProvider(BaseLLMProvider):
             body["tool_choice"] = {"type": "auto"}
 
         def _run() -> None:
+            seen_types: list = []
             try:
                 resp = self._boto_client.invoke_model_with_response_stream(
                     modelId=self.chat_model,
@@ -636,16 +637,43 @@ class BedrockProvider(BaseLLMProvider):
                     accept="application/json",
                 )
                 for raw_event in resp["body"]:
+                    # Surface any stream-level errors (throttling, validation, etc.)
+                    for err_key in ("internalServerException", "modelStreamErrorException",
+                                    "validationException", "throttlingException",
+                                    "modelTimeoutException"):
+                        if err_key in raw_event:
+                            msg = raw_event[err_key].get("message", err_key)
+                            loop.call_soon_threadsafe(
+                                queue.put_nowait, {"_error": f"{err_key}: {msg}"}
+                            )
+                            return
                     chunk_bytes = raw_event.get("chunk", {}).get("bytes")
                     if chunk_bytes:
                         try:
                             evt = json.loads(chunk_bytes)
+                            etype = evt.get("type", "?")
+                            # Compact type log: record first occurrence of each type
+                            if etype not in seen_types:
+                                seen_types.append(etype)
+                            # For delta events log the delta sub-type too
+                            if etype == "content_block_delta":
+                                dtype = evt.get("delta", {}).get("type", "?")
+                                label = f"delta:{dtype}"
+                                if label not in seen_types:
+                                    seen_types.append(label)
                             loop.call_soon_threadsafe(queue.put_nowait, evt)
-                        except Exception:
-                            pass
+                        except Exception as parse_exc:
+                            log.warning(
+                                "Bedrock stream: failed to parse chunk (%s bytes): %s",
+                                len(chunk_bytes), parse_exc,
+                            )
             except Exception as exc:
                 loop.call_soon_threadsafe(queue.put_nowait, {"_error": str(exc)})
             finally:
+                log.info(
+                    "Bedrock invoke_model_with_response_stream done. Event types seen: %s",
+                    seen_types,
+                )
                 loop.call_soon_threadsafe(queue.put_nowait, None)  # sentinel
 
         executor_future = loop.run_in_executor(None, _run)
@@ -1024,17 +1052,58 @@ class BedrockProvider(BaseLLMProvider):
             else:
                 anthropic_msgs.append({"role": "user", "content": user})
 
-            # The queue-based async bridge in _stream_invoke_model handles
-            # thread execution internally; no separate _call_with_auto_refresh needed.
+            log.info(
+                "Bedrock stream_chat: entering THINKING path "
+                "(budget=%d max_tokens=%d model=%s)",
+                self.thinking_budget, self.thinking_budget + 8192, self.chat_model,
+            )
+            # Use _invoke_model_raw (synchronous invoke_model) which is confirmed to
+            # return thinking blocks.  We then emit the thinking content via on_thought
+            # and stream the text response in word-sized chunks for a live feel.
             try:
-                thinking_text, _, _, _ = await self._stream_invoke_model(
-                    system=system,
-                    messages=anthropic_msgs,
-                    on_chunk=on_chunk,
-                    on_thought=on_thought,
+                def _call_raw(msgs=anthropic_msgs):
+                    return self._invoke_model_raw(system, msgs)
+
+                result = await self._call_with_auto_refresh(_call_raw)
+                content_blocks = result.get("content", [])
+                log.info(
+                    "Bedrock stream_chat (thinking) raw result blocks: %s",
+                    [b.get("type", "?") for b in content_blocks],
                 )
+
+                thinking_parts = []
+                text_parts = []
+                for block in content_blocks:
+                    btype = block.get("type", "")
+                    if btype == "thinking":
+                        t = block.get("thinking", "")
+                        if t:
+                            thinking_parts.append(t)
+                    elif btype == "text":
+                        t = block.get("text", "")
+                        if t:
+                            text_parts.append(t)
+
+                thinking_text = "\n\n".join(thinking_parts)
                 self._last_thinking = thinking_text
-                log.info("Bedrock stream_chat thinking_len=%d", len(thinking_text))
+
+                # Emit thinking bubble before the response text.
+                if thinking_text and on_thought:
+                    await on_thought(thinking_text)
+
+                # Stream the text response word-by-word for a live UX.
+                full_text = "".join(text_parts)
+                words = full_text.split(" ")
+                for i, word in enumerate(words):
+                    chunk = word if i == len(words) - 1 else word + " "
+                    if chunk:
+                        await on_chunk(chunk)
+                        await asyncio.sleep(0)  # yield to event loop between words
+
+                log.info(
+                    "Bedrock stream_chat thinking_len=%d text_len=%d",
+                    len(thinking_text), len(full_text),
+                )
             except Exception as e:
                 log.error("Bedrock stream_chat (thinking) error: %s", e)
                 raise RuntimeError(f"AWS Bedrock error: {e}") from e
