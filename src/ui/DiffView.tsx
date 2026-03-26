@@ -17,7 +17,6 @@ import {
   collapseContext,
   getDiffStats,
   splitIntoHunks,
-  reconstructFromHunks,
   DiffLine,
   DiffHunk,
 } from '../utils/diffUtils';
@@ -36,14 +35,13 @@ export interface DiffInfo {
 }
 
 /**
- * Per-cell decision returned when the user clicks "Apply Selection".
+ * Per-cell decision shape — used by CellEditor.partialAcceptOperation.
+ * The per-cell UI is removed; the type is kept for the backend API.
  */
 export interface CellDecision {
   cellIndex: number;
   opType: 'insert' | 'modify' | 'delete';
-  /** For 'modify': the reconstructed content; for 'insert'/'delete': undefined */
   finalContent?: string;
-  /** Whether the whole-cell change is accepted (for insert/delete) */
   accept: boolean;
 }
 
@@ -53,14 +51,13 @@ export interface DiffViewProps {
   diffs: DiffInfo[];
   onAccept: (operationId: string) => void;
   onUndo:   (operationId: string) => void;
+  /** When set, the diff is resolved and rendered collapsed (no action buttons). */
+  resolved?: 'accepted' | 'undone';
 }
 
 // ────────────────────────────────────────────────────────────────
 // Helpers
 // ────────────────────────────────────────────────────────────────
-
-type HunkDecision = 'pending' | 'accepted' | 'rejected';
-type WholeDecision = 'pending' | 'accepted' | 'rejected';
 
 /** A single diff line rendered with gutter prefix + coloured background */
 const DiffLineRow: React.FC<{ line: DiffLine }> = ({ line }) => {
@@ -81,83 +78,51 @@ const DiffLineRow: React.FC<{ line: DiffLine }> = ({ line }) => {
 };
 
 // ────────────────────────────────────────────────────────────────
-// Per-hunk section inside a modify cell
+// Per-hunk section inside a modify cell (display only)
 // ────────────────────────────────────────────────────────────────
 
-const HunkSection: React.FC<{
-  hunk: DiffHunk;
-  decision: HunkDecision;
-  onDecide: (id: number, d: HunkDecision) => void;
-}> = ({ hunk, decision, onDecide }) => {
-  const hasChanges = hunk.deletedLines.length > 0 || hunk.insertedLines.length > 0;
-  const banner =
-    decision === 'accepted' ? 'ds-hunk-banner--accepted'
-    : decision === 'rejected' ? 'ds-hunk-banner--rejected'
-    : '';
-
-  return (
-    <div className={`ds-hunk-section ${banner}`}>
-      {/* Hunk control bar */}
-      <div className="ds-hunk-bar">
-        <span className="ds-hunk-label">
-          {hunk.deletedLines.length > 0 && (
-            <span className="ds-hunk-del">−{hunk.deletedLines.length}</span>
-          )}
-          {hunk.insertedLines.length > 0 && (
-            <span className="ds-hunk-ins">+{hunk.insertedLines.length}</span>
-          )}
-          &nbsp;lines
-        </span>
-        {hasChanges && (
-          <span className="ds-hunk-btns">
-            <button
-              className={`ds-hunk-btn ds-hunk-btn--accept ${decision === 'accepted' ? 'ds-hunk-btn--active' : ''}`}
-              onClick={() => onDecide(hunk.id, decision === 'accepted' ? 'pending' : 'accepted')}
-              title="Accept this change"
-            >✓ Accept</button>
-            <button
-              className={`ds-hunk-btn ds-hunk-btn--reject ${decision === 'rejected' ? 'ds-hunk-btn--active' : ''}`}
-              onClick={() => onDecide(hunk.id, decision === 'rejected' ? 'pending' : 'rejected')}
-              title="Reject this change"
-            >✕ Reject</button>
-          </span>
+const HunkSection: React.FC<{ hunk: DiffHunk }> = ({ hunk }) => (
+  <div className="ds-hunk-section">
+    <div className="ds-hunk-bar">
+      <span className="ds-hunk-label">
+        {hunk.deletedLines.length > 0 && (
+          <span className="ds-hunk-del">−{hunk.deletedLines.length}</span>
         )}
-      </div>
-
-      {/* Diff lines for this hunk (with context) */}
-      <div className="ds-diff-lines ds-diff-lines--hunk">
-        {hunk.displayLines.map((line, i) => (
-          <DiffLineRow key={i} line={line} />
-        ))}
-      </div>
+        {hunk.insertedLines.length > 0 && (
+          <span className="ds-hunk-ins">+{hunk.insertedLines.length}</span>
+        )}
+        &nbsp;lines
+      </span>
     </div>
-  );
-};
+    <div className="ds-diff-lines ds-diff-lines--hunk">
+      {hunk.displayLines.map((line, i) => (
+        <DiffLineRow key={i} line={line} />
+      ))}
+    </div>
+  </div>
+);
 
 // ────────────────────────────────────────────────────────────────
-// Per-cell expandable section
+// Per-cell expandable section (display only — no per-cell decisions)
 // ────────────────────────────────────────────────────────────────
 
 const CellDiffSection: React.FC<{
   info: DiffInfo;
   defaultOpen: boolean;
-  onCellDecisions: (cellIndex: number, finalContent: string | undefined, accept: boolean) => void;
-}> = ({ info, defaultOpen, onCellDecisions }) => {
+}> = ({ info, defaultOpen }) => {
   const [open, setOpen] = useState(defaultOpen);
 
   const diffLines = useMemo(
     () => computeLineDiff(info.original, info.modified),
     [info.original, info.modified],
   );
-  const stats  = useMemo(() => getDiffStats(diffLines), [diffLines]);
-  const hunks  = useMemo(() => splitIntoHunks(diffLines, 2), [diffLines]);
+  const stats = useMemo(() => getDiffStats(diffLines), [diffLines]);
+  const hunks = useMemo(() => splitIntoHunks(diffLines, 2), [diffLines]);
 
-  // For 'modify' ops: per-hunk decisions
-  const [hunkDecisions, setHunkDecisions] = useState<Record<number, HunkDecision>>({});
-  // For 'insert'/'delete' ops: whole-cell decision
-  const [wholeDecision, setWholeDecision] = useState<WholeDecision>('pending');
-
-  const opLabel    = info.opType === 'insert' ? 'new' : info.opType === 'delete' ? 'deleted' : 'modified';
+  const opLabel =
+    info.opType === 'insert' ? 'new'
+    : info.opType === 'delete' ? 'deleted'
+    : 'modified';
   const statsLabel =
     info.opType === 'insert'  ? `+${stats.insertions}`
     : info.opType === 'delete' ? `−${stats.deletions}`
@@ -165,31 +130,8 @@ const CellDiffSection: React.FC<{
 
   const hasChanges = stats.insertions > 0 || stats.deletions > 0;
 
-  // Determine if any decision has been made in this cell
-  const decidedHunks   = Object.values(hunkDecisions).filter(d => d !== 'pending').length;
-  const totalHunks     = hunks.length;
-  const hasWholeChoice = info.opType !== 'modify' && wholeDecision !== 'pending';
-
-  // Notify parent whenever decisions change for this cell
-  const handleHunkDecide = (id: number, d: HunkDecision) => {
-    const next = { ...hunkDecisions, [id]: d };
-    setHunkDecisions(next);
-    // Reconstruct and bubble up
-    const finalContent = reconstructFromHunks(
-      diffLines, hunks,
-      Object.entries(next).reduce<Record<string, 'accepted' | 'rejected'>>((acc, [k, v]) => { acc[k] = v === 'pending' ? 'accepted' : v as 'accepted' | 'rejected'; return acc; }, {}),
-    );
-    onCellDecisions(info.cellIndex, finalContent, true);
-  };
-
-  const handleWholeDecide = (d: WholeDecision) => {
-    setWholeDecision(d);
-    onCellDecisions(info.cellIndex, undefined, d !== 'rejected');
-  };
-
   return (
     <div className="ds-diff-cell-section">
-      {/* Cell header row */}
       <button className="ds-diff-cell-header" onClick={() => setOpen(o => !o)} title={info.description}>
         <span className="ds-diff-cell-toggle">{open ? '▾' : '▸'}</span>
         <span className={`ds-diff-op-badge ds-diff-op-badge--${info.opType}`}>{opLabel}</span>
@@ -197,42 +139,11 @@ const CellDiffSection: React.FC<{
         <span className="ds-diff-cell-pos">#{info.cellIndex + 1}</span>
         {info.description && <span className="ds-diff-cell-desc">{info.description}</span>}
         {hasChanges && <span className={`ds-diff-stats ds-diff-stats--${info.opType}`}>{statsLabel}</span>}
-        {info.opType === 'modify' && totalHunks > 0 && (
-          <span className="ds-hunk-progress">
-            {decidedHunks}/{totalHunks} decided
-          </span>
-        )}
       </button>
 
       {open && (
         <div className="ds-diff-cell-body">
-          {/* Whole-cell toggle for insert / delete */}
-          {info.opType !== 'modify' && (
-            <div className="ds-hunk-bar ds-hunk-bar--whole">
-              <span className="ds-hunk-label">
-                {info.opType === 'insert' ? 'New cell' : 'Deleted cell'}
-              </span>
-              <span className="ds-hunk-btns">
-                <button
-                  className={`ds-hunk-btn ds-hunk-btn--accept ${wholeDecision === 'accepted' ? 'ds-hunk-btn--active' : ''}`}
-                  onClick={() => handleWholeDecide(wholeDecision === 'accepted' ? 'pending' : 'accepted')}
-                  title="Accept this cell"
-                >✓ Accept</button>
-                <button
-                  className={`ds-hunk-btn ds-hunk-btn--reject ${wholeDecision === 'rejected' ? 'ds-hunk-btn--active' : ''}`}
-                  onClick={() => handleWholeDecide(wholeDecision === 'rejected' ? 'pending' : 'rejected')}
-                  title="Reject this cell"
-                >✕ Reject</button>
-              </span>
-              {(hasWholeChoice) && (
-                <span className={`ds-hunk-status ${wholeDecision === 'accepted' ? 'ds-hunk-status--accepted' : 'ds-hunk-status--rejected'}`}>
-                  {wholeDecision === 'accepted' ? '✓ Will keep' : '✕ Will discard'}
-                </span>
-              )}
-            </div>
-          )}
-
-          {/* Per-hunk sections for modify */}
+          {/* modify: show per-hunk sections */}
           {info.opType === 'modify' && hunks.length === 0 && (
             <div className="ds-diff-line ds-diff-line--equal">
               <span className="ds-diff-gutter"> </span>
@@ -240,15 +151,10 @@ const CellDiffSection: React.FC<{
             </div>
           )}
           {info.opType === 'modify' && hunks.map(hunk => (
-            <HunkSection
-              key={hunk.id}
-              hunk={hunk}
-              decision={hunkDecisions[hunk.id] ?? 'pending'}
-              onDecide={handleHunkDecide}
-            />
+            <HunkSection key={hunk.id} hunk={hunk} />
           ))}
 
-          {/* Fallback: show full collapsed diff when there are no discrete hunks */}
+          {/* insert / delete: show full diff */}
           {info.opType !== 'modify' && (
             <div className="ds-diff-lines">
               {collapseContext(diffLines, 3).map((line, i) => (
@@ -272,6 +178,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
   diffs,
   onAccept,
   onUndo,
+  resolved,
 }) => {
   const totalCells   = diffs.length;
   const cellLabel    = totalCells > 0
@@ -291,54 +198,103 @@ export const DiffView: React.FC<DiffViewProps> = ({
     : totalDeletions  > 0 ? `−${totalDeletions}`
     : '';
 
+  // Unresolved: start expanded. Resolved: always show as collapsed static strip.
+  const [expanded, setExpanded] = useState(!resolved);
+
+  // Collapse immediately when resolved prop changes (e.g. just after user clicks Accept).
+  React.useEffect(() => {
+    if (resolved) setExpanded(false);
+  }, [resolved]);
+
+  const resolvedLabel = resolved === 'accepted' ? '✓ Changes accepted' : '↩ Changes undone';
+  const resolvedMod   = resolved === 'accepted' ? 'ds-diff-view--accepted' : 'ds-diff-view--undone';
+
   return (
-    <div className="ds-diff-view">
+    <div className={`ds-diff-view${resolved ? ` ds-diff-view--resolved ${resolvedMod}` : ''}`}>
       {/* ── Header ── */}
       <div className="ds-diff-header">
         <div className="ds-diff-header-info">
-          {cellLabel && (
-            <span className="ds-diff-header-cells">{cellLabel}</span>
+          {resolved ? (
+            <>
+              <span className="ds-diff-resolved-label">{resolvedLabel}</span>
+              {cellLabel && <span className="ds-diff-header-cells">{cellLabel}</span>}
+              {statsLabel && <span className="ds-diff-header-stats">{statsLabel}</span>}
+            </>
+          ) : (
+            <>
+              {cellLabel && <span className="ds-diff-header-cells">{cellLabel}</span>}
+              {description && (
+                <span className="ds-diff-header-desc" title={description}>{description}</span>
+              )}
+              {statsLabel && <span className="ds-diff-header-stats">{statsLabel}</span>}
+            </>
           )}
-          {description && (
-            <span className="ds-diff-header-desc" title={description}>{description}</span>
-          )}
-          {statsLabel && <span className="ds-diff-header-stats">{statsLabel}</span>}
         </div>
 
         <div className="ds-diff-header-actions">
-          <button
-            className="ds-assistant-btn ds-assistant-btn-accept"
-            onClick={() => onAccept(operationId)}
-            title="Accept all changes in all cells"
-          >✓ Accept</button>
+          {resolved ? (
+            /* Resolved: expand / collapse toggle only — no Accept/Reject */
+            <button
+              className="ds-diff-expand-btn"
+              onClick={() => setExpanded(e => !e)}
+              title={expanded ? 'Collapse diff' : 'Expand diff'}
+            >{expanded ? '⌃ Hide' : '⌄ Show'}</button>
+          ) : (
+            <>
+              <button
+                className="ds-assistant-btn ds-assistant-btn-accept"
+                onClick={() => onAccept(operationId)}
+                title="Accept all changes in all cells"
+              >✓ Accept</button>
 
-          <button
-            className="ds-assistant-btn ds-assistant-btn-undo"
-            onClick={() => onUndo(operationId)}
-            title="Reject all changes"
-          >✕ Reject</button>
+              <button
+                className="ds-assistant-btn ds-assistant-btn-undo"
+                onClick={() => onUndo(operationId)}
+                title="Reject all changes"
+              >✕ Reject</button>
+            </>
+          )}
         </div>
       </div>
 
-      {/* Hint — only shown when there are actual diff cells to review */}
-      {totalCells > 0 && (
+      {/* Hint — only shown when active (not yet resolved) */}
+      {!resolved && totalCells > 0 && (
         <div className="ds-diff-hint">
-          Use ✓ / ✕ buttons on each change block to review individual hunks,
-          or use <strong>✓ Accept</strong> / <strong>✕ Reject</strong> to act on all changes at once.
+          Review the changes below, then use <strong>✓ Accept</strong> or <strong>✕ Reject</strong> above.
         </div>
       )}
 
-      {/* ── Per-cell diffs ── */}
-      <div className="ds-diff-cells">
-        {diffs.map((d, i) => (
-          <CellDiffSection
-            key={i}
-            info={d}
-            defaultOpen={defaultOpen}
-            onCellDecisions={() => {}}
-          />
-        ))}
-      </div>
+      {/* ── Resolved collapsed: 2-line preview ── */}
+      {resolved && !expanded && (() => {
+        const previewLines: DiffLine[] = [];
+        for (const d of diffs) {
+          const lines = computeLineDiff(d.original, d.modified)
+            .filter(l => l.type !== 'equal');
+          previewLines.push(...lines);
+          if (previewLines.length >= 2) break;
+        }
+        return previewLines.length > 0 ? (
+          <div className="ds-diff-preview">
+            {previewLines.slice(0, 2).map((line, i) => (
+              <DiffLineRow key={i} line={line} />
+            ))}
+            <div className="ds-diff-preview-more">···</div>
+          </div>
+        ) : null;
+      })()}
+
+      {/* ── Per-cell diffs — shown when expanded (both pending and resolved) ── */}
+      {expanded && (
+        <div className="ds-diff-cells">
+          {diffs.map((d, i) => (
+            <CellDiffSection
+              key={i}
+              info={d}
+              defaultOpen={defaultOpen}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 };

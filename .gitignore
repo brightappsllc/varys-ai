@@ -59,6 +59,9 @@ htmlcov/
 # Logs
 *.log
 
+# Deploy
+deploy.sh
+
 # Environment variables
 .env
 .env.local

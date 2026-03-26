@@ -21,8 +21,45 @@ from ..memory.injection import (
     detect_explicit_preference as _detect_explicit_pref,
 )
 from ..utils.config import get_config as _get_cfg
+from ..usage_writer import UsageWriter
 
 log = logging.getLogger(__name__)
+
+_usage_writer = UsageWriter()
+
+
+def _fire_usage(provider, notebook_path: str, context: str) -> None:
+    """Fire-and-forget usage write; all errors are logged."""
+    try:
+        usage = getattr(provider, "last_usage", None)
+        if not usage:
+            log.debug("_fire_usage: no last_usage on provider %s", type(provider).__name__)
+            return
+        vendor = getattr(provider, "VENDOR", "unknown")
+        # AnthropicProvider stores the model on its inner ClaudeClient
+        _inner = getattr(provider, "_chat_client", None)
+        model = (
+            getattr(_inner, "model", None)
+            or getattr(provider, "chat_model", None)
+            or "unknown"
+        )
+        log.info(
+            "usage: vendor=%s model=%s in=%s out=%s context=%s",
+            vendor, model, usage.get("input", 0), usage.get("output", 0), context,
+        )
+        asyncio.create_task(
+            asyncio.to_thread(
+                _usage_writer.write,
+                vendor=vendor,
+                model=model,
+                tokens_in=usage.get("input", 0),
+                tokens_out=usage.get("output", 0),
+                chat_id=notebook_path or None,
+                context=context,
+            )
+        )
+    except Exception as _ue:
+        log.warning("Usage write failed: %s", _ue, exc_info=True)
 
 
 def _strip_null(text: str) -> str:
@@ -779,8 +816,8 @@ class TaskHandler(JupyterHandler):
         # directory (the common case) are NOT visible to the global loader.
         # We therefore check the global loader first, then fall back to a
         # per-request loader that uses the notebook path.
+        _skill_meta = None
         if slash_command:
-            _skill_meta = None
             # 1. Try the global pre-loaded loader (fast path, startup-time root)
             _global_loader = self.settings.get("ds_assistant_skill_loader")
             if _global_loader is not None:
@@ -1225,6 +1262,7 @@ class TaskHandler(JupyterHandler):
                     log.info("TOKEN_DEBUG chat last_usage=%r  provider=%r", usage, type(provider).__name__)
                     if usage:
                         done_event["tokenUsage"] = usage
+                    _fire_usage(provider, notebook_path, "chat")
                     if warnings:
                         done_event["warnings"] = warnings
                     if rag_sources:
@@ -1528,6 +1566,11 @@ class TaskHandler(JupyterHandler):
             log.info("TOKEN_DEBUG last_usage=%r  provider=%r", usage, type(provider).__name__)
             if usage:
                 response["tokenUsage"] = usage
+            _fire_usage(
+                provider,
+                notebook_path,
+                "skill" if _skill_meta else "chat",
+            )
 
             if warnings:
                 response["warnings"] = warnings
@@ -1569,8 +1612,44 @@ class TaskHandler(JupyterHandler):
                 self.finish()
                 return
 
-            # Check for prompt-too-long errors (context budget exceeded).
+            # Check for API overload / rate-limit errors.
             _err_lower = str(e).lower()
+            _is_overloaded = (
+                "overloaded" in _err_lower
+                or "overload_error" in _err_lower
+                or "529" in _err_lower
+            )
+            if _is_overloaded:
+                _msg = (
+                    "⚠️ The API is temporarily overloaded. "
+                    "Please wait a few seconds and try again."
+                )
+                self.set_status(200)
+                self.set_header("Content-Type", "text/event-stream")
+                self.write(f"data: {json.dumps({'type': 'done', 'operationId': operation_id, 'steps': [], 'requiresApproval': False, 'clarificationNeeded': None, 'cellInsertionMode': 'chat', 'chatResponse': _msg, 'summary': 'API overloaded'})}\n\n")
+                self.finish()
+                return
+
+            # Check for billing / credit errors.
+            _is_billing = (
+                "credit balance is too low" in _err_lower
+                or "billing" in _err_lower
+                or "payment" in _err_lower
+                or "your account" in _err_lower and "upgrade" in _err_lower
+            )
+            if _is_billing:
+                _msg = (
+                    "💳 Your API credit balance is too low. "
+                    "Please add credits in your provider's billing dashboard. "
+                    "Note: it can take **5–15 minutes** for new credits to become active."
+                )
+                self.set_status(200)
+                self.set_header("Content-Type", "text/event-stream")
+                self.write(f"data: {json.dumps({'type': 'done', 'operationId': operation_id, 'steps': [], 'requiresApproval': False, 'clarificationNeeded': None, 'cellInsertionMode': 'chat', 'chatResponse': _msg, 'summary': 'Billing error'})}\n\n")
+                self.finish()
+                return
+
+            # Check for prompt-too-long errors (context budget exceeded).
             _is_ctx_long = (
                 "prompt is too long" in _err_lower
                 or "context length exceeded" in _err_lower

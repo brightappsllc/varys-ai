@@ -24,6 +24,8 @@ _VISION_PREFIXES = (
 
 
 class OpenRouterProvider(OpenAIProvider):
+    VENDOR = "openrouter"
+
     """Thin wrapper around OpenAIProvider pointing at openrouter.ai."""
 
     def __init__(

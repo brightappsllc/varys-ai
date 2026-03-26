@@ -8,8 +8,7 @@
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
 [![MCP compatible](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io/)
 [![Ollama](https://img.shields.io/badge/Ollama-local%20models-black.svg)](https://ollama.com/)
-[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)](CHANGELOG.md)
-[![GitHub last commit](https://img.shields.io/github/last-commit/brightappsllc/varys-ai)](https://github.com/brightappsllc/varys-ai/commits/main)
+[![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)](CHANGELOG.md)
 
 **Varys-ai** is an AI-powered data science assistant that lives inside JupyterLab.
 Chat with it, ask it to write code, run EDA, generate plots, review your notebook, or complete your code inline — all without leaving the notebook interface.

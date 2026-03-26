@@ -2,6 +2,7 @@
  * SidebarWidget - Main chat interface for Varys.
  * Renders as a ReactWidget in the JupyterLab right sidebar.
  */
+import React from 'react';
 import { ReactWidget } from '@jupyterlab/apputils';
 import { INotebookTracker } from '@jupyterlab/notebook';
 import { APIClient } from '../api/client';
@@ -71,6 +72,11 @@ export declare function dispatchNonNotebookFocus(filePath?: string): void;
 type NotebookActivatedCb = (path: string) => void;
 export declare function setNotebookActivatedCallback(fn: NotebookActivatedCb | null): void;
 export declare function dispatchNotebookActivated(path: string): void;
+export declare const FileAgentConfigPanel: React.FC<{
+    notebookPath: string;
+    apiClient: APIClient;
+    onClose: () => void;
+}>;
 export declare class DSAssistantSidebar extends ReactWidget {
     private _props;
     constructor(props: SidebarProps);

@@ -6,8 +6,9 @@
  * name, change type and Accept / Reject controls.  The inline diff is
  * available collapsed for quick reference.
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { FileDiffView } from './FileDiffView';
+import { computeLineDiff, getDiffStats } from '../utils/diffUtils';
 
 export interface FileChangeEvent {
   change_id: string;
@@ -38,7 +39,7 @@ export const FileChangeCard: React.FC<FileChangeCardProps> = ({
   xsrfToken,
   onResolved,
 }) => {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);   // start open so diff is visible immediately
   const [state, setState] = useState<CardState>(event.content_deferred ? 'pending' : 'loaded');
   const [loadedOriginal, setLoadedOriginal] = useState<string | null>(event.original_content);
   const [loadedNew, setLoadedNew] = useState<string | null>(event.new_content);
@@ -46,6 +47,14 @@ export const FileChangeCard: React.FC<FileChangeCardProps> = ({
 
   const effectiveOriginal = loadedOriginal;
   const effectiveNew = loadedNew;
+
+  // Auto-load deferred content on mount so the diff is visible immediately.
+  useEffect(() => {
+    if (event.content_deferred && state === 'pending') {
+      void handleLoadDiff();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleLoadDiff = async () => {
     setState('loading');
@@ -120,50 +129,89 @@ export const FileChangeCard: React.FC<FileChangeCardProps> = ({
     }
   };
 
-  const isResolved = state === 'accepted' || state === 'rejected';
+  const isResolved  = state === 'accepted' || state === 'rejected';
+  const fname       = event.file_path.split('/').pop() ?? event.file_path;
   const changeTypeBadge =
     event.change_type === 'created' ? 'new'
     : event.change_type === 'deleted' ? 'deleted'
     : 'modified';
 
+  // Compute line-change stats to show in the header (replaces the FileDiffView header).
+  const diffStats = useMemo(() => {
+    const orig = effectiveOriginal ?? '';
+    const next = effectiveNew ?? '';
+    return getDiffStats(computeLineDiff(orig, next));
+  }, [effectiveOriginal, effectiveNew]);
+  const statsLabel =
+    event.change_type === 'created' ? `+${diffStats.insertions}`
+    : event.change_type === 'deleted' ? `−${diffStats.deletions}`
+    : diffStats.insertions > 0 || diffStats.deletions > 0
+      ? `+${diffStats.insertions} / −${diffStats.deletions}`
+      : '';
+
   const showDiffBody =
     (state === 'loaded') ||
     (!event.content_deferred && state !== 'error' && state !== 'pending');
 
+  // Resolved header label
+  const resolvedLabel =
+    state === 'accepted'
+      ? `✓ Changes accepted — ${fname}`
+      : `✕ Changes rejected — ${fname}`;
+  const resolvedMod =
+    state === 'accepted' ? 'ds-file-change-card--accepted' : 'ds-file-change-card--rejected';
+
+  if (isResolved) {
+    return (
+      <div className={`ds-file-change-card ds-file-change-card--resolved ${resolvedMod}`}>
+        <div className="ds-file-change-card__header">
+          <span className="ds-file-change-card__resolved-label">{resolvedLabel}</span>
+          <button
+            className="ds-diff-expand-btn"
+            onClick={() => setExpanded(e => !e)}
+            title={expanded ? 'Collapse' : 'Expand'}
+          >{expanded ? '⌃ Hide' : '⌄ Show'}</button>
+        </div>
+        {expanded && (
+          <div className="ds-file-change-card__body">
+            <FileDiffView
+              filePath={event.file_path}
+              originalContent={effectiveOriginal}
+              newContent={effectiveNew}
+              changeType={event.change_type}
+            />
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className={`ds-file-change-card ds-file-change-card--${state}`}>
-      {/* Card header */}
+      {/* Card header — toggle + change-type badge + stats (no redundant path) */}
       <div
         className="ds-file-change-card__header"
-        onClick={() => !isResolved && setExpanded(e => !e)}
-        style={{ cursor: isResolved ? 'default' : 'pointer' }}
+        onClick={() => setExpanded(e => !e)}
+        style={{ cursor: 'pointer' }}
       >
         <span className="ds-file-change-card__toggle">{expanded ? '▾' : '▸'}</span>
         <span className={`ds-file-diff-type-badge ds-file-diff-type-badge--${event.change_type}`}>
           {changeTypeBadge}
         </span>
-        <span className="ds-file-change-card__path" title={event.file_path}>
-          {event.file_path}
-        </span>
-        <span className="ds-file-change-card__counter">
-          {event.index} of {event.total_changes}
-        </span>
-        {state === 'accepted' && (
-          <span className="ds-file-change-card__resolved ds-file-change-card__resolved--accepted">
-            Accepted ✓
-          </span>
+        <span className="ds-file-change-card__fname" title={event.file_path}>{fname}</span>
+        {statsLabel && (
+          <span className="ds-file-change-card__stats">{statsLabel}</span>
         )}
-        {state === 'rejected' && (
-          <span className="ds-file-change-card__resolved ds-file-change-card__resolved--rejected">
-            Rejected ✕
+        {event.total_changes > 1 && (
+          <span className="ds-file-change-card__counter">
+            {event.index} of {event.total_changes}
           </span>
         )}
       </div>
 
       {/* Card body */}
-      {expanded && !isResolved && (
+      {expanded && (
         <div className="ds-file-change-card__body">
-          {/* Deferred content loader */}
           {event.content_deferred && state === 'pending' && (
             <button className="ds-file-change-card__load-btn" onClick={handleLoadDiff}>
               File too large to preview inline — click to load diff
@@ -185,33 +233,22 @@ export const FileChangeCard: React.FC<FileChangeCardProps> = ({
                   ⚠ Accepting will move this file to <code>.varys_deleted/</code> (recoverable).
                 </div>
               )}
+              <div className="ds-file-change-card__actions">
+                <button className="ds-assistant-btn ds-assistant-btn-accept" onClick={handleAccept}>
+                  ✓ Accept
+                </button>
+                <button className="ds-assistant-btn ds-assistant-btn-undo" onClick={handleReject}>
+                  ✕ Reject
+                </button>
+              </div>
             </>
           )}
           {state === 'error' && (
             <div className="ds-file-change-card__error">{errorMsg}</div>
           )}
-
-          {/* Action buttons */}
-          {showDiffBody && (
-            <div className="ds-file-change-card__actions">
-              <button
-                className="ds-assistant-btn ds-assistant-btn-accept"
-                onClick={handleAccept}
-              >
-                ✓ Accept
-              </button>
-              <button
-                className="ds-assistant-btn ds-assistant-btn-undo"
-                onClick={handleReject}
-              >
-                ✕ Reject
-              </button>
-            </div>
-          )}
         </div>
       )}
 
-      {/* Inline error shown when card is collapsed */}
       {errorMsg && !expanded && (
         <div className="ds-file-change-card__error ds-file-change-card__error--inline">
           {errorMsg}

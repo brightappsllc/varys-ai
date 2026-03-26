@@ -41,6 +41,8 @@ _PLAN_SCHEMA = {
 }
 
 class GoogleProvider(BaseLLMProvider):
+    VENDOR = "google"
+
     """Calls the Google Gemini API via google-generativeai."""
 
     def __init__(

@@ -249,6 +249,17 @@ interface Message {
    * Used to correlate the chat bubble with its pending DiffView.
    */
   operationId?: string;
+  /**
+   * Diff data for the cell-edit operation this turn produced.
+   * Stored directly on the message so it survives React re-renders,
+   * thread switches, and page refreshes (serialised into the chat file).
+   */
+  diffs?: DiffInfo[];
+  /**
+   * Set after the user resolves the diff — drives the collapsed inline DiffView.
+   * Persisted to disk so the collapsed view survives page refresh.
+   */
+  diffResolved?: 'accepted' | 'undone';
   timestamp: Date;
   /** For report messages: metadata returned by the backend */
   reportMeta?: {
@@ -510,6 +521,8 @@ interface PendingOp {
    * registered in CellEditor, in execution order.  Accept/Undo iterates these.
    */
   compositeOpIds?: string[];
+  /** Set after the user resolves the op — keeps the diff visible but collapsed. */
+  resolved?: 'accepted' | 'undone';
 }
 
 export interface SidebarProps {
@@ -1427,6 +1440,22 @@ const SETTINGS_NAV_GROUPS: NavGroup[] = [
       },
     ],
   },
+  {
+    label: 'Analytics',
+    items: [
+      {
+        id: 'usage',
+        label: 'Usage',
+        icon: (
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.3">
+            <rect x="1" y="9" width="3" height="5" rx="0.5"/>
+            <rect x="6" y="5" width="3" height="9" rx="0.5"/>
+            <rect x="11" y="1" width="3" height="13" rx="0.5"/>
+          </svg>
+        ),
+      },
+    ],
+  },
 ];
 
 const SECTION_HEADING_MAP: Record<string, string> = {
@@ -1438,6 +1467,7 @@ const SECTION_HEADING_MAP: Record<string, string> = {
   'indexing':        'Indexing & Docs',
   'tags':            'Tags',
   'memory':          'Long-term memory',
+  'usage':           'Usage',
 };
 
 const SUB_SECTION_LABEL_MAP: Record<string, string> = {
@@ -2666,7 +2696,7 @@ const FILE_AGENT_CONFIG_KEYS = [
   'VARYS_AGENT_PROVIDER',
 ] as const;
 
-const FileAgentConfigPanel: React.FC<{
+export const FileAgentConfigPanel: React.FC<{
   notebookPath: string;
   apiClient: APIClient;
   onClose: () => void;
@@ -2883,6 +2913,245 @@ const AgentToolErrorBanner: React.FC<{
 
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// UsageTab — LLM token usage heatmap + summary
+// ---------------------------------------------------------------------------
+
+const USAGE_BASE = '/varys/usage';
+const PERIODS = ['Day', 'Week', 'Month', 'Year', 'All'] as const;
+type UsagePeriod = typeof PERIODS[number];
+
+interface UsageTotals { in: number; out: number; total: number; }
+interface HeatmapData  { [date: string]: number; }
+
+function _usageFetch(action: string, params: Record<string, string> = {}): Promise<Response> {
+  const qs = new URLSearchParams({ action, ...params }).toString();
+  return fetch(`${USAGE_BASE}?${qs}`);
+}
+
+function _buildHeatmapGrid(data: HeatmapData): Array<Array<{ date: string | null; value: number }>> {
+  const today   = new Date();
+  today.setHours(0, 0, 0, 0);
+  const start   = new Date(today);
+  start.setDate(today.getDate() - 364);
+
+  // Build week columns. Each column = 7 slots (Sun–Sat), null = padding.
+  const startDow = start.getDay(); // 0=Sun
+  const columns: Array<Array<{ date: string | null; value: number }>> = [];
+  let col: Array<{ date: string | null; value: number }> = Array.from({ length: startDow }, () => ({ date: null, value: 0 }));
+
+  const cur = new Date(start);
+  while (cur <= today) {
+    const iso   = cur.toISOString().slice(0, 10);
+    const value = data[iso] ?? 0;
+    col.push({ date: iso, value });
+    if (col.length === 7) { columns.push(col); col = []; }
+    cur.setDate(cur.getDate() + 1);
+  }
+  if (col.length > 0) {
+    while (col.length < 7) col.push({ date: null, value: 0 });
+    columns.push(col);
+  }
+  return columns;
+}
+
+function _heatmapColor(value: number, max: number): string {
+  if (value === 0 || max === 0) return 'var(--ds-heatmap-0)';
+  const ratio = value / max;
+  if (ratio <= 0.20) return 'var(--ds-heatmap-1)';
+  if (ratio <= 0.40) return 'var(--ds-heatmap-2)';
+  if (ratio <= 0.65) return 'var(--ds-heatmap-3)';
+  if (ratio <= 0.85) return 'var(--ds-heatmap-4)';
+  return 'var(--ds-heatmap-5)';
+}
+
+function _monthLabel(columns: Array<Array<{ date: string | null; value: number }>>, colIdx: number): string | null {
+  const firstCell = columns[colIdx].find(c => c.date !== null);
+  if (!firstCell || !firstCell.date) return null;
+  const d = new Date(firstCell.date + 'T00:00:00');
+  if (colIdx === 0) return d.toLocaleString('default', { month: 'short' });
+  const prevCell = columns[colIdx - 1].find(c => c.date !== null);
+  if (!prevCell || !prevCell.date) return null;
+  const prev = new Date(prevCell.date + 'T00:00:00');
+  return d.getMonth() !== prev.getMonth() ? d.toLocaleString('default', { month: 'short' }) : null;
+}
+
+const DOW_LABELS: Record<number, string> = { 1: 'M', 3: 'W', 5: 'F' };
+
+const UsageTab: React.FC<{ apiClient: APIClient }> = ({ apiClient }) => {
+  const [models,        setModels]        = React.useState<string[]>([]);
+  const [selectedModel, setSelectedModel] = React.useState<string>('');
+  const [period,        setPeriod]        = React.useState<UsagePeriod>('Month');
+  const [totals,        setTotals]        = React.useState<UsageTotals>({ in: 0, out: 0, total: 0 });
+  const [heatmap,       setHeatmap]       = React.useState<HeatmapData>({});
+  const [loading,       setLoading]       = React.useState(true);
+
+  const fetchHeatmap = React.useCallback(async (model: string) => {
+    const params: Record<string, string> = {};
+    if (model) params.model = model;
+    try {
+      const r = await _usageFetch('heatmap', params);
+      const j = await r.json();
+      setHeatmap(j.data ?? {});
+    } catch { /* swallowed */ }
+  }, []);
+
+  const fetchTotals = React.useCallback(async (model: string, p: UsagePeriod) => {
+    const params: Record<string, string> = { period: p.toLowerCase() };
+    if (model) params.model = model;
+    try {
+      const r = await _usageFetch('totals', params);
+      const j = await r.json();
+      setTotals(j.data ?? { in: 0, out: 0, total: 0 });
+    } catch { /* swallowed */ }
+  }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const [rModels, rHeatmap, rTotals] = await Promise.all([
+          _usageFetch('models'),
+          _usageFetch('heatmap'),
+          _usageFetch('totals', { period: 'month' }),
+        ]);
+        if (cancelled) return;
+        const [jM, jH, jT] = await Promise.all([rModels.json(), rHeatmap.json(), rTotals.json()]);
+        if (cancelled) return;
+        setModels(jM.data ?? []);
+        setHeatmap(jH.data ?? {});
+        setTotals(jT.data ?? { in: 0, out: 0, total: 0 });
+      } catch { /* swallowed */ } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleModelChange = async (model: string) => {
+    setSelectedModel(model);
+    await Promise.all([fetchHeatmap(model), fetchTotals(model, period)]);
+  };
+
+  const handlePeriodChange = async (p: UsagePeriod) => {
+    setPeriod(p);
+    await fetchTotals(selectedModel, p);
+  };
+
+  const handleExport = async () => {
+    try {
+      const r = await _usageFetch('export');
+      const blob = await r.blob();
+      const cd   = r.headers.get('Content-Disposition') ?? '';
+      const match = /filename="([^"]+)"/.exec(cd);
+      const fname = match ? match[1] : `varys_usage_export_${new Date().toISOString().slice(0, 10)}.jsonl`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = fname; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch { /* swallowed */ }
+  };
+
+  const columns  = _buildHeatmapGrid(heatmap);
+  const maxValue = Math.max(...Object.values(heatmap), 0);
+
+  if (loading) {
+    return <div className="ds-usage-loading">Loading usage data…</div>;
+  }
+
+  return (
+    <div className="ds-usage-tab">
+      {/* Filter bar */}
+      <div className="ds-usage-filter-bar">
+        <div className="ds-usage-filter-left">
+          <label className="ds-usage-filter-label">Model</label>
+          <select
+            className="ds-settings-select ds-usage-model-select"
+            value={selectedModel}
+            onChange={e => handleModelChange(e.target.value)}
+          >
+            <option value="">All</option>
+            {models.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
+        <button className="ds-usage-export-btn" onClick={handleExport}>Export</button>
+      </div>
+
+      {/* Summary cards */}
+      <div className="ds-usage-cards">
+        <div className="ds-usage-card">
+          <span className="ds-usage-card-label">Tokens in</span>
+          <span className="ds-usage-card-value">{totals.in.toLocaleString()}</span>
+        </div>
+        <div className="ds-usage-card">
+          <span className="ds-usage-card-label">Tokens out</span>
+          <span className="ds-usage-card-value">{totals.out.toLocaleString()}</span>
+        </div>
+        <div className="ds-usage-card">
+          <span className="ds-usage-card-label">Total</span>
+          <span className="ds-usage-card-value">{totals.total.toLocaleString()}</span>
+        </div>
+      </div>
+
+      {/* Period pills */}
+      <div className="ds-usage-period-pills">
+        {PERIODS.map(p => (
+          <button
+            key={p}
+            className={`ds-usage-pill${period === p ? ' ds-usage-pill--active' : ''}`}
+            onClick={() => handlePeriodChange(p)}
+          >{p}</button>
+        ))}
+      </div>
+
+      {/* Heatmap */}
+      <div className="ds-usage-heatmap-wrap">
+        <div className="ds-usage-heatmap">
+          {/* Month labels row */}
+          <div className="ds-usage-heatmap-months">
+            <div className="ds-usage-heatmap-dow-spacer" />
+            {columns.map((_, ci) => (
+              <div key={ci} className="ds-usage-heatmap-month-cell">
+                {_monthLabel(columns, ci) && (
+                  <span className="ds-usage-heatmap-month-label">{_monthLabel(columns, ci)}</span>
+                )}
+              </div>
+            ))}
+          </div>
+          {/* Grid rows */}
+          <div className="ds-usage-heatmap-grid">
+            {/* Day-of-week labels */}
+            <div className="ds-usage-heatmap-dow-col">
+              {[0,1,2,3,4,5,6].map(row => (
+                <div key={row} className="ds-usage-heatmap-dow-label">
+                  {DOW_LABELS[row] ?? ''}
+                </div>
+              ))}
+            </div>
+            {/* Week columns */}
+            {columns.map((week, ci) => (
+              <div key={ci} className="ds-usage-heatmap-week">
+                {week.map((cell, row) => (
+                  <div
+                    key={row}
+                    className="ds-usage-heatmap-cell"
+                    style={{ background: cell.date ? _heatmapColor(cell.value, maxValue) : 'transparent' }}
+                    title={cell.date
+                      ? `${cell.date} — ${cell.value.toLocaleString()} tokens`
+                      : undefined
+                    }
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // MemoryTab — placeholder for long-term memory configuration
 // ---------------------------------------------------------------------------
 
@@ -2966,6 +3235,12 @@ const SettingsPanel: React.FC<{
         );
       case 'memory':
         return <MemoryTab />;
+      case 'usage':
+        return (
+          <div className="ds-settings-section-body">
+            <UsageTab apiClient={apiClient} />
+          </div>
+        );
       default:
         return null;
     }
@@ -3839,6 +4114,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     agent: 'Agent — assistant decides when to write code or content directly into cells',
   };
   const [pendingOps, setPendingOps] = useState<PendingOp[]>([]);
+  // diffStoreRef removed — inline DiffViews now read directly from pendingOps
   // Tracks which fix indices have been applied per code-review message id
   const [appliedFixes, setAppliedFixes] = useState<Map<string, Set<number>>>(new Map());
   const [progressText, setProgressText] = useState<string>('');
@@ -3937,7 +4213,10 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
         role: m.role as 'user' | 'assistant',
         content: m.content,
         timestamp: m.timestamp.toISOString(),
-        ...(m.thoughts ? { thoughts: m.thoughts } : {}),
+        ...(m.thoughts        ? { thoughts: m.thoughts }               : {}),
+        ...(m.operationId     ? { operationId: m.operationId }         : {}),
+        ...(m.diffs && m.diffs.length > 0 ? { diffs: m.diffs }        : {}),
+        ...(m.diffResolved    ? { diffResolved: m.diffResolved }       : {}),
       }));
     const now = new Date().toISOString();
     const existing = threadsRef.current.find(t => t.id === threadId);
@@ -4030,7 +4309,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     threadsRef.current = cached.threads;
     setCurrentThreadId(lastId);
     currentThreadIdRef.current = lastId;
-    setMessages(
+    const _restoredMsgs: Message[] =
       lastThread && lastThread.messages.length > 0
         ? lastThread.messages.map(m => ({
             id: m.id,
@@ -4038,10 +4317,14 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
             content: m.content,
             timestamp: new Date(m.timestamp),
             fromHistory: true,
-            ...(m.thoughts ? { thoughts: m.thoughts } : {}),
+            ...(m.thoughts      ? { thoughts: m.thoughts }           : {}),
+            ...(m.operationId   ? { operationId: m.operationId }     : {}),
+            ...(m.diffs && m.diffs.length > 0 ? { diffs: m.diffs as DiffInfo[] } : {}),
+            ...(m.diffResolved  ? { diffResolved: m.diffResolved }   : {}),
           }))
-        : []
-    );
+        : [];
+    setMessages(_restoredMsgs);
+    setPendingOps(_opsFromMessages(_restoredMsgs));
     // Restore agent panel if there was one pending when we left this file.
     if (cached.agentPanel?.ready) {
       setAgentResultsReady(true);
@@ -4151,7 +4434,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           threadsRef.current = chatFile.threads;
           setCurrentThreadId(lastId);
           currentThreadIdRef.current = lastId;
-          setMessages(
+          const _diskMsgs: Message[] =
             lastThread && lastThread.messages.length > 0
               ? lastThread.messages.map(m => ({
                   id: m.id,
@@ -4159,10 +4442,14 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
                   content: m.content,
                   timestamp: new Date(m.timestamp),
                   fromHistory: true,
-                  ...(m.thoughts ? { thoughts: m.thoughts } : {}),
+                  ...(m.thoughts      ? { thoughts: m.thoughts }         : {}),
+                  ...(m.operationId   ? { operationId: m.operationId }   : {}),
+                  ...(m.diffs && m.diffs.length > 0 ? { diffs: m.diffs as DiffInfo[] } : {}),
+                  ...(m.diffResolved  ? { diffResolved: m.diffResolved } : {}),
                 }))
-              : []
-          );
+              : [];
+          setMessages(_diskMsgs);
+          setPendingOps(_opsFromMessages(_diskMsgs));
           _updateCache(newPath, chatFile.threads, lastId);
         } else {
           const t = makeNewThread('Main');
@@ -4296,7 +4583,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           threadsRef.current = chatFile.threads;
           setCurrentThreadId(lastId);
           currentThreadIdRef.current = lastId;
-          setMessages(
+          const _fileMsgs: Message[] =
             lastThread && lastThread.messages.length > 0
               ? lastThread.messages.map(m => ({
                   id: m.id,
@@ -4304,10 +4591,14 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
                   content: m.content,
                   timestamp: new Date(m.timestamp),
                   fromHistory: true,
-                  ...(m.thoughts ? { thoughts: m.thoughts } : {}),
+                  ...(m.thoughts      ? { thoughts: m.thoughts }         : {}),
+                  ...(m.operationId   ? { operationId: m.operationId }   : {}),
+                  ...(m.diffs && m.diffs.length > 0 ? { diffs: m.diffs as DiffInfo[] } : {}),
+                  ...(m.diffResolved  ? { diffResolved: m.diffResolved } : {}),
                 }))
-              : []
-          );
+              : [];
+          setMessages(_fileMsgs);
+          setPendingOps(_opsFromMessages(_fileMsgs));
           _updateCache(filePath, chatFile.threads, lastId);
         } else {
           const t = makeNewThread('Main');
@@ -4399,6 +4690,8 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
   const [agentOperationId, setAgentOperationId] = useState('');
   const [agentResolved, setAgentResolved] = useState<Record<string, boolean>>({});
   const [agentResultsReady, setAgentResultsReady] = useState(false);
+  /** ID of the assistant message that triggered the file agent run. */
+  const [agentMsgId, setAgentMsgId] = useState('');
 
   // Ref that always holds the latest agent panel state.  Used by focus-switch
   // callbacks (which are captured in useEffect([], []) and would otherwise read
@@ -4417,7 +4710,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
   }, [agentResultsReady, agentFileChanges, agentFilesRead,
       agentOperationId, agentResolved, agentIncomplete, agentBashCount]);
 
-  const [agentConfigOpen, setAgentConfigOpen] = useState(false);
+  // agentConfigOpen removed — config panel no longer shown in the UI
   const [agentToolError, setAgentToolError] = useState<AgentToolErrorInfo | null>(null);
   const [settingsOpenToAgent, setSettingsOpenToAgent] = useState(false);
 
@@ -4523,6 +4816,25 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
       if (thinkEl) thinkEl.scrollTop = thinkEl.scrollHeight;
     }
   }, [messages, isLoading, activeStreamId]);
+
+  /**
+   * Reconstruct pendingOps from a list of loaded messages.
+   * Every message with diffs stored produces a PendingOp so the pinned section
+   * shows the full diff history (resolved ones collapsed, pending ones active).
+   */
+  const _opsFromMessages = (msgs: Message[]): PendingOp[] =>
+    msgs
+      .filter(m => m.diffs && m.diffs.length > 0 && m.operationId)
+      .map(m => ({
+        operationId: m.operationId!,
+        cellIndices: [],
+        steps: [],
+        description: m.diffResolved
+          ? (m.diffResolved === 'accepted' ? '✓ Changes accepted' : '↩ Changes undone')
+          : 'Restored from history',
+        diffs: m.diffs!,
+        resolved: m.diffResolved,
+      }));
 
   const addMessage = (
     role: Message['role'],
@@ -4709,7 +5021,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
         setShowCmdPopup(false);
         setAgentResultsReady(false);
         setAgentToolError(null);
-        setAgentConfigOpen(false);
+        // agentConfigOpen removed
         slashCommand = parsed.command;
         message      = parsed.rest?.trim() ?? '';
         // Fall through to the main task flow below.
@@ -5021,10 +5333,14 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
       };
 
       // Helper: mark the streaming message as having produced cell operations.
-      // This suppresses the "Push code to cell" fallback button.
-      const markHadCellOps = (opId: string) => {
+      // Stores diffs in the dedicated diffStore (keyed by operationId) which
+      // is completely decoupled from message state and never wiped by
+      // message pipeline updates.
+      const markHadCellOps = (opId: string, opDiffs?: DiffInfo[]) => {
         setMessages(prev => prev.map(m =>
-          m.id === streamMsgId ? { ...m, hadCellOps: true, operationId: opId } : m
+          m.id === streamMsgId
+            ? { ...m, hadCellOps: true, operationId: opId, ...(opDiffs && opDiffs.length > 0 ? { diffs: opDiffs } : {}) }
+            : m
         ));
       };
 
@@ -5170,6 +5486,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
         setBlockedCmdDismissed({});
         setAgentOperationId(response.operationId);
         setAgentResolved({});
+        setAgentMsgId(streamMsgId);   // remember which bubble owns these file cards
         setAgentResultsReady(true);
         // Changes are already written to disk as a preview — open/reload
         // each file so the user sees the actual change in the editor.
@@ -5337,7 +5654,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
                 compositeOpIds: allOpIds,
               }
             ]);
-            markHadCellOps(masterOpId);
+            markHadCellOps(masterOpId, allDiffs);
             appendToStream(
               `\n\n✅ Pipeline complete — ${allDiffs.length} cell change(s) across ${pipelineSteps.length} steps.\nReview the diff below then Accept or Undo all.`
             );
@@ -5489,7 +5806,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
 
       if (isAutoMode) {
         cellEditor.acceptOperation(response.operationId);
-        markHadCellOps(response.operationId);
+        markHadCellOps(response.operationId); // no diffs for auto mode — cells already applied
         appendToStream(`\n\n✓ Done\n\n${stepSummary}`);
         return;
       }
@@ -5521,9 +5838,9 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
         diffs
       };
       setPendingOps(prev => [...prev, op]);
-      // Mark the chat bubble so the Push-to-cell button is hidden while the
-      // diff view is shown (and after the user accepts/undoes).
-      markHadCellOps(response.operationId);
+      // Mark the chat bubble and store the diffs directly on the message so
+      // they survive re-renders, thread switches, and page refreshes.
+      markHadCellOps(response.operationId, diffs);
 
       // Append step summary + review prompt to the streamed explanation bubble
       const reviewPrompt = response.requiresApproval
@@ -5589,8 +5906,24 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
   const handleAccept = (operationId: string): void => {
     const op = pendingOps.find(o => o.operationId === operationId);
     if (op) _acceptSingleOrComposite(op);
-    setPendingOps(prev => prev.filter(o => o.operationId !== operationId));
-    addMessage('system', 'Changes accepted.');
+    setPendingOps(prev =>
+      prev.map(o => o.operationId === operationId ? { ...o, resolved: 'accepted' as const } : o)
+    );
+    // Stamp diffResolved on the message so it persists across re-renders and refreshes.
+    setMessages(prev =>
+      prev.map(m => m.operationId === operationId ? { ...m, diffResolved: 'accepted' as const } : m)
+    );
+    // Immediate save — don't rely on the 1.5s debounce so a hard-refresh
+    // right after Accept still shows the resolved diff.
+    const tid    = currentThreadIdRef.current;
+    const nbPath = currentNotebookPathRef.current || currentFilePathRef.current || '';
+    const tName  = threadsRef.current.find(t => t.id === tid)?.name ?? 'Thread';
+    if (tid && nbPath) {
+      const updatedMsgs = messagesRef.current.map(
+        m => m.operationId === operationId ? { ...m, diffResolved: 'accepted' as const } : m
+      );
+      void _saveThread(tid, tName, updatedMsgs, nbPath);
+    }
   };
 
   const handleUndo = (operationId: string): void => {
@@ -5601,8 +5934,23 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     } else {
       cellEditor.undoOperation(operationId);
     }
-    setPendingOps(prev => prev.filter(o => o.operationId !== operationId));
-    addMessage('system', 'Changes undone.');
+    setPendingOps(prev =>
+      prev.map(o => o.operationId === operationId ? { ...o, resolved: 'undone' as const } : o)
+    );
+    // Stamp diffResolved on the message so it persists across re-renders and refreshes.
+    setMessages(prev =>
+      prev.map(m => m.operationId === operationId ? { ...m, diffResolved: 'undone' as const } : m)
+    );
+    // Immediate save.
+    const tid    = currentThreadIdRef.current;
+    const nbPath = currentNotebookPathRef.current || currentFilePathRef.current || '';
+    const tName  = threadsRef.current.find(t => t.id === tid)?.name ?? 'Thread';
+    if (tid && nbPath) {
+      const updatedMsgs = messagesRef.current.map(
+        m => m.operationId === operationId ? { ...m, diffResolved: 'undone' as const } : m
+      );
+      void _saveThread(tid, tName, updatedMsgs, nbPath);
+    }
   };
 
   // -------------------------------------------------------------------------
@@ -5673,7 +6021,10 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           content: m.content,
           timestamp: new Date(m.timestamp),
           fromHistory: true,
-          ...(m.thoughts ? { thoughts: m.thoughts } : {}),
+          ...(m.thoughts      ? { thoughts: m.thoughts }         : {}),
+          ...(m.operationId   ? { operationId: m.operationId }   : {}),
+          ...(m.diffs && m.diffs.length > 0 ? { diffs: m.diffs as DiffInfo[] } : {}),
+          ...(m.diffResolved  ? { diffResolved: m.diffResolved } : {}),
         }))
       : [{
           id: `welcome-${threadId}`,
@@ -5684,7 +6035,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     stopStreamQueue();
     stopJsonCodeCounter();
     setMessages(restored);
-    setPendingOps([]);
+    setPendingOps(_opsFromMessages(restored));
     setAppliedFixes(new Map());
     setProgressText('');
     setActiveStreamId('');
@@ -5732,7 +6083,10 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           content: m.content,
           timestamp: new Date(m.timestamp),
           fromHistory: true,
-          ...(m.thoughts ? { thoughts: m.thoughts } : {}),
+          ...(m.thoughts      ? { thoughts: m.thoughts }         : {}),
+          ...(m.operationId   ? { operationId: m.operationId }   : {}),
+          ...(m.diffs && m.diffs.length > 0 ? { diffs: m.diffs as DiffInfo[] } : {}),
+          ...(m.diffResolved  ? { diffResolved: m.diffResolved } : {}),
         }))
       : [{
           id: `welcome-${copy.id}`,
@@ -5741,7 +6095,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           timestamp: new Date(),
         }];
     setMessages(restored);
-    setPendingOps([]);
+    setPendingOps(_opsFromMessages(restored));
     setAppliedFixes(new Map());
     setProgressText('');
     setActiveStreamId('');
@@ -6072,7 +6426,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     <div className={`ds-assistant-sidebar ds-chat-${chatTheme}`}>
       {/* Header */}
       <div className="ds-assistant-header">
-        <span className="ds-assistant-title"><span className="ds-varys-spider">🕷️</span> Varys <span className="ds-varys-version">v0.5.0</span></span>
+        <span className="ds-assistant-title"><span className="ds-varys-spider">🕷️</span> Varys <span className="ds-varys-version">v0.6.0</span></span>
         <button
           className="ds-tags-panel-btn"
           onClick={() => setShowTags(true)}
@@ -6150,8 +6504,8 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
         }}
       >
         {messages.map(msg => (
+          <React.Fragment key={msg.id}>
           <div
-            key={msg.id}
             className={[
               'ds-assistant-message',
               `ds-assistant-message-${msg.role}`,
@@ -6494,7 +6848,103 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
                 })()}
               </>
             )}
+          {/* File-agent FileChangeCards — inline inside the triggering assistant
+              bubble so all output (text + diffs) lives in one visual unit. */}
+          {msg.id === agentMsgId && agentResultsReady && agentFileChanges.length > 0 && (
+            <div className="ds-agent-file-cards">
+              {agentFileChanges.map(fc => (
+                <FileChangeCard
+                  key={fc.change_id}
+                  event={fc}
+                  operationId={agentOperationId}
+                  apiBaseUrl=""
+                  xsrfToken={getXsrfToken()}
+                  onResolved={(changeId, accepted) => {
+                    const newResolved = { ...agentResolved, [changeId]: accepted };
+                    setAgentResolved(newResolved);
+                    const changed = agentFileChanges.find(f => f.change_id === changeId);
+                    if (!changed) return;
+                    if (!accepted && changed.change_type === 'modified' && reloadFile) {
+                      reloadFile(changed.file_path);
+                    }
+                  }}
+                />
+              ))}
+              {agentFileChanges.length > 1 && (
+                <div className="ds-agent-bulk-actions">
+                  <button
+                    className="ds-assistant-btn ds-assistant-btn-accept"
+                    onClick={async () => {
+                      const token = getXsrfToken();
+                      for (const fc of agentFileChanges) {
+                        if (agentResolved[fc.change_id] === undefined) {
+                          try {
+                            const r = await fetch('/varys/agent/accept', {
+                              method: 'POST', credentials: 'same-origin',
+                              headers: { 'Content-Type': 'application/json', 'X-XSRFToken': token },
+                              body: JSON.stringify({ operation_id: agentOperationId, change_id: fc.change_id, confirmed_content: null, confirmed_path: fc.file_path }),
+                            });
+                            const data = await r.json();
+                            if (data.success) setAgentResolved(prev => ({ ...prev, [fc.change_id]: true }));
+                          } catch { /* ignore per-item errors */ }
+                        }
+                      }
+                    }}
+                  >✓ Accept All</button>
+                  <button
+                    className="ds-assistant-btn ds-assistant-btn-undo"
+                    onClick={async () => {
+                      const token = getXsrfToken();
+                      for (const fc of agentFileChanges) {
+                        if (agentResolved[fc.change_id] === undefined) {
+                          try {
+                            const r = await fetch('/varys/agent/reject', {
+                              method: 'POST', credentials: 'same-origin',
+                              headers: { 'Content-Type': 'application/json', 'X-XSRFToken': token },
+                              body: JSON.stringify({ operation_id: agentOperationId, change_id: fc.change_id }),
+                            });
+                            const data = await r.json();
+                            if (data.success) {
+                              setAgentResolved(prev => ({ ...prev, [fc.change_id]: false }));
+                              if (fc.change_type === 'modified' && reloadFile) reloadFile(fc.file_path);
+                            }
+                          } catch { /* ignore per-item errors */ }
+                        }
+                      }
+                    }}
+                  >✕ Reject All</button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Inline DiffView — lives INSIDE the assistant bubble so the code
+              block is visually attached to the explanation text above it.
+              Unresolved: shows Accept / Reject buttons.
+              Resolved:   shows a static collapsed strip with a 2-line preview (no buttons). */}
+          {msg.role === 'assistant' && msg.operationId && (() => {
+            // Primary: diffs stored directly on the message (survive refreshes).
+            // Fallback: live pendingOps entry covers the window before the next save.
+            const op = pendingOps.find(o => o.operationId === msg.operationId);
+            const diffsToShow = (msg.diffs && msg.diffs.length > 0)
+              ? msg.diffs
+              : op?.diffs;
+            if (!diffsToShow || !diffsToShow.length) return null;
+            const resolvedStatus = msg.diffResolved ?? op?.resolved;
+            return (
+              <DiffView
+                key={msg.operationId}
+                operationId={msg.operationId}
+                description={op?.description}
+                diffs={diffsToShow}
+                onAccept={handleAccept}
+                onUndo={handleUndo}
+                resolved={resolvedStatus}
+              />
+            );
+          })()}
           </div>
+          </React.Fragment>
         ))}
 
         {isLoading && progressText && !activeStreamId && (
@@ -6538,204 +6988,19 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Pending operations — visual diff view */}
-      {pendingOps.length > 0 && (
-        <div className="ds-assistant-pending-ops">
-          {pendingOps.map(op => (
-            <DiffView
-              key={op.operationId}
-              operationId={op.operationId}
-              description={op.description}
-              diffs={op.diffs}
-              onAccept={handleAccept}
-              onUndo={handleUndo}
-            />
-          ))}
-        </div>
-      )}
-
       {/* Agent results section — shown after any /file_agent run */}
-      {agentResultsReady && (
+      {/* File-agent auxiliary banners — only rendered when there is actually
+          something worth surfacing (error, warnings, incomplete, bash activity).
+          The title, context chips, and config button are removed: they were
+          redundant since the user already knows which file is in focus. */}
+      {agentResultsReady && (agentToolError || agentIncomplete || agentBashCount > 0 ||
+          agentBashWarnings.length > 0 || agentBlockedCmds.length > 0) && (
         <div className="ds-agent-results">
-
-          {/* Header with gear button for project settings */}
-          <div className="ds-agent-results-header">
-            <span className="ds-agent-results-title">Varys File Agent</span>
-            <button
-              className={`ds-agent-config-btn${agentConfigOpen ? ' ds-agent-config-btn--active' : ''}`}
-              onClick={() => setAgentConfigOpen(o => !o)}
-              title="Project settings (.jupyter-assistant/local_varys.env)"
-            >⚙</button>
-          </div>
-
-          {/* Inline project config panel */}
-          {agentConfigOpen && (
-            <FileAgentConfigPanel
-              notebookPath={currentNotebookPath || currentFilePath}
-              apiClient={apiClient}
-              onClose={() => setAgentConfigOpen(false)}
-            />
-          )}
-
-          {/* Tool-use-not-supported error banner */}
           {agentToolError && (
             <AgentToolErrorBanner
               error={agentToolError}
-              onOpenAgentSettings={() => {
-                setSettingsOpenToAgent(true);
-              }}
+              onOpenAgentSettings={() => setSettingsOpenToAgent(true)}
             />
-          )}
-
-          {agentFilesRead.length > 0 && (
-            <div className="ds-agent-context-chips">
-              <span className="ds-agent-context-label">Context used:</span>
-              {agentFilesRead.map((f, i) => (
-                <span key={i} className="ds-agent-context-chip" title={f}>{f}</span>
-              ))}
-            </div>
-          )}
-
-          {agentFileChanges.map(fc => (
-            <FileChangeCard
-              key={fc.change_id}
-              event={fc}
-              operationId={agentOperationId}
-              apiBaseUrl=""
-              xsrfToken={getXsrfToken()}
-              onResolved={(changeId, accepted) => {
-                const newResolved = { ...agentResolved, [changeId]: accepted };
-                setAgentResolved(newResolved);
-                const changed = agentFileChanges.find(f => f.change_id === changeId);
-                if (!changed) return;
-                if (!accepted) {
-                  // Reject: backend reverted the file; reload to show original.
-                  if (changed.change_type === 'modified' && reloadFile) {
-                    reloadFile(changed.file_path);
-                  }
-                  // created: file was deleted by backend — nothing to reload.
-                  // deleted: no preview was written — nothing to reload.
-                }
-                // Accept: preview is already on disk and shown — no reload needed.
-                // Once ALL changes are resolved, inject a persistent summary into
-                // the chat history so the diff is visible when reviewing history.
-                const allDone = agentFileChanges.every(
-                  fc => newResolved[fc.change_id] !== undefined
-                );
-                if (allDone) {
-                  // Build a code-block summary for each accepted change.
-                  const acceptedChanges = agentFileChanges.filter(
-                    fc => newResolved[fc.change_id] === true && fc.new_content
-                  );
-                  if (acceptedChanges.length > 0) {
-                    const summaryParts = acceptedChanges.map(fc => {
-                      const fname = fc.file_path.split('/').pop() ?? fc.file_path;
-                      const ext   = fname.includes('.') ? fname.split('.').pop()!.toLowerCase() : '';
-                      const lang  = ({ py:'python', js:'javascript', ts:'typescript',
-                        tsx:'tsx', jsx:'jsx', md:'markdown', sh:'bash',
-                        yml:'yaml', yaml:'yaml', json:'json', rs:'rust',
-                        go:'go', rb:'ruby', r:'r', sql:'sql' } as Record<string,string>)[ext] ?? ext;
-                      // Show only lines that were added (simple line-diff).
-                      const origLines = (fc.original_content ?? '').split('\n');
-                      const newLines  = (fc.new_content ?? '').split('\n');
-                      const addedLines = newLines.filter(l => !origLines.includes(l) && l.trim() !== '');
-                      const codeBlock = addedLines.length > 0 && addedLines.length <= 60
-                        ? addedLines.join('\n')
-                        : (fc.new_content ?? '');
-                      return `**✓ ${fc.change_type === 'created' ? 'Created' : 'Modified'}: \`${fname}\`**\n\`\`\`${lang}\n${codeBlock}\n\`\`\``;
-                    });
-                    const summaryMsg: Message = {
-                      id:        `file-change-summary-${Date.now()}`,
-                      role:      'assistant',
-                      content:   summaryParts.join('\n\n'),
-                      timestamp: new Date(),
-                    };
-                    setMessages(prev => {
-                      const updated = [...prev, summaryMsg];
-                      // Persist immediately — don't wait for the debounce timer.
-                      const activePath = currentFilePathRef.current || currentNotebookPathRef.current;
-                      const tid = currentThreadIdRef.current;
-                      if (activePath && tid) {
-                        const tName = threadsRef.current.find(t => t.id === tid)?.name ?? 'Thread';
-                        void _saveThread(tid, tName, updated, activePath);
-                      }
-                      return updated;
-                    });
-                  }
-                  // Clear the cached agent panel so it doesn't reappear.
-                  const activePath = currentFilePathRef.current || currentNotebookPathRef.current;
-                  if (activePath) {
-                    const entry = historyCacheRef.current.get(activePath);
-                    if (entry) historyCacheRef.current.set(activePath, { ...entry, agentPanel: undefined });
-                  }
-                }
-              }}
-            />
-          ))}
-
-          {agentFileChanges.length > 1 && (
-          <div className="ds-agent-bulk-actions">
-            <button
-              className="ds-assistant-btn ds-assistant-btn-accept"
-              onClick={async () => {
-                const token = getXsrfToken();
-                for (const fc of agentFileChanges) {
-                  if (agentResolved[fc.change_id] === undefined) {
-                    try {
-                      const r = await fetch('/varys/agent/accept', {
-                        method: 'POST',
-                        credentials: 'same-origin',
-                        headers: { 'Content-Type': 'application/json', 'X-XSRFToken': token },
-                        body: JSON.stringify({
-                          operation_id: agentOperationId,
-                          change_id: fc.change_id,
-                          confirmed_content: null,
-                          confirmed_path: fc.file_path,
-                        }),
-                      });
-                      const data = await r.json();
-                      if (data.success) {
-                        setAgentResolved(prev => ({ ...prev, [fc.change_id]: true }));
-                        // Accept: preview already on disk — no reload needed.
-                      }
-                    } catch { /* ignore per-item errors in bulk accept */ }
-                  }
-                }
-              }}
-            >
-              ✓ Accept All
-            </button>
-            <button
-              className="ds-assistant-btn ds-assistant-btn-undo"
-              onClick={async () => {
-                const token = getXsrfToken();
-                for (const fc of agentFileChanges) {
-                  if (agentResolved[fc.change_id] === undefined) {
-                    try {
-                      const r = await fetch('/varys/agent/reject', {
-                        method: 'POST',
-                        credentials: 'same-origin',
-                        headers: { 'Content-Type': 'application/json', 'X-XSRFToken': token },
-                        body: JSON.stringify({
-                          operation_id: agentOperationId,
-                          change_id: fc.change_id,
-                        }),
-                      });
-                      const data = await r.json();
-                      if (data.success) {
-                        setAgentResolved(prev => ({ ...prev, [fc.change_id]: false }));
-                        // Reload so the editor shows the reverted original content.
-                        if (fc.change_type === 'modified' && reloadFile) reloadFile(fc.file_path);
-                      }
-                    } catch { /* ignore per-item errors in bulk reject */ }
-                  }
-                }
-              }}
-            >
-              ✕ Reject All
-            </button>
-          </div>
-
           )}
 
           {agentIncomplete && (

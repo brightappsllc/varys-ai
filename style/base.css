@@ -653,6 +653,11 @@
   background: var(--jp-layout-color1, #fff);
 }
 
+/* DiffView sits inside the assistant bubble — add breathing room above it */
+.ds-assistant-message .ds-diff-view {
+  margin-top: 8px;
+}
+
 /* Header row: summary + accept/undo */
 .ds-diff-header {
   display: flex;
@@ -697,6 +702,63 @@
   gap: 4px;
   flex-shrink: 0;
 }
+
+/* Resolved diff states */
+.ds-diff-view--resolved {
+  opacity: 0.82;
+}
+
+.ds-diff-view--accepted .ds-diff-header {
+  border-left: 3px solid #2e7d32;
+}
+
+.ds-diff-view--undone .ds-diff-header {
+  border-left: 3px solid #999;
+}
+
+.ds-diff-resolved-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ds-text-dim);
+}
+
+.ds-diff-view--accepted .ds-diff-resolved-label {
+  color: #2e7d32;
+}
+
+.ds-diff-expand-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--ds-border, #d0d0d0);
+  background: transparent;
+  color: var(--ds-text-dim);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ds-diff-expand-btn:hover { background: var(--ds-surface2); }
+
+/* Resolved diff: 2-line code preview strip */
+.ds-diff-preview {
+  border-top: 1px solid var(--jp-border-color3, rgba(0,0,0,0.06));
+  opacity: 0.75;
+  pointer-events: none;
+  overflow: hidden;
+}
+.ds-diff-preview .ds-diff-line {
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+.ds-diff-preview-more {
+  font-size: 10px;
+  color: var(--ds-text-dim);
+  padding: 1px 6px 3px 22px;
+  font-style: italic;
+}
+
+/* Night-mode resolved diff */
+.ds-chat-night .ds-diff-view--accepted .ds-diff-header { border-left-color: #81c784; }
+.ds-chat-night .ds-diff-view--accepted .ds-diff-resolved-label { color: #81c784; }
 
 /* Per-cell sections */
 .ds-diff-cells {
@@ -880,6 +942,16 @@
 .ds-chat-night .ds-diff-op-badge--insert { background: #1a3a27; color: #74c997; }
 .ds-chat-night .ds-diff-op-badge--modify { background: #1a2e3a; color: #6bbfdb; }
 .ds-chat-night .ds-diff-op-badge--delete { background: #3a1a1e; color: #e07a83; }
+
+/* Cell header text — light theme already uses jp-ui-font-color2; override for dark */
+.ds-chat-night .ds-diff-cell-type { color: #8890a8; }
+.ds-chat-night .ds-diff-cell-pos  { color: #a0a8c0; }
+.ds-chat-night .ds-diff-cell-desc { color: #c8d0e7; }
+
+/* Light-mode explicit values (fallback for non-JupyterLab contexts) */
+.ds-chat-day .ds-diff-cell-type { color: #5a5f72; }
+.ds-chat-day .ds-diff-cell-pos  { color: #444; }
+.ds-chat-day .ds-diff-cell-desc { color: #2a2d3e; }
 
 .ds-chat-night .ds-diff-line--insert  { background: rgba(74, 201, 120, 0.12); color: #aab0c7; }
 .ds-chat-night .ds-diff-line--insert .ds-diff-gutter { color: #4dc97a; background: rgba(74, 201, 120, 0.2); }
@@ -3390,13 +3462,36 @@
   font-size: 12px;
   background: var(--jp-layout-color0, #fff);
 }
+/* Resolved state — mirrors ds-diff-view--accepted / --undone */
+.ds-file-change-card--resolved {
+  opacity: 0.82;
+}
 .ds-file-change-card--accepted {
-  border-color: var(--jp-success-color1, #388e3c);
-  opacity: 0.7;
+  border-left: 3px solid #2e7d32;
 }
 .ds-file-change-card--rejected {
-  border-color: var(--jp-error-color1, #c62828);
-  opacity: 0.55;
+  border-left: 3px solid #999;
+}
+.ds-file-change-card--accepted .ds-file-change-card__header {
+  border-left: none; /* handled by card border-left */
+}
+.ds-file-change-card__resolved-label {
+  font-size: 12px;
+  font-weight: 500;
+  flex: 1;
+}
+.ds-file-change-card--accepted .ds-file-change-card__resolved-label {
+  color: #2e7d32;
+}
+.ds-file-change-card--rejected .ds-file-change-card__resolved-label {
+  color: #999;
+}
+/* Inline cards inside an assistant bubble — top margin only */
+.ds-agent-file-cards {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 .ds-file-change-card__header {
   display: flex;
@@ -3410,6 +3505,22 @@
   font-size: 11px;
   color: var(--jp-ui-font-color2, #777);
   flex-shrink: 0;
+}
+.ds-file-change-card__fname {
+  font-family: var(--jp-code-font-family, monospace);
+  font-size: 11px;
+  font-weight: 600;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ds-file-change-card__stats {
+  font-family: var(--jp-code-font-family, monospace);
+  font-size: 11px;
+  color: var(--ds-text-dim, #5a5f72);   /* light mode */
+  white-space: nowrap;
+  margin-left: auto;                     /* push to right edge */
 }
 .ds-file-change-card__path {
   font-family: var(--jp-code-font-family, monospace);
@@ -3498,8 +3609,10 @@
 .ds-chat-night .ds-file-change-card__header {
   background: var(--ds-surface2, #252535);
 }
-.ds-chat-night .ds-file-change-card__toggle { color: var(--ds-text-dim, #666); }
-.ds-chat-night .ds-file-change-card__path   { color: var(--ds-text, #c5c5cc); }
+.ds-chat-night .ds-file-change-card__toggle  { color: var(--ds-text-dim, #666); }
+.ds-chat-night .ds-file-change-card__path    { color: var(--ds-text, #c5c5cc); }
+.ds-chat-night .ds-file-change-card__fname   { color: var(--ds-text, #c5c5cc); }
+.ds-chat-night .ds-file-change-card__stats   { color: var(--ds-text-dim, #8a8fa8); }
 .ds-chat-night .ds-file-change-card__counter { color: var(--ds-text-muted, #555); }
 .ds-chat-night .ds-file-change-card__body {
   border-top-color: var(--ds-border, #2e2e3e);
@@ -8258,3 +8371,231 @@ body[data-jp-theme-light="false"] .ds-tag-add-input::placeholder {
 .ds-chat-night .ds-agent-prov-tool-ok      { color: #81c784; }
 .ds-chat-night .ds-agent-prov-tool-warn    { color: #e57373; }
 .ds-chat-night .ds-agent-prov-tool-checking{ color: var(--ds-text-dim, #666); }
+
+/* ===========================================================================
+   Usage heatmap intensity tokens  (Task 7)
+   Derived from --ds-accent (#7b9cff) — 5-step opacity scale.
+   --ds-heatmap-1 = lightest non-zero, --ds-heatmap-5 = darkest.
+   =========================================================================== */
+
+/* Day mode */
+:root,
+.ds-chat-day {
+  --ds-heatmap-0: rgba(123,156,255,0.06);  /* empty cell  */
+  --ds-heatmap-1: rgba(123,156,255,0.20);
+  --ds-heatmap-2: rgba(123,156,255,0.40);
+  --ds-heatmap-3: rgba(123,156,255,0.60);
+  --ds-heatmap-4: rgba(123,156,255,0.78);
+  --ds-heatmap-5: rgba(123,156,255,0.95);
+}
+
+/* Night mode */
+.ds-chat-night {
+  --ds-heatmap-0: rgba(123,156,255,0.08);
+  --ds-heatmap-1: rgba(123,156,255,0.22);
+  --ds-heatmap-2: rgba(123,156,255,0.42);
+  --ds-heatmap-3: rgba(123,156,255,0.62);
+  --ds-heatmap-4: rgba(123,156,255,0.80);
+  --ds-heatmap-5: rgba(123,156,255,1.00);
+}
+
+/* ===========================================================================
+   UsageTab — token usage heatmap and summary cards  (Task 6)
+   =========================================================================== */
+
+.ds-usage-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px 0;
+}
+
+.ds-usage-loading {
+  padding: 16px;
+  color: var(--ds-text-dim);
+  font-size: 13px;
+}
+
+/* Filter bar */
+.ds-usage-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ds-usage-filter-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ds-usage-filter-label {
+  font-size: 12px;
+  color: var(--ds-text-dim);
+  white-space: nowrap;
+}
+
+.ds-usage-model-select {
+  min-width: 160px;
+  max-width: 220px;
+}
+
+.ds-usage-export-btn {
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 5px;
+  border: 1px solid var(--ds-btn-border, #c6c8d4);
+  background: var(--ds-btn-bg, #e4e5ed);
+  color: var(--ds-btn-text, #3b3e55);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ds-usage-export-btn:hover { opacity: 0.82; }
+
+/* Summary cards */
+.ds-usage-cards {
+  display: flex;
+  gap: 10px;
+}
+
+.ds-usage-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--ds-surface2, rgba(0,0,0,0.04));
+  border: 1px solid var(--ds-border);
+  min-width: 0;
+}
+
+.ds-usage-card-label {
+  font-size: 11px;
+  color: var(--ds-text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ds-usage-card-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ds-text);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Period pills */
+.ds-usage-period-pills {
+  display: flex;
+  gap: 6px;
+}
+
+.ds-usage-pill {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--ds-border);
+  background: transparent;
+  color: var(--ds-text-dim);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.ds-usage-pill:hover { background: var(--ds-surface2); }
+.ds-usage-pill--active {
+  background: var(--ds-heatmap-3);
+  color: var(--ds-text);
+  border-color: transparent;
+}
+
+/* Heatmap */
+.ds-usage-heatmap-wrap {
+  overflow-x: auto;
+}
+
+.ds-usage-heatmap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: max-content;
+}
+
+.ds-usage-heatmap-months {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding-bottom: 2px;
+}
+
+.ds-usage-heatmap-dow-spacer {
+  width: 16px;
+  flex-shrink: 0;
+}
+
+.ds-usage-heatmap-month-cell {
+  width: 12px;
+  flex-shrink: 0;
+  height: 14px;
+  position: relative;
+}
+
+.ds-usage-heatmap-month-label {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  font-size: 10px;
+  color: var(--ds-text-dim);
+  white-space: nowrap;
+}
+
+.ds-usage-heatmap-grid {
+  display: flex;
+  gap: 2px;
+  align-items: flex-start;
+}
+
+.ds-usage-heatmap-dow-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 16px;
+  flex-shrink: 0;
+}
+
+.ds-usage-heatmap-dow-label {
+  width: 16px;
+  height: 12px;
+  font-size: 9px;
+  color: var(--ds-text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.ds-usage-heatmap-week {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ds-usage-heatmap-cell {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  cursor: default;
+}
+
+/* Night-mode card tweaks */
+.ds-chat-night .ds-usage-export-btn {
+  background: var(--ds-surface2, #28283a);
+  border-color: var(--ds-border, #35354a);
+  color: var(--ds-text, #c5c5cc);
+}
+
+.ds-chat-night .ds-usage-card {
+  background: var(--ds-surface2, #28283a);
+  border-color: var(--ds-border, #35354a);
+}
