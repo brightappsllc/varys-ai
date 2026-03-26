@@ -56,6 +56,8 @@ _ENV_KEYS = [
     "BEDROCK_COMPLETION_MODEL",
     "BEDROCK_SIMPLE_TASKS_MODEL",
     "BEDROCK_EMBED_MODEL",
+    "BEDROCK_ENABLE_THINKING",
+    "BEDROCK_THINKING_BUDGET",
     # ── Azure OpenAI ─────────────────────────────────────────────────────
     "AZURE_OPENAI_API_KEY",
     "AZURE_OPENAI_ENDPOINT",
@@ -222,6 +224,8 @@ def _reload_settings(handler: JupyterHandler, env_path: Path) -> None:
     s["ds_assistant_aws_secret_access_key"]      = os.environ.get("AWS_SECRET_ACCESS_KEY", "")
     s["ds_assistant_aws_session_token"]          = os.environ.get("AWS_SESSION_TOKEN", "")
     s["ds_assistant_aws_region"]                 = os.environ.get("AWS_REGION", "us-east-1")
+    s["ds_assistant_bedrock_enable_thinking"]    = os.environ.get("BEDROCK_ENABLE_THINKING", "false").lower() == "true"
+    s["ds_assistant_bedrock_thinking_budget"]    = int(os.environ.get("BEDROCK_THINKING_BUDGET", "8000") or 8000)
     s["ds_assistant_azure_openai_api_key"]       = os.environ.get("AZURE_OPENAI_API_KEY", "")
     s["ds_assistant_azure_openai_endpoint"]      = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
     s["ds_assistant_azure_openai_api_version"]   = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-01")

@@ -322,6 +322,8 @@ def _build_provider(
             region=settings.get("ds_assistant_aws_region", "us-east-1"),
             chat_model=model,
             completion_model=completion_model,
+            enable_thinking=settings.get("ds_assistant_bedrock_enable_thinking", False),
+            thinking_budget=settings.get("ds_assistant_bedrock_thinking_budget", 8000),
         )
 
     if provider_name == "azure":

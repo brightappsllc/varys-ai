@@ -76,6 +76,8 @@ class BedrockProvider(BaseLLMProvider):
         session_token: str = "",
         aws_profile: str = "",
         aws_auth_refresh: str = "",
+        enable_thinking: bool = False,
+        thinking_budget: int = 8000,
     ) -> None:
         super().__init__()
         self.access_key_id = access_key_id
@@ -86,6 +88,8 @@ class BedrockProvider(BaseLLMProvider):
         self.region = region
         self.chat_model = chat_model
         self.completion_model = completion_model
+        self.enable_thinking = bool(enable_thinking)
+        self.thinking_budget = max(1024, int(thinking_budget or 8000))
         self._cache = CompletionCache()
         self._boto_client = self._make_client()
 
@@ -198,6 +202,82 @@ class BedrockProvider(BaseLLMProvider):
                 await loop.run_in_executor(None, self._run_auth_refresh)
                 return await loop.run_in_executor(None, fn)
             raise
+
+    def _supports_thinking(self) -> bool:
+        """True when the active chat model is an Anthropic Claude Sonnet or Opus model."""
+        name = self.chat_model.lower()
+        return (
+            "claude-sonnet" in name
+            or "claude-opus" in name
+            or "claude-3-7" in name
+        )
+
+    def _converse_messages_to_anthropic(
+        self, messages: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Convert Converse-API message format to Anthropic Messages-API format."""
+        result = []
+        for msg in messages:
+            content = msg.get("content", [])
+            if isinstance(content, str):
+                result.append({"role": msg["role"], "content": content})
+                continue
+            parts: List[Dict[str, Any]] = []
+            for block in content:
+                if "text" in block:
+                    parts.append({"type": "text", "text": block["text"]})
+                elif "image" in block:
+                    img = block["image"]
+                    src = img.get("source", {})
+                    if "bytes" in src:
+                        data = base64.b64encode(src["bytes"]).decode()
+                        fmt = img.get("format", "png")
+                        mime = f"image/{'jpeg' if fmt == 'jpeg' else fmt}"
+                        parts.append({
+                            "type": "image",
+                            "source": {"type": "base64", "media_type": mime, "data": data},
+                        })
+            result.append({"role": msg["role"], "content": parts})
+        return result
+
+    def _invoke_with_thinking(self, system: str, messages: List[Dict[str, Any]]) -> str:
+        """Call invoke_model directly using the Anthropic Messages API with thinking enabled.
+
+        Extended thinking is not available through the Converse API; it requires
+        the raw InvokeModel endpoint with the Anthropic Messages API payload.
+        """
+        import json as _json
+
+        anthropic_messages = self._converse_messages_to_anthropic(messages)
+        max_tokens = self.thinking_budget + 8192  # budget + generous text response headroom
+        body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": max_tokens,
+            "thinking": {
+                "type": "enabled",
+                "budget_tokens": self.thinking_budget,
+            },
+            "system": system,
+            "messages": anthropic_messages,
+        }
+
+        resp = self._boto_client.invoke_model(
+            modelId=self.chat_model,
+            body=_json.dumps(body),
+            contentType="application/json",
+            accept="application/json",
+        )
+        result = _json.loads(resp["body"].read())
+
+        usage = result.get("usage", {})
+        self._set_usage(usage.get("input_tokens", 0), usage.get("output_tokens", 0))
+
+        text_parts = [
+            block["text"]
+            for block in result.get("content", [])
+            if block.get("type") == "text"
+        ]
+        return "\n".join(text_parts)
 
     def _build_system(self, skills: List[Dict[str, str]], memory: str, reasoning_mode: str = "off") -> str:
         return _build_system_prompt_shared(skills, memory, reasoning_mode=reasoning_mode)
@@ -339,6 +419,18 @@ class BedrockProvider(BaseLLMProvider):
             history = history[1:]
         messages = [{"role": h["role"], "content": [{"text": h["content"]}]} for h in history]
         messages.append({"role": "user", "content": [{"text": user}]})
+
+        # Extended thinking path: uses invoke_model directly (Anthropic Messages API)
+        # because the Converse API does not support the thinking parameter.
+        if self.enable_thinking and self._supports_thinking():
+            log.info("Bedrock: extended thinking enabled (budget=%d tokens)", self.thinking_budget)
+            try:
+                return await self._call_with_auto_refresh(
+                    lambda: self._invoke_with_thinking(system, messages)
+                )
+            except Exception as e:
+                log.error("Bedrock chat (thinking) error: %s", e)
+                raise RuntimeError(f"AWS Bedrock error: {e}") from e
 
         def _call():
             resp = self._boto_client.converse(
