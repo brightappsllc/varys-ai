@@ -370,6 +370,13 @@ class SettingsHandler(JupyterHandler):
             if updates:
                 _write_env(path, updates)
             _reload_settings(self, path)
+            # Flush the provider cache so the next request always builds a fresh
+            # provider with the new settings (e.g. enable_thinking toggle).
+            try:
+                from ..llm.factory import _provider_cache
+                _provider_cache.clear()
+            except Exception:
+                pass
             self.log.info("Varys: settings updated and reloaded from %s", path)
             self.finish(json.dumps({"status": "ok", "updated": list(updates.keys())}))
         except Exception as e:

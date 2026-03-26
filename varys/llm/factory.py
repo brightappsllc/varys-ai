@@ -89,7 +89,20 @@ def _cache_key(provider_name: str, task: str, model: str, settings: Dict[str, An
         or settings.get("ds_assistant_ollama_url", "")
         or settings.get("ds_assistant_aws_access_key_id", "")
     )
-    return f"{task}:{provider_name}:{model}:{cred[:8]}"
+    # Include provider-specific settings that change provider behaviour so that
+    # toggling them rebuilds the provider instead of returning a stale instance.
+    extra = ""
+    if provider_name == "bedrock":
+        extra = ":".join([
+            str(settings.get("ds_assistant_bedrock_enable_thinking", False)),
+            str(settings.get("ds_assistant_bedrock_thinking_budget", 8000)),
+            str(settings.get("ds_assistant_bedrock_max_tokens", "")),
+            settings.get("ds_assistant_aws_region", "us-east-1"),
+            settings.get("ds_assistant_aws_profile", "")[:8],
+        ])
+    elif provider_name == "anthropic":
+        extra = str(settings.get("ds_assistant_anthropic_extended_thinking", True))
+    return f"{task}:{provider_name}:{model}:{cred[:8]}:{extra}"
 
 
 def _resolve(settings: Dict[str, Any], task: TaskType) -> tuple[str, str]:
