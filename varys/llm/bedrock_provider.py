@@ -463,8 +463,15 @@ class BedrockProvider(BaseLLMProvider):
         await self._ensure_credentials()
         op_id = operation_id or f"op_{uuid.uuid4().hex[:8]}"
 
-        # Always use thinking for supported models (matches Anthropic behaviour
-        # where extended thinking is always on for plan_task on capable models).
+        # Always use thinking + streaming for supported models (matches Anthropic
+        # behaviour where extended thinking is always on for plan_task on capable
+        # models).  _stream_invoke_model uses invoke_model_with_response_stream
+        # which delivers thinking_delta and text_delta events token by token so
+        # both the reasoning bubble and the preamble text animate in the UI.
+        #
+        # Fallback: if the streaming API returns no thinking deltas (Bedrock
+        # occasionally omits them), we emit the accumulated thinking_text as a
+        # single block after the stream finishes so the bubble still appears.
         if self._supports_thinking():
             system = self._build_system(skills, memory, reasoning_mode=reasoning_mode)
             user_msg = _build_context(user_message, notebook_context)
@@ -478,56 +485,60 @@ class BedrockProvider(BaseLLMProvider):
             converse_msgs.append({"role": "user", "content": [{"text": user_msg}]})
             anthropic_msgs = self._converse_messages_to_anthropic(converse_msgs)
 
-            log.info("Bedrock stream_plan_task: using invoke_model with thinking for %s", self.chat_model)
-
-            try:
-                def _call(msgs=anthropic_msgs):
-                    return self._invoke_model_raw(system, msgs, tools=[self._PLAN_TOOL_ANTHROPIC])
-
-                result = await self._call_with_auto_refresh(_call)
-            except Exception as e:
-                log.error("Bedrock stream_plan_task (thinking) error: %s", e)
-                raise RuntimeError(f"AWS Bedrock error: {e}") from e
-
-            content_blocks = result.get("content", [])
             log.info(
-                "Bedrock stream_plan_task blocks: %s",
-                [b.get("type", "?") for b in content_blocks],
+                "Bedrock stream_plan_task: using invoke_model_with_response_stream "
+                "with thinking for %s",
+                self.chat_model,
             )
 
-            # Emit thinking and preamble text so the UI renders thinking bubble + text.
-            thinking_parts: List[str] = []
-            text_parts: List[str] = []
-            plan_data: Optional[Dict[str, Any]] = None
+            # Track whether thinking was emitted via streaming deltas; if not we
+            # emit the full thinking_text at the end as a single block.
+            thinking_delta_received = False
 
-            for block in content_blocks:
-                btype = block.get("type", "")
-                if btype == "thinking":
-                    t = block.get("thinking", "")
-                    if t:
-                        thinking_parts.append(t)
-                elif btype == "text":
-                    t = block.get("text", "")
-                    if t:
-                        text_parts.append(t)
-                elif btype == "tool_use" and block.get("name") == "create_operation_plan":
-                    plan_data = dict(block.get("input", {}))
+            async def _thought_proxy(text: str) -> None:
+                nonlocal thinking_delta_received
+                thinking_delta_received = True
+                if on_thought:
+                    await on_thought(text)
 
-            thinking_text = "\n\n".join(thinking_parts)
-            if thinking_text and on_thought:
+            # _stream_invoke_model requires a non-None on_chunk.
+            async def _noop(_: str) -> None:
+                pass
+
+            try:
+                thinking_text, _resp_text, _full_blocks, tool_use_blocks = (
+                    await self._stream_invoke_model(
+                        system,
+                        anthropic_msgs,
+                        on_text_chunk or _noop,
+                        on_thought=_thought_proxy,
+                        tools=[self._PLAN_TOOL_ANTHROPIC],
+                    )
+                )
+            except Exception as e:
+                log.error("Bedrock stream_plan_task (streaming) error: %s", e)
+                raise RuntimeError(f"AWS Bedrock error: {e}") from e
+
+            # Emit thinking as one block if streaming API did not deliver deltas.
+            if not thinking_delta_received and thinking_text and on_thought:
+                log.info(
+                    "Bedrock stream_plan_task: no thinking deltas received; "
+                    "emitting %d-char block via on_thought fallback",
+                    len(thinking_text),
+                )
                 await on_thought(thinking_text)
 
-            preamble = "".join(text_parts).strip()
-            if preamble and on_text_chunk:
-                words = preamble.split(" ")
-                for i, word in enumerate(words):
-                    chunk = word if i == len(words) - 1 else word + " "
-                    if chunk:
-                        await on_text_chunk(chunk)
-                        await asyncio.sleep(0)
+            # Extract plan from the tool_use block.
+            plan_data: Optional[Dict[str, Any]] = None
+            for tu in tool_use_blocks:
+                if tu.get("name") == "create_operation_plan":
+                    plan_data = dict(tu.get("input", {}))
+                    break
 
             if plan_data is None:
-                raise RuntimeError("Bedrock invoke_model did not return a create_operation_plan tool call")
+                raise RuntimeError(
+                    "Bedrock stream_plan_task did not return a create_operation_plan tool call"
+                )
 
             plan_data.setdefault("operationId", op_id)
             plan_data.setdefault("clarificationNeeded", None)
