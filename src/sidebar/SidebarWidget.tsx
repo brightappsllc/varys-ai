@@ -4216,6 +4216,11 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
       || notebookTracker.currentWidget?.context.path
       || '';
     if (!nbPath || !threadId) return;
+    // Guard against the delete-race: if this thread was already removed from
+    // threadsRef (e.g. handleDeleteThread ran concurrently), do not re-save it.
+    // Without this check, void _saveThread() calls fired from handleSwitchThread
+    // can complete AFTER the DELETE API call, silently re-creating the thread.
+    if (!threadsRef.current.some(t => t.id === threadId)) return;
     const saved = msgs
       .filter(m => m.role === 'user' || m.role === 'assistant')
       .map(m => ({
