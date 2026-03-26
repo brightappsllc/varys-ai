@@ -302,12 +302,18 @@ class BedrockProvider(BaseLLMProvider):
         usage = result.get("usage", {})
         self._set_usage(usage.get("input_tokens", 0), usage.get("output_tokens", 0))
 
+        content_blocks = result.get("content", [])
+        block_types = [b.get("type", "?") for b in content_blocks]
+        log.info("Bedrock invoke_model response block types: %s", block_types)
+
         thinking_parts: List[str] = []
         text_parts: List[str] = []
-        for block in result.get("content", []):
+        for block in content_blocks:
             btype = block.get("type", "")
             if btype == "thinking":
-                thinking_parts.append(block.get("thinking", ""))
+                t = block.get("thinking", "")
+                log.info("Bedrock thinking block len=%d", len(t))
+                thinking_parts.append(t)
             elif btype == "text":
                 text_parts.append(block.get("text", ""))
 
@@ -456,11 +462,19 @@ class BedrockProvider(BaseLLMProvider):
 
         # Extended thinking path: uses invoke_model directly (Anthropic Messages API)
         # because the Converse API does not support the thinking parameter.
+        log.info(
+            "Bedrock chat: enable_thinking=%s supports_thinking=%s model=%s",
+            self.enable_thinking, self._supports_thinking(), self.chat_model,
+        )
         if self.enable_thinking and self._supports_thinking():
             log.info("Bedrock: extended thinking enabled (budget=%d tokens)", self.thinking_budget)
             try:
                 _thinking, _text = await self._call_with_auto_refresh(
                     lambda: self._invoke_with_thinking(system, messages)
+                )
+                log.info(
+                    "Bedrock: thinking returned thinking_len=%d text_len=%d",
+                    len(_thinking), len(_text),
                 )
                 # Store thinking for stream_chat() to forward to on_thought callback.
                 self._last_thinking = _thinking
@@ -489,6 +503,134 @@ class BedrockProvider(BaseLLMProvider):
         except Exception as e:
             log.error("Bedrock chat error: %s", e)
             raise RuntimeError(f"AWS Bedrock error: {e}") from e
+
+    # ── MCP tool-loop helpers ─────────────────────────────────────────────────
+
+    @staticmethod
+    def _mcp_tools_to_bedrock(mcp_tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Convert Anthropic-format MCP tool definitions to Bedrock Converse toolSpec."""
+        result = []
+        for t in mcp_tools:
+            result.append({
+                "toolSpec": {
+                    "name": t["name"],
+                    "description": (t.get("description") or "")[:1000],
+                    "inputSchema": {
+                        "json": t.get("input_schema", {"type": "object", "properties": {}})
+                    },
+                }
+            })
+        return result
+
+    async def run_converse_mcp_loop(
+        self,
+        system: str,
+        user,
+        chat_history,
+        mcp_manager,
+        on_chunk,
+        on_thought=None,
+        max_rounds: int = 8,
+    ) -> str:
+        """Converse-API agentic loop for MCP tool use.
+
+        Translates MCP tool definitions to Bedrock toolSpec format, drives a
+        multi-turn Converse loop that executes any tool calls via mcp_manager,
+        and streams the final text response via on_chunk.
+
+        Thinking is intentionally disabled here: the Converse API does not
+        support the thinking parameter, so we keep it simple and fast.
+        """
+        await self._ensure_credentials()
+
+        # Build the initial messages list from history + user turn.
+        history = list(chat_history or [])
+        while history and history[0].get("role") != "user":
+            history = history[1:]
+        msgs: List[Dict[str, Any]] = [
+            {"role": h["role"], "content": [{"text": h["content"]}]} for h in history
+        ]
+        if isinstance(user, str):
+            msgs.append({"role": "user", "content": [{"text": user}]})
+        else:
+            # Vision content-block list
+            msgs.append({"role": "user", "content": user})
+
+        mcp_tools = mcp_manager.get_all_tools() if mcp_manager else []
+        tool_config: Dict[str, Any] = {
+            "tools": self._mcp_tools_to_bedrock(mcp_tools),
+            "toolChoice": {"auto": {}},
+        }
+
+        full_response = ""
+
+        for _round in range(max_rounds):
+            def _call(msgs=msgs):
+                return self._boto_client.converse(
+                    modelId=self.chat_model,
+                    system=[{"text": system}],
+                    messages=msgs,
+                    toolConfig=tool_config,
+                    inferenceConfig={
+                        "maxTokens": self._max_chat_tokens(),
+                        "temperature": 0.3,
+                    },
+                )
+
+            try:
+                resp = await self._call_with_auto_refresh(_call)
+            except Exception as e:
+                log.error("Bedrock MCP converse loop error (round %d): %s", _round, e)
+                raise RuntimeError(f"AWS Bedrock error: {e}") from e
+
+            u = resp.get("usage", {})
+            self._set_usage(u.get("inputTokens", 0), u.get("outputTokens", 0))
+
+            output_message = resp.get("output", {}).get("message", {})
+            content_blocks = output_message.get("content", [])
+            stop_reason = resp.get("stopReason", "")
+
+            # Collect text from this round.
+            for block in content_blocks:
+                if "text" in block:
+                    full_response = block["text"]
+
+            tool_use_blocks = [b for b in content_blocks if "toolUse" in b]
+
+            if not tool_use_blocks:
+                break  # Pure text response — done.
+
+            # Add assistant turn to history.
+            msgs.append({"role": "assistant", "content": content_blocks})
+
+            # Execute each tool call and collect results.
+            tool_results: List[Dict[str, Any]] = []
+            for block in tool_use_blocks:
+                tu = block["toolUse"]
+                name = tu["name"]
+                inp = tu.get("input", {})
+                use_id = tu["toolUseId"]
+                log.info("Bedrock MCP: calling tool %s with %r", name, inp)
+                try:
+                    result_text = await mcp_manager.call_tool(name, inp)
+                except Exception as exc:
+                    result_text = f"[Tool error: {exc}]"
+                    log.warning("Bedrock MCP tool %s error: %s", name, exc)
+
+                tool_results.append({
+                    "toolResult": {
+                        "toolUseId": use_id,
+                        "content": [{"text": str(result_text)}],
+                    }
+                })
+
+            msgs.append({"role": "user", "content": tool_results})
+
+        if full_response:
+            await on_chunk(full_response)
+        return full_response
+
+    # ── stream_chat override ──────────────────────────────────────────────────
 
     async def stream_chat(
         self,

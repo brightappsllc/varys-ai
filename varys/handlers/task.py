@@ -1179,48 +1179,45 @@ class TaskHandler(JupyterHandler):
                     mcp_manager = self.settings.get("ds_mcp_manager")
                     aclient = getattr(provider, "_chat_client", None)
 
+                    def _mcp_system_addon(tools_list):
+                        tool_lines = "\n".join(
+                            f"  - {t['name'].split('__', 1)[-1]} "
+                            f"(server: {t['name'].split('__', 1)[0]}): "
+                            f"{t.get('description', '')[:120]}"
+                            for t in tools_list
+                        )
+                        return (
+                            "\n\n## External MCP Tools — Available Now\n"
+                            "You have access to the following external tools via MCP servers.\n"
+                            "When the user asks for data or actions that require external access, "
+                            "call the appropriate tool — do NOT say you cannot access the internet.\n\n"
+                            f"{tool_lines}\n\n"
+                            "Always prefer calling a tool over apologising for lack of access.\n\n"
+                            "## IMPORTANT — Cell outputs and figures\n"
+                            "Any images or figures from notebook cell outputs are already attached "
+                            "to this conversation as vision content blocks. "
+                            "You MUST use those embedded image blocks to answer questions about "
+                            "plots, charts, or figures. "
+                            "Do NOT use the filesystem or any other tool to read the notebook "
+                            ".ipynb file in order to retrieve image data — the images are already "
+                            "directly visible to you in the conversation."
+                        )
+
                     if mcp_manager and mcp_manager.has_tools() and aclient is not None:
-                        # Use the full agentic loop so the LLM can call external tools
+                        # Anthropic direct — full streaming MCP loop with optional thinking
                         from ..llm.client import ClaudeClient as _CC
                         if isinstance(aclient, _CC):
-                            # Build a tool-aware system prompt so the LLM knows it can
-                            # call external services rather than refusing with "I can't
-                            # access the internet."
                             external_tools = mcp_manager.get_all_tools()
-                            tool_lines = "\n".join(
-                                f"  - {t['name'].split('__', 1)[-1]} "
-                                f"(server: {t['name'].split('__', 1)[0]}): "
-                                f"{t.get('description', '')[:120]}"
-                                for t in external_tools
-                            )
-                            mcp_addon = (
-                                "\n\n## External MCP Tools — Available Now\n"
-                                "You have access to the following external tools via MCP servers.\n"
-                                "When the user asks for data or actions that require external access, "
-                                "call the appropriate tool — do NOT say you cannot access the internet.\n\n"
-                                f"{tool_lines}\n\n"
-                                "Always prefer calling a tool over apologising for lack of access.\n\n"
-                                "## IMPORTANT — Cell outputs and figures\n"
-                                "Any images or figures from notebook cell outputs are already attached "
-                                "to this conversation as vision content blocks. "
-                                "You MUST use those embedded image blocks to answer questions about "
-                                "plots, charts, or figures. "
-                                "Do NOT use the filesystem or any other tool to read the notebook "
-                                ".ipynb file in order to retrieve image data — the images are already "
-                                "directly visible to you in the conversation."
-                            )
                             msgs = aclient._prepend_history(chat_history, final_user)
                             chat_result = await _run_mcp_tool_loop(
                                 aclient=aclient,
-                                system=system + mcp_addon,
+                                system=system + _mcp_system_addon(external_tools),
                                 messages=msgs,
-                                builtin_tools=[],  # chat mode: no create_operation_plan
+                                builtin_tools=[],
                                 mcp_manager=mcp_manager,
                                 on_text_chunk=_on_chunk,
                                 on_thought=_on_chat_thought,
                             )
-                            # Propagate accumulated token counts from the MCP loop
-                            # to provider so task.py can attach them to done_event.
                             if hasattr(aclient, "last_usage"):
                                 provider.last_usage = aclient.last_usage
                             chat_response_text = chat_result.get("chatResponse", "")
@@ -1233,6 +1230,23 @@ class TaskHandler(JupyterHandler):
                             chat_response_text = _re.sub(
                                 r'(\s*\bnull\b)+\s*$', '', "".join(accumulated)
                             ).strip()
+
+                    elif mcp_manager and mcp_manager.has_tools() and \
+                            hasattr(provider, "run_converse_mcp_loop"):
+                        # Bedrock (or any provider with a Converse-style MCP loop)
+                        external_tools = mcp_manager.get_all_tools()
+                        await provider.run_converse_mcp_loop(
+                            system=system + _mcp_system_addon(external_tools),
+                            user=final_user,
+                            chat_history=chat_history,
+                            mcp_manager=mcp_manager,
+                            on_chunk=_on_chunk,
+                            on_thought=_on_chat_thought,
+                        )
+                        chat_response_text = _re.sub(
+                            r'(\s*\bnull\b)+\s*$', '', "".join(accumulated)
+                        ).strip()
+
                     else:
                         await provider.stream_chat(
                             system=system,
