@@ -407,6 +407,141 @@ class BedrockProvider(BaseLLMProvider):
     def _build_system(self, skills: List[Dict[str, str]], memory: str, reasoning_mode: str = "off") -> str:
         return _build_system_prompt_shared(skills, memory, reasoning_mode=reasoning_mode)
 
+    # ── Operation-plan tool in Anthropic Messages API format ─────────────────
+    # Used by stream_plan_task when thinking is enabled (invoke_model path).
+    _PLAN_TOOL_ANTHROPIC: Dict[str, Any] = {
+        "name": "create_operation_plan",
+        "description": "Create a plan of notebook cell operations to fulfil the user's request.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "steps": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "type":        {"type": "string"},
+                            "cellIndex":   {"type": "integer"},
+                            "cellType":    {"type": "string"},
+                            "content":     {"type": "string"},
+                            "autoExecute": {"type": "boolean"},
+                            "description": {"type": "string"},
+                        },
+                        "required": ["type", "cellIndex"],
+                    },
+                },
+                "requiresApproval":   {"type": "boolean"},
+                "clarificationNeeded":{"type": "string"},
+                "summary":            {"type": "string"},
+            },
+            "required": ["steps", "requiresApproval", "summary"],
+        },
+    }
+
+    async def stream_plan_task(
+        self,
+        user_message: str,
+        notebook_context: Dict[str, Any],
+        skills: List[Dict[str, str]],
+        memory: str,
+        operation_id: Optional[str] = None,
+        on_text_chunk=None,
+        on_json_delta=None,
+        on_thought=None,
+        chat_history: Optional[List[Dict[str, str]]] = None,
+        reasoning_mode: str = "off",
+    ) -> Dict[str, Any]:
+        """Stream the plan task for Bedrock.
+
+        When thinking is enabled AND the model supports it, uses invoke_model
+        (Anthropic Messages API) so thinking blocks are returned and forwarded
+        via on_thought, and preamble text via on_text_chunk.
+
+        When thinking is disabled, falls back to the synchronous converse path
+        (plan_task).
+        """
+        await self._ensure_credentials()
+        op_id = operation_id or f"op_{uuid.uuid4().hex[:8]}"
+
+        if self.enable_thinking and self._supports_thinking():
+            system = self._build_system(skills, memory, reasoning_mode=reasoning_mode)
+            user_msg = _build_context(user_message, notebook_context)
+
+            history = list(chat_history or [])
+            while history and history[0].get("role") != "user":
+                history = history[1:]
+            converse_msgs = [
+                {"role": h["role"], "content": [{"text": h["content"]}]} for h in history
+            ]
+            converse_msgs.append({"role": "user", "content": [{"text": user_msg}]})
+            anthropic_msgs = self._converse_messages_to_anthropic(converse_msgs)
+
+            log.info("Bedrock stream_plan_task: using invoke_model with thinking for %s", self.chat_model)
+
+            try:
+                def _call(msgs=anthropic_msgs):
+                    return self._invoke_model_raw(system, msgs, tools=[self._PLAN_TOOL_ANTHROPIC])
+
+                result = await self._call_with_auto_refresh(_call)
+            except Exception as e:
+                log.error("Bedrock stream_plan_task (thinking) error: %s", e)
+                raise RuntimeError(f"AWS Bedrock error: {e}") from e
+
+            content_blocks = result.get("content", [])
+            log.info(
+                "Bedrock stream_plan_task blocks: %s",
+                [b.get("type", "?") for b in content_blocks],
+            )
+
+            # Emit thinking and preamble text so the UI renders thinking bubble + text.
+            thinking_parts: List[str] = []
+            text_parts: List[str] = []
+            plan_data: Optional[Dict[str, Any]] = None
+
+            for block in content_blocks:
+                btype = block.get("type", "")
+                if btype == "thinking":
+                    t = block.get("thinking", "")
+                    if t:
+                        thinking_parts.append(t)
+                elif btype == "text":
+                    t = block.get("text", "")
+                    if t:
+                        text_parts.append(t)
+                elif btype == "tool_use" and block.get("name") == "create_operation_plan":
+                    plan_data = dict(block.get("input", {}))
+
+            thinking_text = "\n\n".join(thinking_parts)
+            if thinking_text and on_thought:
+                await on_thought(thinking_text)
+
+            preamble = "".join(text_parts).strip()
+            if preamble and on_text_chunk:
+                words = preamble.split(" ")
+                for i, word in enumerate(words):
+                    chunk = word if i == len(words) - 1 else word + " "
+                    if chunk:
+                        await on_text_chunk(chunk)
+                        await asyncio.sleep(0)
+
+            if plan_data is None:
+                raise RuntimeError("Bedrock invoke_model did not return a create_operation_plan tool call")
+
+            plan_data.setdefault("operationId", op_id)
+            plan_data.setdefault("clarificationNeeded", None)
+            return plan_data
+
+        # No thinking — fall back to synchronous converse plan_task.
+        return await self.plan_task(
+            user_message=user_message,
+            notebook_context=notebook_context,
+            skills=skills,
+            memory=memory,
+            operation_id=op_id,
+            chat_history=chat_history,
+            reasoning_mode=reasoning_mode,
+        )
+
     async def plan_task(
         self,
         user_message: str,

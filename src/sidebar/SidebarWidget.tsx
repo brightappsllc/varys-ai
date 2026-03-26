@@ -5812,6 +5812,12 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
         return;
       }
 
+      // Guarantee the stream-message bubble exists before we call markHadCellOps.
+      // For providers that emit no chunk/thought events before the done event
+      // (e.g. Bedrock plan_task), streamStarted is false and streamMsgId has no
+      // corresponding message, so markHadCellOps would silently drop the diffs.
+      ensureStreamStarted();
+
       setProgressText(`Applying ${response.steps.length} operation(s)…`);
 
       const { stepIndexMap, capturedOriginals } = await cellEditor.applyOperations(
