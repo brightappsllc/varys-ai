@@ -351,44 +351,35 @@ class BedrockProvider(BaseLLMProvider):
             mcp_tools: Tools in Anthropic format (as returned by mcp_manager.get_all_tools()).
         """
         msgs = list(messages)
-        all_thinking: List[str] = []
         full_response = ""
 
         for _round in range(max_rounds):
-            def _call(msgs=msgs):
-                return self._invoke_model_raw(system, msgs, tools=mcp_tools)
-
+            log.info("Bedrock thinking MCP round %d", _round)
             try:
-                result = await self._call_with_auto_refresh(_call)
+                _thinking, _text, full_blocks, tool_use_blocks = \
+                    await self._stream_invoke_model(
+                        system=system,
+                        messages=msgs,
+                        on_chunk=on_chunk,
+                        on_thought=on_thought,
+                        tools=mcp_tools,
+                    )
             except Exception as e:
                 log.error("Bedrock thinking MCP loop error (round %d): %s", _round, e)
                 raise RuntimeError(f"AWS Bedrock error: {e}") from e
 
-            content_blocks = result.get("content", [])
-            stop_reason = result.get("stop_reason", "")
             log.info(
-                "Bedrock thinking MCP round %d: stop_reason=%s blocks=%s",
-                _round, stop_reason,
-                [b.get("type", "?") for b in content_blocks],
+                "Bedrock thinking MCP round %d done: thinking_len=%d text_len=%d tools=%d",
+                _round, len(_thinking), len(_text), len(tool_use_blocks),
             )
-
-            # Collect thinking and text from this round.
-            for block in content_blocks:
-                btype = block.get("type", "")
-                if btype == "thinking":
-                    t = block.get("thinking", "")
-                    if t:
-                        all_thinking.append(t)
-                elif btype == "text":
-                    full_response = block.get("text", "")
-
-            tool_use_blocks = [b for b in content_blocks if b.get("type") == "tool_use"]
+            full_response = _text
 
             if not tool_use_blocks:
-                break  # Pure text response — done.
+                break  # Final round — response already streamed.
 
-            # Preserve full assistant response (incl. thinking + signatures) in history.
-            msgs.append({"role": "assistant", "content": content_blocks})
+            # Preserve full assistant response (incl. thinking + signatures) in history
+            # so the next round has context.
+            msgs.append({"role": "assistant", "content": full_blocks})
 
             # Execute tools and collect results.
             tool_results: List[Dict[str, Any]] = []
@@ -411,11 +402,6 @@ class BedrockProvider(BaseLLMProvider):
 
             msgs.append({"role": "user", "content": tool_results})
 
-        # Emit thinking first so the bubble appears above the text response.
-        if all_thinking and on_thought:
-            await on_thought("\n\n".join(all_thinking))
-        if full_response:
-            await on_chunk(full_response)
         return full_response
 
     def _build_system(self, skills: List[Dict[str, str]], memory: str, reasoning_mode: str = "off") -> str:
@@ -603,6 +589,238 @@ class BedrockProvider(BaseLLMProvider):
             log.error("Bedrock chat error: %s", e)
             raise RuntimeError(f"AWS Bedrock error: {e}") from e
 
+    # ── Streaming helpers ─────────────────────────────────────────────────────
+
+    async def _stream_invoke_model(
+        self,
+        system: str,
+        messages: List[Dict[str, Any]],
+        on_chunk,
+        on_thought=None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ) -> tuple:
+        """Stream via invoke_model_with_response_stream (Anthropic Messages API).
+
+        Handles all streaming event types:
+          - thinking_delta  → streamed to on_thought token by token
+          - text_delta      → streamed to on_chunk token by token
+          - input_json_delta / signature_delta → accumulated for tool-use recovery
+          - content_block_start/stop → used to reconstruct full content blocks
+
+        Returns:
+            (thinking_text, response_text, full_content_blocks, tool_use_blocks)
+            where full_content_blocks includes thinking signatures (needed for
+            multi-turn MCP history) and tool_use_blocks lists any tool calls.
+        """
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+
+        max_tokens = self.thinking_budget + 8192
+        body: Dict[str, Any] = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": max_tokens,
+            "thinking": {"type": "enabled", "budget_tokens": self.thinking_budget},
+            "system": system,
+            "messages": messages,
+        }
+        if tools:
+            body["tools"] = tools
+            body["tool_choice"] = {"type": "auto"}
+
+        def _run() -> None:
+            try:
+                resp = self._boto_client.invoke_model_with_response_stream(
+                    modelId=self.chat_model,
+                    body=json.dumps(body),
+                    contentType="application/json",
+                    accept="application/json",
+                )
+                for raw_event in resp["body"]:
+                    chunk_bytes = raw_event.get("chunk", {}).get("bytes")
+                    if chunk_bytes:
+                        try:
+                            evt = json.loads(chunk_bytes)
+                            loop.call_soon_threadsafe(queue.put_nowait, evt)
+                        except Exception:
+                            pass
+            except Exception as exc:
+                loop.call_soon_threadsafe(queue.put_nowait, {"_error": str(exc)})
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, None)  # sentinel
+
+        executor_future = loop.run_in_executor(None, _run)
+
+        # Per-block state keyed by stream index.
+        # Each entry: {"type", "id", "name", "_thinking", "_text", "_json", "_sig"}
+        blocks: Dict[int, Dict[str, Any]] = {}
+        current_idx: int = -1
+
+        thinking_text = ""
+        response_text = ""
+        input_tokens = output_tokens = 0
+
+        while True:
+            evt = await queue.get()
+            if evt is None:
+                break
+            if "_error" in evt:
+                raise RuntimeError(f"AWS Bedrock stream error: {evt['_error']}")
+
+            etype = evt.get("type", "")
+
+            if etype == "content_block_start":
+                idx = evt.get("index", 0)
+                cb = evt.get("content_block", {})
+                blocks[idx] = {
+                    "type":     cb.get("type", "text"),
+                    "id":       cb.get("id", ""),
+                    "name":     cb.get("name", ""),
+                    "_thinking": "",
+                    "_text":    "",
+                    "_json":    "",
+                    "_sig":     "",
+                }
+                current_idx = idx
+
+            elif etype == "content_block_delta":
+                idx = evt.get("index", current_idx)
+                delta = evt.get("delta", {})
+                dtype = delta.get("type", "")
+
+                if dtype == "thinking_delta":
+                    t = delta.get("thinking", "")
+                    if t:
+                        thinking_text += t
+                        if idx in blocks:
+                            blocks[idx]["_thinking"] += t
+                        if on_thought:
+                            await on_thought(t)
+
+                elif dtype == "text_delta":
+                    t = delta.get("text", "")
+                    if t:
+                        response_text += t
+                        if idx in blocks:
+                            blocks[idx]["_text"] += t
+                        await on_chunk(t)
+
+                elif dtype == "input_json_delta":
+                    partial = delta.get("partial_json", "")
+                    if idx in blocks:
+                        blocks[idx]["_json"] += partial
+
+                elif dtype == "signature_delta":
+                    sig = delta.get("signature", "")
+                    if idx in blocks:
+                        blocks[idx]["_sig"] += sig
+
+            elif etype == "content_block_stop":
+                idx = evt.get("index", current_idx)
+                if idx in blocks:
+                    b = blocks[idx]
+                    if b["type"] == "tool_use":
+                        try:
+                            b["_parsed_input"] = json.loads(b["_json"]) if b["_json"] else {}
+                        except Exception:
+                            b["_parsed_input"] = {}
+
+            elif etype == "message_delta":
+                usage = evt.get("usage", {})
+                output_tokens += usage.get("output_tokens", 0)
+
+            elif etype == "message_start":
+                usage = evt.get("message", {}).get("usage", {})
+                input_tokens += usage.get("input_tokens", 0)
+
+        await executor_future
+        self._set_usage(input_tokens, output_tokens)
+
+        # Reconstruct full content blocks for history (ordered by index).
+        full_content_blocks: List[Dict[str, Any]] = []
+        tool_use_blocks: List[Dict[str, Any]] = []
+        for idx in sorted(blocks.keys()):
+            b = blocks[idx]
+            btype = b["type"]
+            if btype == "thinking":
+                full_content_blocks.append({
+                    "type":      "thinking",
+                    "thinking":  b["_thinking"],
+                    "signature": b["_sig"],
+                })
+            elif btype == "text":
+                if b["_text"]:
+                    full_content_blocks.append({"type": "text", "text": b["_text"]})
+            elif btype == "tool_use":
+                tu = {
+                    "type":  "tool_use",
+                    "id":    b["id"],
+                    "name":  b["name"],
+                    "input": b.get("_parsed_input", {}),
+                }
+                full_content_blocks.append(tu)
+                tool_use_blocks.append(tu)
+
+        return thinking_text, response_text, full_content_blocks, tool_use_blocks
+
+    async def _stream_converse(
+        self,
+        system: str,
+        messages: List[Dict[str, Any]],
+        on_chunk,
+    ) -> str:
+        """Stream a plain (no-thinking) chat response via converse_stream.
+
+        Yields text deltas to on_chunk as they arrive so the UI animates
+        token-by-token.  Returns the full response text.
+        """
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+
+        def _run() -> None:
+            try:
+                resp = self._boto_client.converse_stream(
+                    modelId=self.chat_model,
+                    system=[{"text": system}],
+                    messages=messages,
+                    inferenceConfig={
+                        "maxTokens": self._max_chat_tokens(),
+                        "temperature": 0.3,
+                    },
+                )
+                for evt in resp["stream"]:
+                    loop.call_soon_threadsafe(queue.put_nowait, evt)
+            except Exception as exc:
+                loop.call_soon_threadsafe(queue.put_nowait, {"_error": str(exc)})
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, None)  # sentinel
+
+        executor_future = loop.run_in_executor(None, _run)
+
+        response_text = ""
+        input_tokens = output_tokens = 0
+
+        while True:
+            evt = await queue.get()
+            if evt is None:
+                break
+            if "_error" in evt:
+                raise RuntimeError(f"AWS Bedrock converse_stream error: {evt['_error']}")
+
+            if "contentBlockDelta" in evt:
+                delta = evt["contentBlockDelta"].get("delta", {})
+                t = delta.get("text", "")
+                if t:
+                    response_text += t
+                    await on_chunk(t)
+            elif "metadata" in evt:
+                usage = evt["metadata"].get("usage", {})
+                input_tokens = usage.get("inputTokens", 0)
+                output_tokens = usage.get("outputTokens", 0)
+
+        await executor_future
+        self._set_usage(input_tokens, output_tokens)
+        return response_text
+
     # ── MCP tool-loop helpers ─────────────────────────────────────────────────
 
     @staticmethod
@@ -723,7 +941,21 @@ class BedrockProvider(BaseLLMProvider):
             tool_use_blocks = [b for b in content_blocks if "toolUse" in b]
 
             if not tool_use_blocks:
-                break  # Pure text response — done.
+                # Final round — stream the text instead of emitting a blob.
+                # We already have `full_response` from the synchronous round above,
+                # but we want streaming UX.  Re-run the final call with converse_stream.
+                # Build a fresh copy of msgs so the stream call sees the correct history.
+                try:
+                    full_response = await self._stream_converse(
+                        system=system,
+                        messages=msgs,
+                        on_chunk=on_chunk,
+                    )
+                except Exception:
+                    # Fallback: emit the already-collected text as-is.
+                    if full_response:
+                        await on_chunk(full_response)
+                break
 
             # Add assistant turn to history.
             msgs.append({"role": "assistant", "content": content_blocks})
@@ -751,8 +983,6 @@ class BedrockProvider(BaseLLMProvider):
 
             msgs.append({"role": "user", "content": tool_results})
 
-        if full_response:
-            await on_chunk(full_response)
         return full_response
 
     # ── stream_chat override ──────────────────────────────────────────────────
@@ -765,17 +995,66 @@ class BedrockProvider(BaseLLMProvider):
         on_thought=None,
         chat_history=None,
     ) -> None:
-        """Override base stream_chat to forward thinking blocks to on_thought.
+        """True streaming chat for Bedrock — token-by-token, matching Anthropic UX.
 
-        When extended thinking is enabled, chat() stores the thinking text in
-        self._last_thinking.  We emit it via on_thought before the main text so
-        the UI renders the same reddish 🧠 thinking bubble as the Anthropic path.
+        Thinking path  → invoke_model_with_response_stream (Anthropic Messages API)
+                         streams thinking_delta and text_delta events.
+        Plain path     → converse_stream
+                         streams contentBlockDelta events.
         """
-        text = await self.chat(system=system, user=user, chat_history=chat_history)
-        if self._last_thinking and on_thought:
-            await on_thought(self._last_thinking)
-        if text:
-            await on_chunk(text)
+        await self._ensure_credentials()
+
+        history = list(chat_history or [])
+        while history and history[0].get("role") != "user":
+            history = history[1:]
+
+        log.info(
+            "Bedrock stream_chat: enable_thinking=%s supports_thinking=%s model=%s",
+            self.enable_thinking, self._supports_thinking(), self.chat_model,
+        )
+
+        if self.enable_thinking and self._supports_thinking():
+            # Build messages in Anthropic Messages API format.
+            converse_history = [
+                {"role": h["role"], "content": [{"text": h["content"]}]} for h in history
+            ]
+            anthropic_msgs = self._converse_messages_to_anthropic(converse_history)
+            if isinstance(user, str):
+                anthropic_msgs.append({"role": "user", "content": user})
+            else:
+                anthropic_msgs.append({"role": "user", "content": user})
+
+            # The queue-based async bridge in _stream_invoke_model handles
+            # thread execution internally; no separate _call_with_auto_refresh needed.
+            try:
+                thinking_text, _, _, _ = await self._stream_invoke_model(
+                    system=system,
+                    messages=anthropic_msgs,
+                    on_chunk=on_chunk,
+                    on_thought=on_thought,
+                )
+                self._last_thinking = thinking_text
+                log.info("Bedrock stream_chat thinking_len=%d", len(thinking_text))
+            except Exception as e:
+                log.error("Bedrock stream_chat (thinking) error: %s", e)
+                raise RuntimeError(f"AWS Bedrock error: {e}") from e
+            return
+
+        # Plain converse_stream path (no thinking).
+        self._last_thinking = ""
+        msgs: List[Dict[str, Any]] = [
+            {"role": h["role"], "content": [{"text": h["content"]}]} for h in history
+        ]
+        if isinstance(user, str):
+            msgs.append({"role": "user", "content": [{"text": user}]})
+        else:
+            msgs.append({"role": "user", "content": user})
+
+        try:
+            await self._stream_converse(system=system, messages=msgs, on_chunk=on_chunk)
+        except Exception as e:
+            log.error("Bedrock stream_chat (converse_stream) error: %s", e)
+            raise RuntimeError(f"AWS Bedrock error: {e}") from e
 
     def has_vision(self) -> bool:
         name = self.chat_model.lower()
