@@ -5909,13 +5909,19 @@
 .ds-repro-all-ok {
   padding: 20px 12px;
   text-align: center;
-  color: var(--jp-ui-font-color2);
+  color: #4b5168;
   font-size: 12px;
 }
 .ds-repro-timestamp {
   font-size: 10px;
-  color: var(--ds-text-dim, #5a5f72);
+  color: #6b7280;
   margin-top: 4px;
+}
+.ds-chat-night .ds-repro-all-ok {
+  color: var(--ds-text-dim, #8890a8);
+}
+.ds-chat-night .ds-repro-timestamp {
+  color: var(--ds-text-dim, #5a6070);
 }
 
 /* Section */
