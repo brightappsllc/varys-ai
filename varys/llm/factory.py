@@ -324,6 +324,7 @@ def _build_provider(
             completion_model=completion_model,
             enable_thinking=settings.get("ds_assistant_bedrock_enable_thinking", False),
             thinking_budget=settings.get("ds_assistant_bedrock_thinking_budget", 8000),
+            max_tokens=settings.get("ds_assistant_bedrock_max_tokens", None),
         )
 
     if provider_name == "azure":

@@ -801,6 +801,8 @@ const TAB_GROUPS: TabGroup[] = [
         description: 'Enable extended thinking for Anthropic Claude Sonnet and Opus models. Improves reasoning on complex tasks at the cost of higher latency and token usage.' },
       { key: 'BEDROCK_THINKING_BUDGET',       label: 'Thinking token budget', type: 'text',
         placeholder: '8000  (min 1024, used only when extended thinking is on)' },
+      { key: 'BEDROCK_MAX_TOKENS',            label: 'Max output tokens',     type: 'text',
+        placeholder: 'leave blank for auto (4096 Haiku 4.5 · 8192 others)' },
     ]
   },
   {

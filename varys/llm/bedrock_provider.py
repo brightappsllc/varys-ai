@@ -80,6 +80,7 @@ class BedrockProvider(BaseLLMProvider):
         aws_auth_refresh: str = "",
         enable_thinking: bool = False,
         thinking_budget: int = 8000,
+        max_tokens: Optional[int] = None,
     ) -> None:
         super().__init__()
         self.access_key_id = access_key_id
@@ -92,6 +93,8 @@ class BedrockProvider(BaseLLMProvider):
         self.completion_model = completion_model
         self.enable_thinking = bool(enable_thinking)
         self.thinking_budget = max(1024, int(thinking_budget or 8000))
+        # User-configured override; None means "use the model-aware default".
+        self._max_tokens_override: Optional[int] = int(max_tokens) if max_tokens else None
         self._cache = CompletionCache()
         self._boto_client = self._make_client()
 
@@ -206,12 +209,16 @@ class BedrockProvider(BaseLLMProvider):
             raise
 
     def _max_chat_tokens(self) -> int:
-        """Return the safe max-output-token limit for the active chat model.
+        """Return the effective max-output-token limit for the active chat model.
 
-        Bedrock enforces per-model hard limits that differ from Anthropic's API:
-        - Claude Haiku 4.5 (anthropic.claude-haiku-4-5-*): 4 096 tokens
-        - All other Claude models currently tested: 8 192 tokens
+        Priority:
+          1. User-configured BEDROCK_MAX_TOKENS (explicit override)
+          2. Model-aware default:
+             - Claude Haiku 4.5 on Bedrock (Converse API): 4 096 tokens
+             - All other Claude models: 8 192 tokens
         """
+        if self._max_tokens_override:
+            return self._max_tokens_override
         name = self.chat_model.lower()
         if "haiku-4-5" in name or "haiku_4_5" in name:
             return 4096
@@ -341,7 +348,7 @@ class BedrockProvider(BaseLLMProvider):
                 system=[{"text": system}],
                 messages=messages,
                 toolConfig=_TOOL_CONFIG,
-                inferenceConfig={"maxTokens": 4096, "temperature": 0.2},
+                inferenceConfig={"maxTokens": self._max_tokens_override or 4096, "temperature": 0.2},
             )
             u = resp.get("usage", {})
             self._set_usage(u.get("inputTokens", 0), u.get("outputTokens", 0))

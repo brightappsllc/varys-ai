@@ -58,6 +58,7 @@ _ENV_KEYS = [
     "BEDROCK_EMBED_MODEL",
     "BEDROCK_ENABLE_THINKING",
     "BEDROCK_THINKING_BUDGET",
+    "BEDROCK_MAX_TOKENS",
     # ── Azure OpenAI ─────────────────────────────────────────────────────
     "AZURE_OPENAI_API_KEY",
     "AZURE_OPENAI_ENDPOINT",
@@ -226,6 +227,8 @@ def _reload_settings(handler: JupyterHandler, env_path: Path) -> None:
     s["ds_assistant_aws_region"]                 = os.environ.get("AWS_REGION", "us-east-1")
     s["ds_assistant_bedrock_enable_thinking"]    = os.environ.get("BEDROCK_ENABLE_THINKING", "false").lower() == "true"
     s["ds_assistant_bedrock_thinking_budget"]    = int(os.environ.get("BEDROCK_THINKING_BUDGET", "8000") or 8000)
+    _raw_max = os.environ.get("BEDROCK_MAX_TOKENS", "").strip()
+    s["ds_assistant_bedrock_max_tokens"]         = int(_raw_max) if _raw_max.isdigit() else None
     s["ds_assistant_azure_openai_api_key"]       = os.environ.get("AZURE_OPENAI_API_KEY", "")
     s["ds_assistant_azure_openai_endpoint"]      = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
     s["ds_assistant_azure_openai_api_version"]   = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-01")
