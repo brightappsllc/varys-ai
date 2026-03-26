@@ -4033,6 +4033,11 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
   // Ref so closures (e.g. _saveThread) always read the latest mode.
   const cellModeRef = useRef<CellMode>(cellMode);
   useEffect(() => { cellModeRef.current = cellMode; }, [cellMode]);
+  // Per-thread mode map — the authoritative in-session source.
+  // Updated synchronously on every explicit mode change and on thread load,
+  // so handleSwitchThread always sees the correct mode regardless of render timing
+  // or async _saveThread lag.
+  const threadModeMapRef = useRef<Map<string, CellMode>>(new Map());
 
   // ── Input area resize (drag from top) ─────────────────────────────────────
   const MIN_INPUT_HEIGHT = 56;
@@ -4306,12 +4311,24 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
   };
 
   /** Restore state from the in-memory cache.  Returns true if a cache hit was found. */
-  /** Restore the per-thread cell mode when switching to a different thread. */
+  /** Restore the per-thread cell mode when switching to a different thread.
+   *
+   * Resolution order:
+   *  1. threadModeMapRef (in-session explicit changes — always up-to-date)
+   *  2. thread.cellMode  (persisted to disk, loaded on session start)
+   *  3. 'agent'          (default)
+   */
   const _restoreThreadMode = (thread: ChatThread | undefined): void => {
     if (!thread) return;
-    const mode: CellMode = thread.cellMode === 'chat' ? 'chat' : 'agent';
+    const mapped = threadModeMapRef.current.get(thread.id);
+    const mode: CellMode =
+      mapped !== undefined ? mapped :
+      (thread.cellMode === 'chat' ? 'chat' : 'agent');
     setCellMode(mode);
     cellModeRef.current = mode;
+    // Record so subsequent reads from the map are correct even if the user
+    // never explicitly toggles this thread in the current session.
+    threadModeMapRef.current.set(thread.id, mode);
     try { localStorage.setItem('ds-assistant-cell-mode', mode); } catch { /* ignore */ }
   };
 
@@ -4450,6 +4467,10 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           threadsRef.current = chatFile.threads;
           setCurrentThreadId(lastId);
           currentThreadIdRef.current = lastId;
+          // Seed the mode map from disk so non-active threads have correct modes.
+          chatFile.threads.forEach(t => {
+            if (t.cellMode) threadModeMapRef.current.set(t.id, t.cellMode as CellMode);
+          });
           const _diskMsgs: Message[] =
             lastThread && lastThread.messages.length > 0
               ? lastThread.messages.map(m => ({
@@ -4600,6 +4621,10 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           threadsRef.current = chatFile.threads;
           setCurrentThreadId(lastId);
           currentThreadIdRef.current = lastId;
+          // Seed the mode map from disk so non-active threads have correct modes.
+          chatFile.threads.forEach(t => {
+            if (t.cellMode) threadModeMapRef.current.set(t.id, t.cellMode as CellMode);
+          });
           const _fileMsgs: Message[] =
             lastThread && lastThread.messages.length > 0
               ? lastThread.messages.map(m => ({
@@ -7383,6 +7408,8 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
                 onChange={e => {
                   const next = e.target.value as CellMode;
                   setCellMode(next);
+                  cellModeRef.current = next;
+                  threadModeMapRef.current.set(currentThreadIdRef.current, next);
                   try { localStorage.setItem('ds-assistant-cell-mode', next); } catch { /* ignore */ }
                 }}
               >
