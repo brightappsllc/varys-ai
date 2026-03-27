@@ -151,7 +151,7 @@ class GoogleProvider(BaseLLMProvider):
             return None
         budget = self.thinking_budget if self.thinking_budget > 0 else -1
         try:
-            return types.ThinkingConfig(thinking_budget=budget)
+            return types.ThinkingConfig(thinking_budget=budget, include_thoughts=True)
         except Exception:
             return None
 
