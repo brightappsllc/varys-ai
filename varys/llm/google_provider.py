@@ -191,6 +191,97 @@ class GoogleProvider(BaseLLMProvider):
             log.warning("Google complete error: %s", e)
             return {"suggestion": "", "type": "completion", "lines": [], "cached": False}
 
+    # ── stream_chat ───────────────────────────────────────────────────────────
+
+    async def stream_chat(
+        self,
+        system: str,
+        user: str,
+        on_chunk: Callable[[str], Awaitable[None]],
+        on_thought: Optional[Callable[[str], Awaitable[None]]] = None,
+        chat_history: Optional[List[Dict[str, str]]] = None,
+    ) -> None:
+        """True token-by-token streaming via generate_content_stream.
+
+        Replaces the base-class default (which buffers the full response in
+        chat() then fires a single on_chunk) so Gemini renders progressively,
+        matching the Anthropic / OpenAI streaming experience.
+        """
+        client = self._client()
+        types  = self._types()
+
+        config = types.GenerateContentConfig(
+            system_instruction=system,
+            temperature=0.3,
+            max_output_tokens=8192,
+        )
+
+        contents: List[Any] = []
+        if chat_history:
+            history = list(chat_history)
+            while history and history[0].get("role") != "user":
+                history = history[1:]
+            for turn in history:
+                role = "user" if turn["role"] == "user" else "model"
+                contents.append(types.Content(
+                    role=role,
+                    parts=[types.Part.from_text(text=turn["content"])],
+                ))
+        contents.append(types.Content(
+            role="user",
+            parts=[types.Part.from_text(text=user)],
+        ))
+
+        try:
+            async for chunk in client.aio.models.generate_content_stream(
+                model=self.chat_model,
+                contents=contents,
+                config=config,
+            ):
+                if chunk.text:
+                    await on_chunk(chunk.text)
+        except Exception as e:
+            log.error("Google stream_chat error: %s", e)
+            raise RuntimeError(f"Google Gemini stream error: {e}") from e
+
+    # ── stream_plan_task ──────────────────────────────────────────────────────
+
+    async def stream_plan_task(
+        self,
+        user_message: str,
+        notebook_context: Dict[str, Any],
+        skills: List[Dict[str, str]],
+        memory: str,
+        operation_id: Optional[str] = None,
+        on_text_chunk: Optional[Callable[[str], Awaitable[None]]] = None,
+        on_json_delta: Optional[Callable[[str], Awaitable[None]]] = None,
+        on_thought: Optional[Callable[[str], Awaitable[None]]] = None,
+        chat_history: Optional[List[Dict[str, str]]] = None,
+        reasoning_mode: str = "off",
+    ) -> Dict[str, Any]:
+        """Run plan_task then stream the summary so the UI gets at least one
+        chunk event before the done event — ensuring ensureStreamStarted fires
+        and the DiffView renders correctly.
+        """
+        op_id = operation_id or f"op_{uuid.uuid4().hex[:8]}"
+        plan  = await self.plan_task(
+            user_message=user_message,
+            notebook_context=notebook_context,
+            skills=skills,
+            memory=memory,
+            operation_id=op_id,
+            chat_history=chat_history,
+            reasoning_mode=reasoning_mode,
+        )
+        summary = plan.get("summary", "")
+        if summary and on_text_chunk:
+            for i, word in enumerate(summary.split(" ")):
+                chunk = word if i == len(summary.split(" ")) - 1 else word + " "
+                if chunk:
+                    await on_text_chunk(chunk)
+                    await asyncio.sleep(0)
+        return plan
+
     # ── health_check ──────────────────────────────────────────────────────────
 
     async def health_check(self) -> bool:

@@ -341,6 +341,44 @@ class OllamaProvider(BaseLLMProvider):
                 except json.JSONDecodeError:
                     continue
 
+    async def stream_plan_task(
+        self,
+        user_message: str,
+        notebook_context: Dict[str, Any],
+        skills: List[Dict[str, str]],
+        memory: str,
+        operation_id: Optional[str] = None,
+        on_text_chunk: Optional[Callable[[str], Awaitable[None]]] = None,
+        on_json_delta: Optional[Callable[[str], Awaitable[None]]] = None,
+        on_thought: Optional[Callable[[str], Awaitable[None]]] = None,
+        chat_history: Optional[List[Dict[str, str]]] = None,
+        reasoning_mode: str = "off",
+    ) -> Dict[str, Any]:
+        """Run plan_task then stream the summary so the UI gets at least one
+        chunk event before the done event — ensuring ensureStreamStarted fires
+        and the DiffView renders correctly.
+        """
+        import asyncio
+        op_id = operation_id or f"op_{uuid.uuid4().hex[:8]}"
+        plan  = await self.plan_task(
+            user_message=user_message,
+            notebook_context=notebook_context,
+            skills=skills,
+            memory=memory,
+            operation_id=op_id,
+            chat_history=chat_history,
+            reasoning_mode=reasoning_mode,
+        )
+        summary = plan.get("summary", "")
+        if summary and on_text_chunk:
+            words = summary.split(" ")
+            for i, word in enumerate(words):
+                chunk = word if i == len(words) - 1 else word + " "
+                if chunk:
+                    await on_text_chunk(chunk)
+                    await asyncio.sleep(0)
+        return plan
+
     async def health_check(self) -> bool:
         try:
             resp = await self._http.get(f"{self.base_url}/api/tags", timeout=5)

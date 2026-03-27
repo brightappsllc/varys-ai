@@ -1203,34 +1203,55 @@ class BedrockProvider(BaseLLMProvider):
 
         if self.enable_thinking and self._supports_thinking():
             log.info(
-                "Bedrock stream_chat: THINKING path "
+                "Bedrock stream_chat: THINKING path via _stream_invoke_model "
                 "(enable_thinking=%s budget=%d model=%s)",
                 self.enable_thinking, self.thinking_budget, self.chat_model,
             )
-            # Delegate to chat() which is confirmed to call _invoke_with_thinking()
-            # and populate self._last_thinking.  We then emit thinking first via
-            # on_thought, then stream the text word-by-word for a live UX.
+            # Use _stream_invoke_model (invoke_model_with_response_stream) for
+            # true token-by-token streaming of both thinking and response text,
+            # matching the Anthropic streaming experience.
+            converse_msgs = [
+                {"role": h["role"], "content": [{"text": h["content"]}]}
+                for h in history
+            ]
+            if isinstance(user, str):
+                converse_msgs.append({"role": "user", "content": [{"text": user}]})
+            else:
+                converse_msgs.append({"role": "user", "content": user
+                                      if isinstance(user, list) else [{"text": str(user)}]})
+            anthropic_msgs = self._converse_messages_to_anthropic(converse_msgs)
+
+            # Track whether any thinking delta was streamed; if the streaming API
+            # returns no thinking deltas (occasionally seen on some model versions)
+            # emit the accumulated block at the end as a fallback.
+            thinking_delta_received = False
+
+            async def _thought_proxy(text: str) -> None:
+                nonlocal thinking_delta_received
+                thinking_delta_received = True
+                if on_thought:
+                    await on_thought(text)
+
             try:
-                text = await self.chat(
-                    system=system, user=user, chat_history=chat_history
+                thinking_text, _resp_text, _full_blocks, _tool_use = (
+                    await self._stream_invoke_model(
+                        system,
+                        anthropic_msgs,
+                        on_chunk,
+                        on_thought=_thought_proxy,
+                    )
                 )
-                log.info(
-                    "Bedrock stream_chat (thinking) chat() done: "
-                    "thinking_len=%d text_len=%d",
-                    len(self._last_thinking), len(text or ""),
-                )
-                if self._last_thinking and on_thought:
-                    await on_thought(self._last_thinking)
-                if text:
-                    words = text.split(" ")
-                    for i, word in enumerate(words):
-                        chunk = word if i == len(words) - 1 else word + " "
-                        if chunk:
-                            await on_chunk(chunk)
-                            await asyncio.sleep(0)
             except Exception as e:
                 log.error("Bedrock stream_chat (thinking) error: %s", e)
                 raise RuntimeError(f"AWS Bedrock error: {e}") from e
+
+            if not thinking_delta_received and thinking_text and on_thought:
+                log.info(
+                    "Bedrock stream_chat: no thinking deltas received; "
+                    "emitting %d-char block via on_thought fallback",
+                    len(thinking_text),
+                )
+                await on_thought(thinking_text)
             return
 
         # Plain converse_stream path (no thinking).
