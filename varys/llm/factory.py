@@ -102,6 +102,9 @@ def _cache_key(provider_name: str, task: str, model: str, settings: Dict[str, An
         ])
     elif provider_name == "anthropic":
         extra = str(settings.get("ds_assistant_anthropic_extended_thinking", True))
+    elif provider_name == "google":
+        # Include service account path so switching auth method rebuilds the provider.
+        extra = settings.get("ds_assistant_google_service_account_json", "")[:16]
     return f"{task}:{provider_name}:{model}:{cred[:8]}:{extra}"
 
 
@@ -149,6 +152,7 @@ def _sync_credentials(settings: Dict[str, Any]) -> None:
         ("ds_assistant_anthropic_api_key",        "ANTHROPIC_API_KEY"),
         ("ds_assistant_openai_api_key",            "OPENAI_API_KEY"),
         ("ds_assistant_google_api_key",            "GOOGLE_API_KEY"),
+        ("ds_assistant_google_service_account_json", "GOOGLE_SERVICE_ACCOUNT_JSON"),
         ("ds_assistant_openrouter_api_key",        "OPENROUTER_API_KEY"),
         ("ds_assistant_azure_openai_api_key",      "AZURE_OPENAI_API_KEY"),
         ("ds_assistant_aws_profile",               "AWS_PROFILE"),
@@ -320,6 +324,7 @@ def _build_provider(
         from .google_provider import GoogleProvider
         return GoogleProvider(
             api_key=settings.get("ds_assistant_google_api_key", ""),
+            service_account_json=settings.get("ds_assistant_google_service_account_json", ""),
             chat_model=model,
             completion_model=completion_model,
         )

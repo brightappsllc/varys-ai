@@ -52,25 +52,62 @@ class GoogleProvider(BaseLLMProvider):
 
     def __init__(
         self,
-        api_key: str,
+        api_key: str = "",
+        service_account_json: str = "",
         chat_model: str = "gemini-2.0-flash",
         completion_model: str = "gemini-2.0-flash",
     ) -> None:
         super().__init__()
         self.api_key = api_key
+        self.service_account_json = service_account_json  # path to GCP service-account JSON
         self.chat_model = chat_model
         self.completion_model = completion_model
         self._cache = CompletionCache()
 
     def _client(self):
-        """Return a configured google.genai Client, with a friendly error if not installed."""
+        """Return a configured google.genai Client.
+
+        Auth priority:
+          1. Service-account JSON path (organization credentials) — if set and
+             the file exists, credentials are loaded via google.oauth2.service_account.
+          2. API key — direct Gemini API access for individual developers.
+
+        Raises RuntimeError with a clear message if google-genai is not installed
+        or if neither auth method is properly configured.
+        """
         try:
             from google import genai
-            return genai.Client(api_key=self.api_key)
         except (ImportError, ModuleNotFoundError):
             raise RuntimeError(
                 "google-genai not installed. Run: pip install google-genai"
             )
+
+        sa_path = (self.service_account_json or "").strip()
+        if sa_path:
+            import os
+            if not os.path.isfile(sa_path):
+                raise RuntimeError(
+                    f"Google service-account JSON not found: {sa_path!r}. "
+                    "Check the path in Settings → Google → Service account JSON."
+                )
+            try:
+                from google.oauth2 import service_account
+                credentials = service_account.Credentials.from_service_account_file(
+                    sa_path,
+                    scopes=["https://www.googleapis.com/auth/generative-language"],
+                )
+                return genai.Client(credentials=credentials)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Failed to load Google service-account credentials from {sa_path!r}: {exc}"
+                ) from exc
+
+        if not self.api_key:
+            raise RuntimeError(
+                "Google credentials not configured. "
+                "Provide an API key or a service-account JSON path in Settings → Google."
+            )
+        return genai.Client(api_key=self.api_key)
 
     def _types(self):
         """Return the google.genai.types module."""
