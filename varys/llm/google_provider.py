@@ -50,10 +50,6 @@ class GoogleProvider(BaseLLMProvider):
 
     """Calls the Google Gemini API via the google-genai SDK."""
 
-    # Models known to support the thinkingBudget parameter (Gemini 2.5+).
-    # Checked via substring match against the model name.
-    _THINKING_MODEL_PREFIXES = ("gemini-2.5",)
-
     def __init__(
         self,
         api_key: str = "",
@@ -71,11 +67,6 @@ class GoogleProvider(BaseLLMProvider):
         self.enable_thinking = enable_thinking
         self.thinking_budget = thinking_budget
         self._cache = CompletionCache()
-
-    def _supports_thinking(self) -> bool:
-        """True when the configured chat model supports thinkingBudget."""
-        m = self.chat_model.lower()
-        return any(m.startswith(p) or p in m for p in self._THINKING_MODEL_PREFIXES)
 
     def _client(self):
         """Return a configured google.genai Client.
@@ -150,11 +141,11 @@ class GoogleProvider(BaseLLMProvider):
 
         thinkingBudget=-1  → dynamic thinking (model decides how much to use)
         thinkingBudget=N   → fixed budget in tokens
-        Returns None when thinking is off (no param is sent).
+        Returns None when thinking is off.
 
-        We intentionally skip the model-name check here: if the user enables
-        thinking for a model that doesn't support it, the API will return a
-        clear error.  The _supports_thinking() helper is kept for logging only.
+        No model-name allowlist: the API is the ground truth.  If the model
+        doesn't support thinking the API returns an error and stream_chat
+        retries automatically without the config.
         """
         if not self.enable_thinking:
             return None
@@ -316,16 +307,17 @@ class GoogleProvider(BaseLLMProvider):
         ))
 
         log.info(
-            "Google stream_chat: model=%s enable_thinking=%s thinking_cfg=%s",
-            self.chat_model, self.enable_thinking, thinking_cfg is not None,
+            "Google stream_chat: model=%s thinking=%s",
+            self.chat_model, thinking_cfg is not None,
         )
 
-        try:
+        async def _run_stream(cfg: Any) -> None:
+            """Execute one streaming call; raises on error."""
             last_chunk = None
             async for chunk in await client.aio.models.generate_content_stream(
                 model=self.chat_model,
                 contents=contents,
-                config=config,
+                config=cfg,
             ):
                 last_chunk = chunk
                 # Each chunk may carry multiple parts: thought=True parts are
@@ -340,13 +332,38 @@ class GoogleProvider(BaseLLMProvider):
                         else:
                             await on_chunk(part.text)
                 elif chunk.text:
-                    # Fallback for chunks without candidate detail
                     await on_chunk(chunk.text)
             if last_chunk is not None:
                 self._record_usage(last_chunk)
+
+        try:
+            await _run_stream(config)
         except Exception as e:
-            log.error("Google stream_chat error: %s", e)
-            raise RuntimeError(f"Google Gemini stream error: {e}") from e
+            err_str = str(e).lower()
+            # If the API rejects the ThinkingConfig (model doesn't support it),
+            # retry transparently without thinking rather than surfacing a crash.
+            if thinking_cfg is not None and (
+                "thinking" in err_str or "thinkingbudget" in err_str
+                or "invalid" in err_str or "unsupported" in err_str
+            ):
+                log.warning(
+                    "Google model %s rejected ThinkingConfig (%s). "
+                    "Retrying without thinking.",
+                    self.chat_model, e,
+                )
+                fallback_config = types.GenerateContentConfig(
+                    system_instruction=system,
+                    temperature=0.3,
+                    max_output_tokens=8192,
+                )
+                try:
+                    await _run_stream(fallback_config)
+                except Exception as e2:
+                    log.error("Google stream_chat fallback error: %s", e2)
+                    raise RuntimeError(f"Google Gemini stream error: {e2}") from e2
+            else:
+                log.error("Google stream_chat error: %s", e)
+                raise RuntimeError(f"Google Gemini stream error: {e}") from e
 
     # ── stream_plan_task ──────────────────────────────────────────────────────
 
@@ -437,14 +454,8 @@ class GoogleProvider(BaseLLMProvider):
             parts=[types.Part.from_text(text=user)],
         ))
 
-        try:
-            resp = await client.aio.models.generate_content(
-                model=self.chat_model,
-                contents=contents,
-                config=config,
-            )
+        def _extract_text(resp: Any) -> str:
             self._record_usage(resp)
-            # Extract only the non-thought text parts.
             if resp.candidates:
                 text_parts = [
                     p.text for p in resp.candidates[0].content.parts
@@ -452,7 +463,35 @@ class GoogleProvider(BaseLLMProvider):
                 ]
                 return "".join(text_parts)
             return resp.text or ""
+
+        try:
+            resp = await client.aio.models.generate_content(
+                model=self.chat_model, contents=contents, config=config,
+            )
+            return _extract_text(resp)
         except Exception as e:
+            err_str = str(e).lower()
+            if thinking_cfg is not None and (
+                "thinking" in err_str or "thinkingbudget" in err_str
+                or "invalid" in err_str or "unsupported" in err_str
+            ):
+                log.warning(
+                    "Google model %s rejected ThinkingConfig (%s). Retrying without thinking.",
+                    self.chat_model, e,
+                )
+                fallback_config = types.GenerateContentConfig(
+                    system_instruction=system,
+                    temperature=0.3,
+                    max_output_tokens=8192,
+                )
+                try:
+                    resp = await client.aio.models.generate_content(
+                        model=self.chat_model, contents=contents, config=fallback_config,
+                    )
+                    return _extract_text(resp)
+                except Exception as e2:
+                    log.error("Google chat fallback error: %s", e2)
+                    raise RuntimeError(f"Google Gemini error: {e2}") from e2
             log.error("Google chat error: %s", e)
             raise RuntimeError(f"Google Gemini error: {e}") from e
 
