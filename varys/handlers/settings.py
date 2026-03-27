@@ -42,6 +42,8 @@ _ENV_KEYS = [
     # ── Google ───────────────────────────────────────────────────────────
     "GOOGLE_API_KEY",
     "GOOGLE_SERVICE_ACCOUNT_JSON",
+    "GOOGLE_ENABLE_THINKING",
+    "GOOGLE_THINKING_BUDGET",
     "GOOGLE_CHAT_MODEL",
     "GOOGLE_COMPLETION_MODEL",
     "GOOGLE_SIMPLE_TASKS_MODEL",
@@ -221,6 +223,8 @@ def _reload_settings(handler: JupyterHandler, env_path: Path) -> None:
     s["ds_assistant_openai_api_key"]             = os.environ.get("OPENAI_API_KEY", "")
     s["ds_assistant_google_api_key"]             = os.environ.get("GOOGLE_API_KEY", "")
     s["ds_assistant_google_service_account_json"] = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+    s["ds_assistant_google_enable_thinking"]      = os.environ.get("GOOGLE_ENABLE_THINKING", "").lower() in ("1", "true", "yes")
+    s["ds_assistant_google_thinking_budget"]      = int(os.environ.get("GOOGLE_THINKING_BUDGET", "8192") or 8192)
     s["ds_assistant_aws_profile"]                = os.environ.get("AWS_PROFILE", "")
     s["ds_assistant_aws_auth_refresh"]           = os.environ.get("AWS_AUTH_REFRESH", "")
     s["ds_assistant_aws_access_key_id"]          = os.environ.get("AWS_ACCESS_KEY_ID", "")

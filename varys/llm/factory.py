@@ -103,8 +103,11 @@ def _cache_key(provider_name: str, task: str, model: str, settings: Dict[str, An
     elif provider_name == "anthropic":
         extra = str(settings.get("ds_assistant_anthropic_extended_thinking", True))
     elif provider_name == "google":
-        # Include service account path so switching auth method rebuilds the provider.
-        extra = settings.get("ds_assistant_google_service_account_json", "")[:16]
+        extra = ":".join([
+            settings.get("ds_assistant_google_service_account_json", "")[:16],
+            str(settings.get("ds_assistant_google_enable_thinking", False)),
+            str(settings.get("ds_assistant_google_thinking_budget", 8192)),
+        ])
     return f"{task}:{provider_name}:{model}:{cred[:8]}:{extra}"
 
 
@@ -327,6 +330,8 @@ def _build_provider(
             service_account_json=settings.get("ds_assistant_google_service_account_json", ""),
             chat_model=model,
             completion_model=completion_model,
+            enable_thinking=settings.get("ds_assistant_google_enable_thinking", False),
+            thinking_budget=int(settings.get("ds_assistant_google_thinking_budget", 8192) or 8192),
         )
 
     if provider_name == "bedrock":

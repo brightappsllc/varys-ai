@@ -50,19 +50,32 @@ class GoogleProvider(BaseLLMProvider):
 
     """Calls the Google Gemini API via the google-genai SDK."""
 
+    # Models known to support the thinkingBudget parameter (Gemini 2.5+).
+    # Checked via substring match against the model name.
+    _THINKING_MODEL_PREFIXES = ("gemini-2.5",)
+
     def __init__(
         self,
         api_key: str = "",
         service_account_json: str = "",
         chat_model: str = "gemini-2.0-flash",
         completion_model: str = "gemini-2.0-flash",
+        enable_thinking: bool = False,
+        thinking_budget: int = 8192,
     ) -> None:
         super().__init__()
         self.api_key = api_key
-        self.service_account_json = service_account_json  # path to GCP service-account JSON
+        self.service_account_json = service_account_json
         self.chat_model = chat_model
         self.completion_model = completion_model
+        self.enable_thinking = enable_thinking
+        self.thinking_budget = thinking_budget
         self._cache = CompletionCache()
+
+    def _supports_thinking(self) -> bool:
+        """True when the configured chat model supports thinkingBudget."""
+        m = self.chat_model.lower()
+        return any(m.startswith(p) or p in m for p in self._THINKING_MODEL_PREFIXES)
 
     def _client(self):
         """Return a configured google.genai Client.
@@ -131,6 +144,21 @@ class GoogleProvider(BaseLLMProvider):
             getattr(meta, "prompt_token_count", 0) or 0,
             getattr(meta, "candidates_token_count", 0) or 0,
         )
+
+    def _thinking_config(self, types: Any) -> Optional[Any]:
+        """Return a ThinkingConfig when thinking is enabled and the model supports it.
+
+        thinkingBudget=-1  → dynamic thinking (model decides how much to use)
+        thinkingBudget=N   → fixed budget in tokens
+        Returns None when thinking is off or unsupported (no param is sent).
+        """
+        if not (self.enable_thinking and self._supports_thinking()):
+            return None
+        budget = self.thinking_budget if self.thinking_budget > 0 else -1
+        try:
+            return types.ThinkingConfig(thinking_budget=budget)
+        except Exception:
+            return None
 
     def _build_contents(
         self,
@@ -259,10 +287,12 @@ class GoogleProvider(BaseLLMProvider):
         client = self._client()
         types  = self._types()
 
+        thinking_cfg = self._thinking_config(types)
         config = types.GenerateContentConfig(
             system_instruction=system,
             temperature=0.3,
             max_output_tokens=8192,
+            **({"thinking_config": thinking_cfg} if thinking_cfg is not None else {}),
         )
 
         contents: List[Any] = []
@@ -281,6 +311,11 @@ class GoogleProvider(BaseLLMProvider):
             parts=[types.Part.from_text(text=user)],
         ))
 
+        log.info(
+            "Google stream_chat: model=%s enable_thinking=%s supports_thinking=%s",
+            self.chat_model, self.enable_thinking, self._supports_thinking(),
+        )
+
         try:
             last_chunk = None
             async for chunk in await client.aio.models.generate_content_stream(
@@ -289,7 +324,19 @@ class GoogleProvider(BaseLLMProvider):
                 config=config,
             ):
                 last_chunk = chunk
-                if chunk.text:
+                # Each chunk may carry multiple parts: thought=True parts are
+                # reasoning content; the rest are regular response text.
+                if chunk.candidates:
+                    for part in chunk.candidates[0].content.parts:
+                        if not part.text:
+                            continue
+                        if getattr(part, "thought", False):
+                            if on_thought:
+                                await on_thought(part.text)
+                        else:
+                            await on_chunk(part.text)
+                elif chunk.text:
+                    # Fallback for chunks without candidate detail
                     await on_chunk(chunk.text)
             if last_chunk is not None:
                 self._record_usage(last_chunk)
@@ -361,10 +408,12 @@ class GoogleProvider(BaseLLMProvider):
         client = self._client()
         types  = self._types()
 
+        thinking_cfg = self._thinking_config(types)
         config = types.GenerateContentConfig(
             system_instruction=system,
             temperature=0.3,
             max_output_tokens=8192,
+            **({"thinking_config": thinking_cfg} if thinking_cfg is not None else {}),
         )
 
         # Build history as a list of Content objects and append the current turn.
@@ -391,6 +440,13 @@ class GoogleProvider(BaseLLMProvider):
                 config=config,
             )
             self._record_usage(resp)
+            # Extract only the non-thought text parts.
+            if resp.candidates:
+                text_parts = [
+                    p.text for p in resp.candidates[0].content.parts
+                    if p.text and not getattr(p, "thought", False)
+                ]
+                return "".join(text_parts)
             return resp.text or ""
         except Exception as e:
             log.error("Google chat error: %s", e)
