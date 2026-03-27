@@ -6847,12 +6847,12 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
                             <button
                               className="ds-thinking-header"
                               onClick={() => { if (!isStreaming) toggleThinkCollapsed(msg.id); }}
-                              title={isStreaming ? 'Reasoning…' : (thinkIsCollapsed ? 'Show reasoning' : 'Hide reasoning')}
+                              title={isStreaming ? 'Thinking…' : (thinkIsCollapsed ? 'Show thought' : 'Hide thought')}
                               style={isStreaming ? { cursor: 'default' } : undefined}
                             >
                               <span className="ds-thinking-icon">🧠</span>
                               <span className="ds-thinking-label">
-                                {isStreaming ? 'Reasoning…' : 'Reasoning'}
+                                {isStreaming ? 'Thinking…' : 'Thought'}
                               </span>
                               <span className="ds-thinking-chevron">
                                 {thinkIsCollapsed ? '▸' : '▾'}
@@ -7281,20 +7281,20 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
                   :                                ' ds-thinking-chip--off'
                 }`}
                 onClick={() => setReasoningDropdownOpen(v => !v)}
-                aria-label={`Reasoning mode: ${reasoningMode}`}
+                aria-label={`Chain-of-Thought mode: ${reasoningMode}`}
                 aria-haspopup="listbox"
                 aria-expanded={reasoningDropdownOpen}
               >
                 🧠{' '}
                 {reasoningMode === 'sequential' ? 'Sequential'
                   : reasoningMode === 'cot'     ? 'CoT'
-                  :                               'Reasoning'}
+                  :                               'CoT: off'}
                 <span className="ds-reasoning-chevron">{reasoningDropdownOpen ? '▴' : '▾'}</span>
               </button>
               {reasoningDropdownOpen && (
                 <div className="ds-reasoning-menu" role="listbox">
                   {([
-                    { value: 'off',        label: 'Off',        sub: 'No reasoning',                   mod: '' },
+                    { value: 'off',        label: 'Off',        sub: 'No extra reasoning calls',       mod: '' },
                     { value: 'cot',        label: 'CoT',        sub: '1 call · steps inline',          mod: 'cot' },
                     { value: 'sequential', label: 'Sequential', sub: 'Multi-step · 🧠 panel',          mod: 'seq' },
                   ] as { value: ReasoningMode; label: string; sub: string; mod: string }[]).map(opt => (

@@ -328,7 +328,16 @@ class GoogleProvider(BaseLLMProvider):
                             continue
                         if getattr(part, "thought", False):
                             if on_thought:
-                                await on_thought(part.text)
+                                # Google sends thought content as one large block
+                                # rather than token-by-token.  Simulate smooth
+                                # streaming by emitting word-by-word so the
+                                # thinking bubble animates progressively.
+                                words = part.text.split(" ")
+                                for i, word in enumerate(words):
+                                    frag = word if i == len(words) - 1 else word + " "
+                                    if frag:
+                                        await on_thought(frag)
+                                        await asyncio.sleep(0)
                         else:
                             await on_chunk(part.text)
                 elif chunk.text:
