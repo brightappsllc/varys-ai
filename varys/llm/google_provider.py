@@ -1,4 +1,8 @@
-"""Google Gemini provider — gemini-2.0-flash, gemini-1.5-pro, etc."""
+"""Google Gemini provider — gemini-2.0-flash, gemini-1.5-pro, etc.
+
+Uses the new google-genai SDK (google.genai) which replaced the deprecated
+google.generativeai package.  Install with: pip install google-genai
+"""
 import asyncio
 import base64
 import json
@@ -40,10 +44,11 @@ _PLAN_SCHEMA = {
     "required": ["steps", "requiresApproval", "summary"],
 }
 
+
 class GoogleProvider(BaseLLMProvider):
     VENDOR = "google"
 
-    """Calls the Google Gemini API via google-generativeai."""
+    """Calls the Google Gemini API via the google-genai SDK."""
 
     def __init__(
         self,
@@ -57,28 +62,55 @@ class GoogleProvider(BaseLLMProvider):
         self.completion_model = completion_model
         self._cache = CompletionCache()
 
-    def _genai(self):
+    def _client(self):
+        """Return a configured google.genai Client, with a friendly error if not installed."""
         try:
-            import google.generativeai as genai
-            genai.configure(api_key=self.api_key)
-            return genai
+            from google import genai
+            return genai.Client(api_key=self.api_key)
         except (ImportError, ModuleNotFoundError):
             raise RuntimeError(
-                "google-generativeai not installed. Run: pip install google-generativeai"
+                "google-genai not installed. Run: pip install google-genai"
             )
 
-    def _gtypes(self):
-        """Return google.generativeai.types, with a friendly error if not installed."""
+    def _types(self):
+        """Return the google.genai.types module."""
         try:
-            import google.generativeai.types as gtypes
-            return gtypes
+            from google.genai import types
+            return types
         except (ImportError, ModuleNotFoundError):
             raise RuntimeError(
-                "google-generativeai not installed. Run: pip install google-generativeai"
+                "google-genai not installed. Run: pip install google-genai"
             )
 
     def _build_system(self, skills: List[Dict[str, str]], memory: str, reasoning_mode: str = "off") -> str:
         return _build_system_prompt_shared(skills, memory, reasoning_mode=reasoning_mode)
+
+    def _build_contents(
+        self,
+        user_msg: str,
+        notebook_context: Dict[str, Any],
+        types: Any,
+    ) -> List[Any]:
+        """Build a contents list, appending image parts when vision is available."""
+        parts: List[Any] = [types.Part.from_text(text=user_msg)]
+        if self.has_vision():
+            for cell in notebook_context.get("cells", []):
+                img = cell.get("imageOutput")
+                if img:
+                    idx = cell.get("index")
+                    label = f"#{idx + 1}" if isinstance(idx, int) else "#?"
+                    raw_mime = cell.get("imageOutputMime") or "image/png"
+                    mime = raw_mime if raw_mime in (
+                        "image/png", "image/jpeg", "image/webp", "image/gif"
+                    ) else "image/png"
+                    parts.append(types.Part.from_text(text=f"[Plot from cell {label}:]"))
+                    parts.append(types.Part.from_bytes(
+                        data=base64.b64decode(img),
+                        mime_type=mime,
+                    ))
+        return parts
+
+    # ── plan_task ─────────────────────────────────────────────────────────────
 
     async def plan_task(
         self,
@@ -90,39 +122,26 @@ class GoogleProvider(BaseLLMProvider):
         chat_history: Optional[List[Dict[str, str]]] = None,
         reasoning_mode: str = "off",
     ) -> Dict[str, Any]:
-        op_id = operation_id or f"op_{uuid.uuid4().hex[:8]}"
-        system = self._build_system(skills, memory, reasoning_mode=reasoning_mode)
+        op_id    = operation_id or f"op_{uuid.uuid4().hex[:8]}"
+        system   = self._build_system(skills, memory, reasoning_mode=reasoning_mode)
         user_msg = _build_context(user_message, notebook_context)
+        client   = self._client()
+        types    = self._types()
 
-        genai  = self._genai()
-        gtypes = self._gtypes()
-
-        parts: List[Any] = [user_msg]
-        if self.has_vision():
-            for cell in notebook_context.get("cells", []):
-                img = cell.get("imageOutput")
-                if img:
-                    idx = cell.get("index")
-                    label = f"#{idx + 1}" if isinstance(idx, int) else "#?"
-                    raw_mime = cell.get("imageOutputMime") or "image/png"
-                    mime = raw_mime if raw_mime in ("image/png", "image/jpeg", "image/webp", "image/gif") else "image/png"
-                    parts.append(f"[Plot from cell {label}:]")
-                    parts.append(gtypes.Part.from_data(
-                        mime_type=mime,
-                        data=base64.b64decode(img),
-                    ))
-        model = genai.GenerativeModel(
-            model_name=self.chat_model,
+        contents = self._build_contents(user_msg, notebook_context, types)
+        config = types.GenerateContentConfig(
             system_instruction=system,
-            generation_config=genai.GenerationConfig(
-                response_mime_type="application/json",
-                response_schema=_PLAN_SCHEMA,
-                temperature=0.2,
-                max_output_tokens=4096,
-            ),
+            response_mime_type="application/json",
+            response_schema=_PLAN_SCHEMA,
+            temperature=0.2,
+            max_output_tokens=4096,
         )
         try:
-            resp = await model.generate_content_async(parts)
+            resp = await client.aio.models.generate_content(
+                model=self.chat_model,
+                contents=contents,
+                config=config,
+            )
             data = json.loads(resp.text)
             data.setdefault("operationId", op_id)
             data.setdefault("clarificationNeeded", None)
@@ -131,6 +150,8 @@ class GoogleProvider(BaseLLMProvider):
             log.error("Google plan_task error: %s", e)
             raise RuntimeError(f"Google Gemini error: {e}") from e
 
+    # ── complete ──────────────────────────────────────────────────────────────
+
     async def complete(
         self,
         prefix: str,
@@ -138,27 +159,29 @@ class GoogleProvider(BaseLLMProvider):
         language: str,
         previous_cells: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        imports = _extract_imports(previous_cells)
+        imports   = _extract_imports(previous_cells)
         cache_key = CompletionCache.make_key(prefix, language, "google-completion", imports)
-        cached = self._cache.get(cache_key)
+        cached    = self._cache.get(cache_key)
         if cached:
             return {"suggestion": cached, "type": "completion", "lines": cached.splitlines(), "cached": True}
 
         context = _build_context_block(previous_cells)
-        prompt = (f"{context}\n\n{prefix}" if context else prefix)
+        prompt  = (f"{context}\n\n{prefix}" if context else prefix)
+        client  = self._client()
+        types   = self._types()
 
-        genai = self._genai()
-        model = genai.GenerativeModel(
-            model_name=self.completion_model,
+        config = types.GenerateContentConfig(
             system_instruction=_INLINE_SYSTEM,
-            generation_config=genai.GenerationConfig(
-                temperature=0.1,
-                max_output_tokens=256,
-            ),
+            temperature=0.1,
+            max_output_tokens=256,
         )
         try:
-            resp = await model.generate_content_async(f"Complete:\n{prompt}")
-            raw = resp.text or ""
+            resp = await client.aio.models.generate_content(
+                model=self.completion_model,
+                contents=f"Complete:\n{prompt}",
+                config=config,
+            )
+            raw        = resp.text or ""
             suggestion = re.sub(r"^```[a-z]*\n?", "", raw.strip(), flags=re.MULTILINE)
             suggestion = re.sub(r"\n?```$", "", suggestion, flags=re.MULTILINE).strip()
             if suggestion:
@@ -168,13 +191,22 @@ class GoogleProvider(BaseLLMProvider):
             log.warning("Google complete error: %s", e)
             return {"suggestion": "", "type": "completion", "lines": [], "cached": False}
 
+    # ── health_check ──────────────────────────────────────────────────────────
+
     async def health_check(self) -> bool:
         try:
-            genai = self._genai()
-            await genai.list_models_async()
+            client = self._client()
+            types  = self._types()
+            await client.aio.models.generate_content(
+                model=self.chat_model,
+                contents="hi",
+                config=types.GenerateContentConfig(max_output_tokens=1),
+            )
             return True
         except Exception:
             return False
+
+    # ── chat ──────────────────────────────────────────────────────────────────
 
     async def chat(
         self,
@@ -182,26 +214,42 @@ class GoogleProvider(BaseLLMProvider):
         user: str,
         chat_history: Optional[List[Dict[str, str]]] = None,
     ) -> str:
-        genai = self._genai()
-        model = genai.GenerativeModel(
-            model_name=self.chat_model,
+        client = self._client()
+        types  = self._types()
+
+        config = types.GenerateContentConfig(
             system_instruction=system,
-            generation_config=genai.GenerationConfig(temperature=0.3, max_output_tokens=8192),
+            temperature=0.3,
+            max_output_tokens=8192,
         )
-        # Build chat history for multi-turn support
+
+        # Build history as a list of Content objects and append the current turn.
+        contents: List[Any] = []
         if chat_history:
-            history = list(chat_history or [])
+            history = list(chat_history)
             while history and history[0].get("role") != "user":
                 history = history[1:]
-            gemini_history = []
             for turn in history:
                 role = "user" if turn["role"] == "user" else "model"
-                gemini_history.append({"role": role, "parts": [turn["content"]]})
-            chat_session = model.start_chat(history=gemini_history)
-            resp = await chat_session.send_message_async(user)
-        else:
-            resp = await model.generate_content_async(user)
-        return resp.text or ""
+                contents.append(types.Content(
+                    role=role,
+                    parts=[types.Part.from_text(text=turn["content"])],
+                ))
+        contents.append(types.Content(
+            role="user",
+            parts=[types.Part.from_text(text=user)],
+        ))
+
+        try:
+            resp = await client.aio.models.generate_content(
+                model=self.chat_model,
+                contents=contents,
+                config=config,
+            )
+            return resp.text or ""
+        except Exception as e:
+            log.error("Google chat error: %s", e)
+            raise RuntimeError(f"Google Gemini error: {e}") from e
 
     def has_vision(self) -> bool:
         """All Gemini 1.5+ and 2.0 models support vision."""
