@@ -122,6 +122,16 @@ class GoogleProvider(BaseLLMProvider):
     def _build_system(self, skills: List[Dict[str, str]], memory: str, reasoning_mode: str = "off") -> str:
         return _build_system_prompt_shared(skills, memory, reasoning_mode=reasoning_mode)
 
+    def _record_usage(self, resp: Any) -> None:
+        """Extract token counts from a GenerateContentResponse and call _set_usage."""
+        meta = getattr(resp, "usage_metadata", None)
+        if meta is None:
+            return
+        self._set_usage(
+            getattr(meta, "prompt_token_count", 0) or 0,
+            getattr(meta, "candidates_token_count", 0) or 0,
+        )
+
     def _build_contents(
         self,
         user_msg: str,
@@ -179,6 +189,7 @@ class GoogleProvider(BaseLLMProvider):
                 contents=contents,
                 config=config,
             )
+            self._record_usage(resp)
             data = json.loads(resp.text)
             data.setdefault("operationId", op_id)
             data.setdefault("clarificationNeeded", None)
@@ -218,6 +229,7 @@ class GoogleProvider(BaseLLMProvider):
                 contents=f"Complete:\n{prompt}",
                 config=config,
             )
+            self._record_usage(resp)
             raw        = resp.text or ""
             suggestion = re.sub(r"^```[a-z]*\n?", "", raw.strip(), flags=re.MULTILINE)
             suggestion = re.sub(r"\n?```$", "", suggestion, flags=re.MULTILINE).strip()
@@ -270,13 +282,17 @@ class GoogleProvider(BaseLLMProvider):
         ))
 
         try:
+            last_chunk = None
             async for chunk in client.aio.models.generate_content_stream(
                 model=self.chat_model,
                 contents=contents,
                 config=config,
             ):
+                last_chunk = chunk
                 if chunk.text:
                     await on_chunk(chunk.text)
+            if last_chunk is not None:
+                self._record_usage(last_chunk)
         except Exception as e:
             log.error("Google stream_chat error: %s", e)
             raise RuntimeError(f"Google Gemini stream error: {e}") from e
@@ -374,6 +390,7 @@ class GoogleProvider(BaseLLMProvider):
                 contents=contents,
                 config=config,
             )
+            self._record_usage(resp)
             return resp.text or ""
         except Exception as e:
             log.error("Google chat error: %s", e)
