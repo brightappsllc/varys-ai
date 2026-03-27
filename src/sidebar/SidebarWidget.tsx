@@ -1752,6 +1752,18 @@ const ModelsPanel: React.FC<{
     setSaving(true);
     try {
       const payload: Record<string, string> = { ...values };
+      // Normalize toggle fields before saving.  An untouched toggle has value ''
+      // (loaded from a varys.env line like KEY=).  The UI renders '' as ON because
+      // ('' ?? 'true') !== 'false' === true.  Without this step the backend
+      // receives '' and treats it as OFF, creating a visual/backend mismatch.
+      for (const group of TAB_GROUPS) {
+        for (const field of group.fields) {
+          if (field.type === 'toggle' && !payload[field.key]) {
+            // Preserve the visual state: empty → ON → write 'true'
+            payload[field.key] = 'true';
+          }
+        }
+      }
       if (editingEnvPath && newEnvPath.trim()) {
         payload['_new_env_path'] = newEnvPath.trim();
       }
