@@ -649,7 +649,7 @@ export class APIClient {
     return response.json();
   }
 
-  async importBundledSkill(name: string, notebookPath = '', overwrite = false): Promise<{ status: string }> {
+  async importBundledSkill(name: string, notebookPath = '', overwrite = false): Promise<{ status: string; error?: string }> {
     const response = await fetch(`${this.baseUrl}/bundled-skills`, {
       method: 'POST',
       headers: {
@@ -658,8 +658,12 @@ export class APIClient {
       },
       body: JSON.stringify({ name, notebookPath, overwrite })
     });
-    if (!response.ok) throw new Error(`Failed to import bundled skill '${name}': ${response.status}`);
-    return response.json();
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const msg = data?.error || `HTTP ${response.status}`;
+      throw new Error(msg);
+    }
+    return data;
   }
 
   // ── Reproducibility Guardian ──────────────────────────────────────────────

@@ -2041,6 +2041,7 @@ const SkillsPanel: React.FC<{ apiClient: APIClient; notebookPath?: string }> = (
   const [library, setLibrary]               = useState<BundledSkillEntry[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [importing, setImporting]           = useState<string | null>(null);
+  const [skillError, setSkillError]         = useState<string | null>(null);
 
   // Resizable splitter
   const [listWidth, setListWidth] = useState(160);
@@ -2152,11 +2153,25 @@ const SkillsPanel: React.FC<{ apiClient: APIClient; notebookPath?: string }> = (
   const handleImport = async (name: string) => {
     setImporting(name);
     try {
-      await apiClient.importBundledSkill(name, notebookPath);
-      // Mark as imported in library list and add to active skills list
-      setLibrary(prev => prev.map(b => b.name === name ? { ...b, imported: true } : b));
-      setSkills(prev => prev.some(s => s.name === name) ? prev : [...prev, { name, enabled: true }]);
-    } catch { /* ignore */ } finally { setImporting(null); }
+      const result = await apiClient.importBundledSkill(name, notebookPath);
+      if (result.status === 'ok' || result.status === 'already_exists') {
+        // Re-fetch the authoritative list from the backend so the checkmark
+        // reflects the actual on-disk state rather than optimistic local state.
+        try {
+          const fresh = await apiClient.getBundledSkills(notebookPath);
+          setLibrary(fresh.bundled);
+        } catch {
+          // Fallback: update locally if the re-fetch fails.
+          setLibrary(prev => prev.map(b => b.name === name ? { ...b, imported: true } : b));
+        }
+        setSkills(prev => prev.some(s => s.name === name) ? prev : [...prev, { name, enabled: true }]);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setSkillError(`Import of "${name}" failed: ${msg}`);
+    } finally {
+      setImporting(null);
+    }
   };
 
   return (
@@ -2231,6 +2246,12 @@ const SkillsPanel: React.FC<{ apiClient: APIClient; notebookPath?: string }> = (
 
           {libraryOpen && (
             <div className="ds-skill-library-body">
+              {skillError && (
+                <div className="ds-skill-library-error" role="alert">
+                  <span>⚠ {skillError}</span>
+                  <button className="ds-skill-library-error-close" onClick={() => setSkillError(null)} title="Dismiss">✕</button>
+                </div>
+              )}
               {libraryLoading ? (
                 <div className="ds-skill-library-msg">Loading…</div>
               ) : library.length === 0 ? (

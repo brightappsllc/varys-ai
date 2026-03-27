@@ -4913,6 +4913,42 @@
   padding: 2px 0 6px;
 }
 
+.ds-skill-library-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 6px 8px;
+  padding: 7px 10px;
+  border-radius: 5px;
+  font-size: 11px;
+  line-height: 1.45;
+  background: rgba(220, 60, 60, 0.12);
+  border: 1px solid rgba(220, 60, 60, 0.35);
+  color: #c0392b;
+}
+.ds-chat-night .ds-skill-library-error {
+  background: rgba(220, 80, 80, 0.15);
+  border-color: rgba(220, 80, 80, 0.4);
+  color: #ff8080;
+}
+.ds-skill-library-error span {
+  flex: 1;
+}
+.ds-skill-library-error-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 0 2px;
+  color: inherit;
+  opacity: 0.6;
+}
+.ds-skill-library-error-close:hover {
+  opacity: 1;
+}
+
 .ds-skill-library-msg {
   padding: 4px 12px;
   font-size: 11px;
