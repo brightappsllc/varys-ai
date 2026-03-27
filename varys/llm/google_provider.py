@@ -283,7 +283,7 @@ class GoogleProvider(BaseLLMProvider):
 
         try:
             last_chunk = None
-            async for chunk in client.aio.models.generate_content_stream(
+            async for chunk in await client.aio.models.generate_content_stream(
                 model=self.chat_model,
                 contents=contents,
                 config=config,
