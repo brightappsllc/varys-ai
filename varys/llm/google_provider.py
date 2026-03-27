@@ -146,13 +146,17 @@ class GoogleProvider(BaseLLMProvider):
         )
 
     def _thinking_config(self, types: Any) -> Optional[Any]:
-        """Return a ThinkingConfig when thinking is enabled and the model supports it.
+        """Return a ThinkingConfig when thinking is enabled.
 
         thinkingBudget=-1  → dynamic thinking (model decides how much to use)
         thinkingBudget=N   → fixed budget in tokens
-        Returns None when thinking is off or unsupported (no param is sent).
+        Returns None when thinking is off (no param is sent).
+
+        We intentionally skip the model-name check here: if the user enables
+        thinking for a model that doesn't support it, the API will return a
+        clear error.  The _supports_thinking() helper is kept for logging only.
         """
-        if not (self.enable_thinking and self._supports_thinking()):
+        if not self.enable_thinking:
             return None
         budget = self.thinking_budget if self.thinking_budget > 0 else -1
         try:
@@ -312,8 +316,8 @@ class GoogleProvider(BaseLLMProvider):
         ))
 
         log.info(
-            "Google stream_chat: model=%s enable_thinking=%s supports_thinking=%s",
-            self.chat_model, self.enable_thinking, self._supports_thinking(),
+            "Google stream_chat: model=%s enable_thinking=%s thinking_cfg=%s",
+            self.chat_model, self.enable_thinking, thinking_cfg is not None,
         )
 
         try:
