@@ -11,6 +11,8 @@ export interface PendingOperation {
   operationId: string;
   cellIndices: number[];
   originalContents: Map<number, string>;
+  /** Populated for reorder ops — used to restore original cell sequence on undo. */
+  originalOrder?: string[];
 }
 
 export interface ApplyResult {
@@ -43,6 +45,54 @@ export class CellEditor {
    * Steps are applied in safe order (modifies first, then inserts ascending,
    * then deletes descending) to prevent index-shift errors.
    */
+  /**
+   * Rearranges notebook cells so they appear in the order specified by
+   * newOrderIds (array of short cell IDs, i.e. the [id:XXXXXXXX] tag values).
+   *
+   * Uses a selection-sort approach: for each target position, finds the cell
+   * with the matching ID and moves it there via the observable cells list.
+   * Returns the original cell ID sequence so the operation can be undone.
+   */
+  async reorderCells(newOrderIds: string[]): Promise<string[]> {
+    const panel = this.tracker.currentWidget;
+    if (!panel) return [];
+
+    const notebook = panel.content;
+
+    // Capture original order for undo
+    const originalOrder: string[] = [];
+    for (const cell of notebook.widgets) {
+      const cid = (cell.model as any).id ?? (cell.model as any).sharedModel?.id ?? '';
+      originalOrder.push(cid);
+    }
+
+    const cells = (notebook.model as any)?.cells;
+    if (!cells || typeof cells.move !== 'function') {
+      console.warn('[DSAssistant] reorderCells: cells.move not available');
+      return originalOrder;
+    }
+
+    for (let targetPos = 0; targetPos < newOrderIds.length; targetPos++) {
+      const targetId = newOrderIds[targetPos];
+
+      // Search from targetPos onwards — everything before is already in place
+      let currentPos = -1;
+      for (let j = targetPos; j < notebook.widgets.length; j++) {
+        const cell = notebook.widgets[j];
+        const cid = (cell.model as any).id ?? (cell.model as any).sharedModel?.id ?? '';
+        if (cid === targetId) {
+          currentPos = j;
+          break;
+        }
+      }
+
+      if (currentPos === -1 || currentPos === targetPos) continue;
+      cells.move(currentPos, targetPos);
+    }
+
+    return originalOrder;
+  }
+
   async applyOperations(
     operationId: string,
     steps: OperationStep[]
@@ -52,6 +102,19 @@ export class CellEditor {
     const originalContentsByNbIdx = new Map<number, string>();
     /** Keyed by step array index — returned to caller for diff view */
     const capturedOriginals = new Map<number, string>();
+
+    // --- Reorder (handled atomically — no further steps allowed in same plan) ---
+    const reorderStep = steps.find(s => s.type === 'reorder');
+    if (reorderStep) {
+      const originalOrder = await this.reorderCells(reorderStep.newOrder ?? []);
+      this.pendingOperations.set(operationId, {
+        operationId,
+        cellIndices: [],
+        originalContents: new Map(),
+        originalOrder,
+      });
+      return { stepIndexMap, capturedOriginals };
+    }
 
     // --- Modifications (no index shifting) ---
     for (let i = 0; i < steps.length; i++) {
@@ -346,10 +409,18 @@ export class CellEditor {
   /**
    * Reverses an operation: restores original content for modified cells,
    * deletes inserted cells, and clears highlighting.
+   * For reorder operations, restores the original cell sequence.
    */
   undoOperation(operationId: string): void {
     const op = this.pendingOperations.get(operationId);
     if (!op) {
+      return;
+    }
+
+    if (op.originalOrder) {
+      // Reorder undo: restore original cell sequence
+      void this.reorderCells(op.originalOrder);
+      this.pendingOperations.delete(operationId);
       return;
     }
 

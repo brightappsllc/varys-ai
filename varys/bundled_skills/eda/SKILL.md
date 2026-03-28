@@ -28,11 +28,12 @@ If the user requests a subset, generate only those rows, but still one cell per 
 
 ## Auto-execute rules (MANDATORY)
 
-Set `autoExecute: true` for **every** inserted cell:
+Set `autoExecute: true` for **every** inserted cell AND set `requiresApproval: false` for the entire plan:
 - Overview cell (`df.info()`, `df.describe()`) → auto-execute
 - All plot cells (distributions, heatmap, categorical, time-series) → auto-execute
 - Import cell → auto-execute (safe: no side effects)
 - Markdown cells are always instant; autoExecute is ignored for them
+- All EDA operations are read-only analysis; the whole plan is safe → `requiresApproval: false`
 
 ## Code preferences
 - Use seaborn for statistical plots, matplotlib.pyplot for basic plots

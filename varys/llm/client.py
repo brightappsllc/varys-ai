@@ -78,6 +78,12 @@ Example header: `#7  CODE  [id:a3f7b2c1]`
 - "modify": Update existing cell content at cellIndex (no index shift)
 - "delete": Remove cell at cellIndex
 - "run_cell": Execute an existing cell at cellIndex without changing its content
+- "reorder": Rearrange existing cells into a new sequence. Use `newOrder: ["cellId1", "cellId2", ...]`
+  listing every cell's short ID (the `[id:XXXXXXXX]` tag) in the desired final order.
+  This is the **only correct operation for cell reorganisation** — never simulate a move with
+  insert+delete pairs, which risks content loss due to index drift.
+  A reorder plan must contain exactly ONE step of type "reorder" (no other steps).
+  Always set `requiresApproval: true` for reorder plans.
 
 ## Positioning Rules
 - cellIndex 0 = beginning of notebook
@@ -320,18 +326,26 @@ OPERATION_PLAN_TOOL = {
                     "properties": {
                         "type": {
                             "type": "string",
-                            "enum": ["insert", "modify", "delete", "run_cell"],
+                            "enum": ["insert", "modify", "delete", "run_cell", "reorder"],
                             "description": (
                                 "Operation type. Use 'run_cell' to execute an existing "
-                                "cell without changing its content."
+                                "cell without changing its content. Use 'reorder' to "
+                                "rearrange cells — provide newOrder instead of cellIndex."
                             )
                         },
                         "cellIndex": {
                             "type": "integer",
                             "description": (
-                                "Zero-based cell index. Cell 0 = first cell, "
-                                "Cell 1 = second cell, etc. Use the exact number "
-                                "the user specified."
+                                "Zero-based cell index. Required for insert/modify/delete/run_cell. "
+                                "Not used for 'reorder' (use newOrder instead)."
+                            )
+                        },
+                        "newOrder": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": (
+                                "For 'reorder' only: list of cell short IDs (the [id:XXXXXXXX] "
+                                "tag value) in the desired final order. Include every cell."
                             )
                         },
                         "cellType": {
@@ -352,12 +366,16 @@ OPERATION_PLAN_TOOL = {
                             "description": "Human-readable description of this step"
                         }
                     },
-                    "required": ["type", "cellIndex"]
+                    "required": ["type"]
                 }
             },
             "requiresApproval": {
                 "type": "boolean",
-                "description": "True if any step requires explicit user approval before executing"
+                "description": (
+                    "True if any step requires explicit user approval before executing. "
+                    "Set to false when ALL steps are safe read/display/analysis operations "
+                    "(plots, df.info(), imports, etc.). Always true for reorder plans."
+                )
             },
             "clarificationNeeded": {
                 "type": "string",

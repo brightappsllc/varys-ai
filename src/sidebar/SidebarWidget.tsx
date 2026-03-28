@@ -523,6 +523,11 @@ interface PendingOp {
   compositeOpIds?: string[];
   /** Set after the user resolves the op — keeps the diff visible but collapsed. */
   resolved?: 'accepted' | 'undone';
+  /**
+   * Whether the plan required approval (auto-execute was held back).
+   * When true, handleAccept will run autoExecute:true cells after accepting.
+   */
+  requiresApproval?: boolean;
 }
 
 export interface SidebarProps {
@@ -5902,7 +5907,11 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
 
       const affectedIndices = Array.from(stepIndexMap.values());
       const stepSummary = response.steps
-        .map(s => `- ${s.description ?? `${s.type} cell at index ${s.cellIndex}`}`)
+        .map(s => {
+          if (s.description) return `- ${s.description}`;
+          if (s.type === 'reorder') return `- Reorder ${(s.newOrder ?? []).length} cells`;
+          return `- ${s.type} cell at index ${s.cellIndex}`;
+        })
         .join('\n');
 
       // ── Auto mode ────────────────────────────────────────────────────
@@ -5940,7 +5949,8 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
         cellIndices: affectedIndices,
         steps: response.steps,
         description: response.summary ?? `Created/modified ${response.steps.length} cell(s)`,
-        diffs
+        diffs,
+        requiresApproval: response.requiresApproval,
       };
       setPendingOps(prev => [...prev, op]);
       // Mark the chat bubble and store the diffs directly on the message so
@@ -6016,7 +6026,23 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
 
   const handleAccept = (operationId: string): void => {
     const op = pendingOps.find(o => o.operationId === operationId);
-    if (op) _acceptSingleOrComposite(op);
+    if (op) {
+      _acceptSingleOrComposite(op);
+      // When the plan required approval, auto-execute was held back.
+      // Run cells now so the user doesn't have to manually execute each one.
+      if (op.requiresApproval) {
+        void (async () => {
+          for (const step of op.steps) {
+            if (
+              step.autoExecute === true &&
+              (step.type === 'insert' || step.type === 'modify' || step.type === 'run_cell')
+            ) {
+              try { await cellEditor.executeCell(step.cellIndex); } catch { /* ignore */ }
+            }
+          }
+        })();
+      }
+    }
     setPendingOps(prev =>
       prev.map(o => o.operationId === operationId ? { ...o, resolved: 'accepted' as const } : o)
     );

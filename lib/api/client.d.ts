@@ -212,8 +212,11 @@ export interface CompositeStep {
     prompt: string;
 }
 export interface OperationStep {
-    type: 'insert' | 'modify' | 'delete' | 'run_cell';
+    type: 'insert' | 'modify' | 'delete' | 'run_cell' | 'reorder';
+    /** Required for insert/modify/delete/run_cell. Not used for reorder. */
     cellIndex: number;
+    /** For reorder only: cell short IDs in desired final order. */
+    newOrder?: string[];
     cellType?: 'code' | 'markdown';
     content?: string;
     autoExecute?: boolean;
