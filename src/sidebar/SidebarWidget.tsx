@@ -3561,10 +3561,11 @@ interface ThreadBarProps {
   onRename: (id: string, name: string) => void;
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
+  rightSlot?: React.ReactNode;
 }
 
 const ThreadBar: React.FC<ThreadBarProps> = ({
-  threads, currentId, notebookName, onSwitch, onNew, onRename, onDuplicate, onDelete,
+  threads, currentId, notebookName, onSwitch, onNew, onRename, onDuplicate, onDelete, rightSlot,
 }) => {
   const [open, setOpen]           = useState(false);
   const [editingId, setEditingId] = useState('');
@@ -3720,6 +3721,9 @@ const ThreadBar: React.FC<ThreadBarProps> = ({
         </div>
       )}
       </div>
+      {rightSlot && (
+        <div className="ds-thread-bar-right">{rightSlot}</div>
+      )}
     </div>
   );
 };
@@ -6617,19 +6621,6 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           data-tip="Cell Tags & Metadata"
           data-tip-below
         >🏷️</button>
-        <span className="ds-repro-shield-wrap">
-          <button
-            className="ds-repro-shield-btn"
-            onClick={() => setShowRepro(true)}
-            data-tip="Reproducibility Guardian"
-            data-tip-below
-          >🛡️</button>
-          {reproIssueCount > 0 && (
-            <span className="ds-repro-dot" aria-label={`${reproIssueCount} reproducibility issue${reproIssueCount === 1 ? '' : 's'}`}>
-              {reproIssueCount < 10 ? reproIssueCount : '9+'}
-            </span>
-          )}
-        </span>
         <button
           className="ds-theme-toggle-btn"
           onClick={toggleChatTheme}
@@ -6665,7 +6656,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
         >⚙️</button>
       </div>
 
-      {/* Thread bar */}
+      {/* Thread bar — shield lives here so it is notebook-scoped */}
       <ThreadBar
         threads={threads}
         currentId={currentThreadId}
@@ -6677,6 +6668,21 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
         onRename={(id, name) => void handleRenameThread(id, name)}
         onDuplicate={handleDuplicateThread}
         onDelete={(id) => void handleDeleteThread(id)}
+        rightSlot={currentNotebookPath.endsWith('.ipynb') ? (
+          <span className="ds-repro-shield-wrap">
+            <button
+              className="ds-repro-shield-btn"
+              onClick={() => setShowRepro(true)}
+              data-tip="Reproducibility Guardian"
+              data-tip-below
+            >🛡️</button>
+            {reproIssueCount > 0 && (
+              <span className="ds-repro-dot" aria-label={`${reproIssueCount} reproducibility issue${reproIssueCount === 1 ? '' : 's'}`}>
+                {reproIssueCount < 10 ? reproIssueCount : '9+'}
+              </span>
+            )}
+          </span>
+        ) : undefined}
       />
 
       {/* Message list */}
@@ -6960,7 +6966,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
                               style={isStreaming ? { cursor: 'default' } : undefined}
                             >
                               <span className="ds-thinking-label">
-                                {isStreaming ? 'Thinking…' : 'Thought'}
+                                {isStreaming ? '··· Thinking ···' : '··· Thought ···'}
                               </span>
                               <span className="ds-thinking-chevron">
                                 {thinkIsCollapsed ? '▸' : '▾'}

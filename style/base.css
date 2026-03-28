@@ -1696,6 +1696,28 @@
   gap: 0;
 }
 
+/* Right-anchored slot in the thread bar (e.g. shield button) */
+.ds-thread-bar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  padding-right: 2px;
+  flex-shrink: 0;
+}
+/* Shield in the thread bar is slightly smaller than the full header buttons */
+.ds-thread-bar-right .ds-repro-shield-btn {
+  font-size: 13px;
+  padding: 1px 3px;
+}
+.ds-thread-bar-right .ds-repro-dot {
+  top: -2px;
+  right: -2px;
+  min-width: 11px;
+  height: 11px;
+  font-size: 7px;
+  line-height: 11px;
+}
+
 /* ── Named thread pill strip ── */
 .ds-thread-pills {
   display: flex;
