@@ -401,6 +401,7 @@ export declare class APIClient {
     }>;
     importBundledSkill(name: string, notebookPath?: string, overwrite?: boolean): Promise<{
         status: string;
+        error?: string;
     }>;
     analyzeReproducibility(payload: {
         notebookPath: string;
