@@ -93,6 +93,7 @@ def assemble_context(
     focal_cell_full_output: Optional[str] = None,
     nb_base: Optional[Path] = None,
     kernel_name: str = "",
+    agent_mode: bool = False,
 ) -> str:
     """Build the cell-context string for injection into the LLM prompt.
 
@@ -112,6 +113,11 @@ def assemble_context(
         kernel_name:             The JupyterLab kernel spec name (e.g. "rnk_1" for
                                  remote_ikernel).  Used to detect remote kernels and
                                  inject an EC2-aware note into the context block.
+        agent_mode:              When True (notebook agent / plan-task path), the
+                                 active-cell visible-window cutoff is NOT applied.
+                                 Every cell in the notebook is scored and the LLM
+                                 sees the full notebook structure, which is required
+                                 for correct index arithmetic on multi-cell plans.
 
     Returns:
         A multi-line string describing the relevant cells, ready to be embedded
@@ -137,8 +143,14 @@ def assemble_context(
     active_ids = {c["cell_id"] for c in active}
 
     # ── Step 1: visible window (cells up to active-cell boundary) ─────────────
+    # In agent mode the LLM must see the entire notebook to generate correct
+    # multi-cell plans (insert/modify/delete at arbitrary indices).  Chat mode
+    # keeps the cutoff so the LLM does not get distracted by downstream cells.
     cutoff_cell_idx: Optional[int] = None
-    if active_cell_id and active_cell_id in active_ids:
+    aidx: int = len(active) - 1  # default: treat all cells as visible
+    if agent_mode:
+        visible = active
+    elif active_cell_id and active_cell_id in active_ids:
         aidx            = next(i for i, c in enumerate(active) if c["cell_id"] == active_cell_id)
         visible         = active[: aidx + 1]
         cutoff_cell_idx = (active[aidx].get("index") or aidx) + 1   # 1-based
@@ -155,20 +167,28 @@ def assemble_context(
     ranked    = score_cells(visible, summaries, user_query)
 
     # ── Step 4: prune — focal cell is always pinned ───────────────────────────
-    kept:      List[Dict[str, Any]] = []
-    dismissed: List[Dict[str, Any]] = []
-    for cell in ranked:
-        pinned = cell.get("cell_id", "") == focal_cid
-        if pinned or cell["_score"] >= threshold:
-            kept.append({**cell, "_floor_override": False, "_pinned": pinned})
-        else:
-            dismissed.append(cell)
-
+    # In agent mode pruning is disabled: the LLM must see every cell to generate
+    # correct multi-cell plans. Unexecuted cells score near 0 (no kernel history)
+    # but are still critical for insert/modify/delete operations at the right index.
     floor_triggered = False
-    while len(kept) < min_cells and dismissed:
-        promoted = dismissed.pop(0)   # dismissed is score-descending
-        kept.append({**promoted, "_floor_override": True, "_pinned": False})
-        floor_triggered = True
+    if agent_mode:
+        kept      = [{**c, "_floor_override": False, "_pinned": c.get("cell_id", "") == focal_cid}
+                     for c in ranked]
+        dismissed = []
+    else:
+        kept:      List[Dict[str, Any]] = []
+        dismissed: List[Dict[str, Any]] = []
+        for cell in ranked:
+            pinned = cell.get("cell_id", "") == focal_cid
+            if pinned or cell["_score"] >= threshold:
+                kept.append({**cell, "_floor_override": False, "_pinned": pinned})
+            else:
+                dismissed.append(cell)
+
+        while len(kept) < min_cells and dismissed:
+            promoted = dismissed.pop(0)   # dismissed is score-descending
+            kept.append({**promoted, "_floor_override": True, "_pinned": False})
+            floor_triggered = True
 
     kept_ids = {c.get("cell_id", "") for c in kept}
 
@@ -212,6 +232,23 @@ def assemble_context(
                     "(downstream cell referenced in query)\n"
                     + _format_summary_cell(downstream_ref, summary_store)
                 )
+
+    # ── Step 7b: downstream skeleton (cells beyond the visible window) ───────────
+    # Provides the LLM with correct total cell count and existing-cell positions
+    # for accurate index arithmetic on multi-cell or whole-notebook operations.
+    # Only the structural one-liner is shown — source content is NOT included —
+    # so the LLM cannot hallucinate content it hasn't seen.
+    # Sourced from the live cell_order (not SummaryStore), so indices are always
+    # current even immediately after a plan inserts new cells.
+    if cutoff_cell_idx is not None:
+        downstream = [c for c in active[aidx + 1:] if c.get("cell_id") not in kept_ids]
+        if downstream:
+            skeleton_lines = [
+                "[Notebook structure beyond active cell — source not included]"
+            ]
+            for dc in downstream:
+                skeleton_lines.append(_format_skeleton_cell(dc, summary_store))
+            parts.append("\n".join(skeleton_lines))
 
     context = "\n".join(parts)
 
@@ -288,6 +325,50 @@ def assemble_context(
 
 
 # ── Serialisation helpers (spec §3.4) ─────────────────────────────────────────
+
+
+def _format_skeleton_cell(cell: Dict[str, Any], store: SummaryStore) -> str:
+    """One-line structural entry for downstream (post-focal) cells.
+
+    Purpose: give the LLM correct index arithmetic and existence information
+    without paying for full source or summary content.  The label is kept
+    deliberately terse (~5-10 tokens per cell) and clearly marked as
+    'source not included' so the model cannot hallucinate cell contents.
+    """
+    position = cell["index"] + 1           # 1-based for the LLM
+    ctype    = cell.get("type", "code")
+    summary  = store.get_summary(cell.get("cell_id", ""))
+
+    if summary is None:
+        # New / not-yet-executed cell: show live source snippet instead
+        source  = cell.get("source", "")
+        snippet = source.splitlines()[0][:60] if source.strip() else "(empty)"
+        return f"  Cell {position} [{ctype}, not executed]: {snippet}"
+
+    if ctype == "markdown":
+        label = summary.get("llm_summary") or summary.get("source_snippet", "")
+        label = label[:60] if label else "(markdown)"
+        return f"  Cell {position} [markdown]: {label}"
+
+    # Code cell — compact symbol + status label
+    defined = summary.get("symbols_defined", [])
+    ec      = summary.get("execution_count")
+    had_err = summary.get("had_error", False)
+
+    label_parts: List[str] = []
+    if defined:
+        label_parts.append(f"defines {', '.join(defined[:4])}")
+    if had_err:
+        label_parts.append("⚠ error")
+    if ec is not None:
+        label_parts.append(f"exec [{ec}]")
+    if not label_parts:
+        # Fall back to first line of source for mute cells (e.g. plot-only)
+        source = cell.get("source", "")
+        snippet = source.splitlines()[0][:50] if source.strip() else "(empty)"
+        label_parts.append(snippet)
+
+    return f"  Cell {position} [code]: {' | '.join(label_parts)}"
 
 
 def _format_summary_cell(cell: Dict[str, Any], store: SummaryStore) -> str:

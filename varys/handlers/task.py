@@ -900,6 +900,7 @@ class TaskHandler(JupyterHandler):
                     focal_cell_full_output = notebook_context.get("focalCellOutput") or None,
                     nb_base                = _nb_base_path,
                     kernel_name            = notebook_context.get("kernelName") or "",
+                    agent_mode             = (user_cell_mode == "agent"),
                 )
                 # Ensure notebook_context is a mutable copy before patching
                 notebook_context = dict(notebook_context)
