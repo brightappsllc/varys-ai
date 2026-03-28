@@ -537,15 +537,14 @@ const plugin: JupyterFrontEndPlugin<void> = {
       try {
         const ctx = notebookReader.getFullContext();
         if (ctx && ctx.cells.length) {
-          const executedIndex = cell
-            ? panel.content.widgets.findIndex(w => w.model === cell.model)
-            : ctx.cells.length - 1;
-          const cellsToAnalyze = executedIndex >= 0
-            ? ctx.cells.filter(c => c.index <= executedIndex)
-            : ctx.cells;
+          // Always send ALL cells so notebook-level rules (especially
+          // execution_order_violation) see the complete execution count
+          // sequence.  Filtering to "cells up to the executed index" caused
+          // false-clean results: when cell #1 (index 0) ran, only that one
+          // cell was sent, so the order check never had enough data.
           apiClient.analyzeReproducibility({
             notebookPath: ctx.notebookPath ?? '',
-            cells: cellsToAnalyze,
+            cells: ctx.cells,
           }).then(result => reproStore.emit(result.issues)).catch(() => { /* non-fatal */ });
         }
       } catch {

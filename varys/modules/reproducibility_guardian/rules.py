@@ -13,12 +13,25 @@ All checks are pure functions: no I/O, no side effects.
 """
 from __future__ import annotations
 
+import ast
+import builtins
 import re
 import uuid
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Set
 
 from ...utils.config import get_config as _get_cfg
+
+# Python built-in names that are always available without definition.
+_BUILTINS: Set[str] = set(dir(builtins)) | {
+    # IPython / Jupyter globals that are injected automatically
+    'In', 'Out', 'get_ipython', 'exit', 'quit', 'display',
+    # Common magic-command results
+    '_', '__', '___',
+    # Dunder module-level names
+    '__name__', '__file__', '__doc__', '__package__', '__spec__',
+    '__builtins__', '__loader__', '__cached__',
+}
 
 
 def _default_seed() -> int:
@@ -376,3 +389,159 @@ def check_python_random_seed(cells: list) -> List[Issue]:
                 fix_description='Insert seed cell',
             )]
     return []
+
+
+# ---------------------------------------------------------------------------
+# AST helpers for RULE 8
+# ---------------------------------------------------------------------------
+
+def _ast_definitions(source: str) -> Set[str]:
+    """Return all names bound at the module level in *source*.
+
+    Covers: simple assignments, augmented/annotated assignments, imports,
+    ``for`` loop targets, ``with`` statement targets, function/class defs.
+    Only module-scope nodes are inspected (no recursion into function bodies).
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return set()
+
+    names: Set[str] = set()
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, ast.Assign):
+            for t in node.targets:
+                _collect_name_targets(t, names)
+        elif isinstance(node, (ast.AugAssign, ast.AnnAssign)):
+            _collect_name_targets(node.target, names)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                names.add(alias.asname or alias.name.split('.')[0])
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name != '*':
+                    names.add(alias.asname or alias.name)
+        elif isinstance(node, ast.For):
+            _collect_name_targets(node.target, names)
+        elif isinstance(node, ast.With):
+            for item in node.items:
+                if item.optional_vars:
+                    _collect_name_targets(item.optional_vars, names)
+    return names
+
+
+def _collect_name_targets(node: ast.AST, names: Set[str]) -> None:
+    """Recursively collect Name ids from assignment targets."""
+    if isinstance(node, ast.Name):
+        names.add(node.id)
+    elif isinstance(node, (ast.Tuple, ast.List)):
+        for elt in node.elts:
+            _collect_name_targets(elt, names)
+    elif isinstance(node, ast.Starred):
+        _collect_name_targets(node.value, names)
+
+
+def _ast_top_level_loads(source: str) -> Set[str]:
+    """Return Name nodes that are *loaded* (read) at module scope.
+
+    Only nodes that are direct children of the module are inspected —
+    names used exclusively inside function or class bodies are excluded
+    to reduce false positives (they run in their own scope).
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return set()
+
+    names: Set[str] = set()
+    for node in ast.iter_child_nodes(tree):
+        # Skip pure definitions — we only want the right-hand-side loads
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        for child in ast.walk(node):
+            if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load):
+                names.add(child.id)
+    return names
+
+
+# ---------------------------------------------------------------------------
+# RULE 8 — Variable used before it is defined (static analysis)
+# ---------------------------------------------------------------------------
+
+def check_undefined_before_definition(cells: list) -> List[Issue]:
+    """Notebook-level rule: flag names used in cell N that are only defined
+    in a later cell M > N, meaning a top-to-bottom restart would raise
+    NameError at cell N.
+
+    Only simple module-scope definitions are tracked (assignments, imports,
+    function/class defs).  Python builtins and IPython globals are excluded.
+    At most one issue is emitted per offending cell to keep the report clean.
+    """
+    code_cells = [
+        c for c in cells
+        if c.get('type') == 'code' and c.get('source', '').strip()
+    ]
+    if len(code_cells) < 2:
+        return []
+
+    # Pass 1: map name → first cell index where it is defined.
+    first_def: dict[str, int] = {}
+    for cell in code_cells:
+        for name in _ast_definitions(cell.get('source', '')):
+            if name not in first_def:
+                first_def[name] = cell['index']
+
+    issues: List[Issue] = []
+    cumulative_defs: Set[str] = set()
+
+    for cell in code_cells:
+        src   = cell.get('source', '')
+        defs  = _ast_definitions(src)
+        loads = _ast_top_level_loads(src)
+
+        # Names that are read but not yet available at this position
+        unknown = (
+            loads
+            - cumulative_defs   # defined in a prior cell
+            - defs              # defined in this cell (e.g. x = x + 1 is fine)
+            - _BUILTINS
+        )
+
+        # Only report names that ARE eventually defined later — otherwise
+        # they might be external library attributes or injected by magic.
+        flagged = sorted(
+            name for name in unknown
+            if first_def.get(name, -1) > cell['index']
+        )
+
+        if flagged:
+            first_name = flagged[0]
+            later_idx  = first_def[first_name]
+            issues.append(Issue(
+                rule_id=f'var_used_before_def_{first_name}',
+                severity='critical',
+                cell_index=cell['index'],
+                title=f"'{first_name}' used before it is defined",
+                message=(
+                    f"'{first_name}' is referenced in cell {cell['index']} "
+                    f"but first assigned in cell {later_idx}."
+                ),
+                explanation=(
+                    f"Running the notebook top-to-bottom (Restart & Run All) will "
+                    f"raise a NameError at cell {cell['index']} because "
+                    f"'{first_name}' is not yet defined — it appears for the first "
+                    f"time in cell {later_idx}."
+                ),
+                suggestion=(
+                    f"Move the definition of '{first_name}' to a cell before "
+                    f"cell {cell['index']}, or reorder the cells so imports and "
+                    f"assignments come first."
+                ),
+                fix_code=None,
+            ))
+
+        cumulative_defs |= defs
+
+    return issues

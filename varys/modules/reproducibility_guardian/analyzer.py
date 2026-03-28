@@ -12,6 +12,7 @@ from .rules import (
     check_execution_order,
     check_numpy_seed,
     check_python_random_seed,
+    check_undefined_before_definition,
 )
 
 
@@ -28,6 +29,7 @@ _NOTEBOOK_RULES = [
     check_execution_order,
     check_numpy_seed,
     check_python_random_seed,
+    check_undefined_before_definition,
 ]
 
 
