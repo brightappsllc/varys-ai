@@ -746,3 +746,120 @@ def check_used_but_never_imported(cells: list) -> List[Issue]:
             ))
 
     return issues
+
+
+# ---------------------------------------------------------------------------
+# RULE 12 — In-place variable transformation chain
+# ---------------------------------------------------------------------------
+
+_CHAIN_THRESHOLD = 3  # minimum distinct cells to flag
+
+
+def _self_ref_names_in_cell(source: str) -> Set[str]:
+    """Return names that are self-referentially reassigned in *source*.
+
+    A "self-referential" assignment is one where the same name appears
+    on both the left-hand side (Store) and somewhere in the right-hand
+    side (Load) of a simple assignment:
+        df = df.dropna()          → yes
+        df = df[df.age > 0]      → yes
+        df = df.merge(other_df)  → yes
+        X  = X + 1               → yes
+        df = pd.read_csv(...)    → no  (df not in RHS)
+
+    Only simple, single-target assignments are considered.  Tuple
+    unpacking, augmented assignments, and function definitions are
+    intentionally excluded to keep the false-positive rate low.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return set()
+
+    names: Set[str] = set()
+    for node in ast.iter_child_nodes(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        # Only single-target Name assignments
+        if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
+            continue
+        lhs_name = node.targets[0].id
+        # Check whether that name is read anywhere in the RHS
+        for child in ast.walk(node.value):
+            if (isinstance(child, ast.Name)
+                    and child.id == lhs_name
+                    and isinstance(child.ctx, ast.Load)):
+                names.add(lhs_name)
+                break  # found once — enough
+    return names
+
+
+def check_inplace_transform_chain(cells: list) -> List[Issue]:
+    """Notebook-level rule: flag variables that are self-referentially
+    reassigned (``X = f(X)`` or ``X = X.method()``) across 3+ distinct cells.
+
+    This is informational only — the pattern is idiomatic in data science
+    but is fragile: re-running an individual cell in the chain leaves the
+    variable in an unexpected intermediate state.
+
+    Severity: info  (does not cause a crash; purely a code quality signal)
+    Threshold: 3 cells (hardcoded; configurable in a future release if needed)
+
+    Known limitations:
+      • Only simple, single-target assignments are detected.
+      • ``df.drop(columns=..., inplace=True)`` is not detected (no assignment).
+      • Multiple self-referential assignments within the same cell count as
+        one step (we count distinct cells, not distinct statements).
+      • False positives for loop counters (``n = n + 1``) are expected but
+        rare at module scope; the 3-cell threshold mitigates this.
+    """
+    code_cells = [
+        c for c in cells
+        if c.get('type') == 'code' and c.get('source', '').strip()
+    ]
+    if len(code_cells) < _CHAIN_THRESHOLD:
+        return []
+
+    # name → ordered list of distinct cell indices with a self-ref assignment
+    chains: dict[str, list[int]] = {}
+
+    for cell in code_cells:
+        for name in _self_ref_names_in_cell(cell.get('source', '')):
+            entry = chains.setdefault(name, [])
+            # Track distinct cells only (ignore multiple statements in same cell)
+            if not entry or entry[-1] != cell['index']:
+                entry.append(cell['index'])
+
+    issues: List[Issue] = []
+    for name, cell_indices in sorted(chains.items()):
+        if len(cell_indices) < _CHAIN_THRESHOLD:
+            continue
+
+        cell_list = ', '.join(str(i) for i in cell_indices)
+        issues.append(Issue(
+            rule_id=f'inplace_transform_chain_{name}',
+            severity='info',
+            cell_index=cell_indices[0],
+            title=f"'{name}' transformed in-place across {len(cell_indices)} cells",
+            message=(
+                f"'{name}' is reassigned using itself as input in cells "
+                f"{cell_list}."
+            ),
+            explanation=(
+                f"Each step depends on the result of the previous one.  "
+                f"Re-running any cell individually leaves '{name}' in an "
+                f"unexpected intermediate state, making the results "
+                f"difficult to reproduce selectively."
+            ),
+            suggestion=(
+                f"Consider naming intermediate results to make the pipeline "
+                f"explicit and order-independent:\n"
+                f"  {name}_raw \u2192 {name}_clean \u2192 {name}_filtered\n"
+                f"This makes each cell's input visible and the full pipeline "
+                f"self-documenting."
+            ),
+            fix_code=None,
+            fix_description=None,
+        ))
+
+    return issues

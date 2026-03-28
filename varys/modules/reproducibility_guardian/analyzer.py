@@ -14,6 +14,7 @@ from .rules import (
     check_python_random_seed,
     check_undefined_before_definition,
     check_used_but_never_imported,
+    check_inplace_transform_chain,
 )
 
 
@@ -32,6 +33,7 @@ _NOTEBOOK_RULES = [
     check_python_random_seed,
     check_undefined_before_definition,
     check_used_but_never_imported,
+    check_inplace_transform_chain,
 ]
 
 
