@@ -26,6 +26,14 @@ Your plan MUST include one insert step per row below (6 steps minimum, 7 if date
 **Do not skip any step. Do not merge two rows into one cell.**
 If the user requests a subset, generate only those rows, but still one cell per row.
 
+## Auto-execute rules (MANDATORY)
+
+Set `autoExecute: true` for **every** inserted cell:
+- Overview cell (`df.info()`, `df.describe()`) → auto-execute
+- All plot cells (distributions, heatmap, categorical, time-series) → auto-execute
+- Import cell → auto-execute (safe: no side effects)
+- Markdown cells are always instant; autoExecute is ignored for them
+
 ## Code preferences
 - Use seaborn for statistical plots, matplotlib.pyplot for basic plots
 - Figure sizes: `figsize=(12, 4)` for single plots, `(16, 10)` for grids

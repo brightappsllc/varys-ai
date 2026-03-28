@@ -196,13 +196,25 @@ def assemble_context(
     survivors = sorted(kept, key=lambda c: c.get("index", 0))
 
     # ── Step 6: render ────────────────────────────────────────────────────────
+    # Agent mode: every cell gets _format_agent_cell (full source, no truncation,
+    # no "[not yet executed]" label that prompts spurious run_cell steps).
+    # Chat mode: focal cell gets full fidelity; others get compact summaries.
     focal_parts: List[str] = []
     summary_parts: List[str] = []
-    for cell in survivors:
-        if cell.get("cell_id") == focal_cid:
-            focal_parts.append(_format_focal_cell(cell, focal_cell_full_output))
-        else:
-            summary_parts.append(_format_summary_cell(cell, summary_store))
+    if agent_mode:
+        for cell in survivors:
+            # In agent mode every cell is "focal" in practice — show full source.
+            # We still record the focal cell first so it appears at the top.
+            if cell.get("cell_id") == focal_cid:
+                focal_parts.append(_format_agent_cell(cell, summary_store))
+            else:
+                summary_parts.append(_format_agent_cell(cell, summary_store))
+    else:
+        for cell in survivors:
+            if cell.get("cell_id") == focal_cid:
+                focal_parts.append(_format_focal_cell(cell, focal_cell_full_output))
+            else:
+                summary_parts.append(_format_summary_cell(cell, summary_store))
 
     # ── Phase 4: local import enrichment (independently shippable) ───────────
     focal_cell_dict = next(
@@ -369,6 +381,42 @@ def _format_skeleton_cell(cell: Dict[str, Any], store: SummaryStore) -> str:
         label_parts.append(snippet)
 
     return f"  Cell {position} [code]: {' | '.join(label_parts)}"
+
+
+def _format_agent_cell(cell: Dict[str, Any], store: SummaryStore) -> str:
+    """Full-source block for every cell in agent mode.
+
+    Uses the same #N  TYPE  [id:XXXX] header format described in the system
+    prompt so the LLM can reference cells by the same label it was instructed to
+    use.  Every cell gets its FULL source — no truncation — so the LLM can
+    generate correct `modify` content and correctly identify headers / section
+    boundaries without needing to run cells first.
+
+    Unexecuted cells are shown with source only (no confusing label like
+    "[not yet executed]" which causes the LLM to generate spurious run_cell
+    steps to "inspect" content it can already see).
+    """
+    position      = cell["index"] + 1
+    ctype         = cell.get("type", "code").upper()
+    cell_id_short = cell.get("cell_id", "")[:8]
+    source        = cell.get("source", "(empty)")
+    summary       = store.get_summary(cell.get("cell_id", ""))
+
+    lines = [f"#{position}  {ctype}  [id:{cell_id_short}]"]
+    lines.append("SOURCE:")
+    lines.append(source)
+
+    # Include output/error when available (from SummaryStore after execution)
+    if summary is not None:
+        output = summary.get("output", "")
+        if output and output.strip():
+            snippet = output[:400] + (" […]" if len(output) > 400 else "")
+            lines.append(f"OUTPUT: {snippet}")
+        if summary.get("had_error"):
+            lines.append(f"ERROR: {summary.get('error_text', 'unknown')}")
+
+    lines.append("---")
+    return "\n".join(lines)
 
 
 def _format_summary_cell(cell: Dict[str, Any], store: SummaryStore) -> str:
