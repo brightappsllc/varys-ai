@@ -109,13 +109,22 @@ class DSAssistantExtension(ExtensionApp):
         # Provider credentials (always loaded regardless of which providers
         # are active — the factory uses only what it needs)
         # ----------------------------------------------------------------
+        def _bool_env(key: str) -> bool:
+            return os.environ.get(key, "").lower() in ("1", "true", "yes")
+
+        def _int_env(key: str, default: int) -> int:
+            return int(os.environ.get(key, "") or str(default))
+
         settings_patch.update({
             # Anthropic
             "ds_assistant_anthropic_api_key":       os.environ.get("ANTHROPIC_API_KEY", ""),
             # OpenAI
             "ds_assistant_openai_api_key":          os.environ.get("OPENAI_API_KEY", ""),
             # Google
-            "ds_assistant_google_api_key":          os.environ.get("GOOGLE_API_KEY", ""),
+            "ds_assistant_google_api_key":              os.environ.get("GOOGLE_API_KEY", ""),
+            "ds_assistant_google_service_account_json": os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", ""),
+            "ds_assistant_google_enable_thinking":      _bool_env("GOOGLE_ENABLE_THINKING"),
+            "ds_assistant_google_thinking_budget":      _int_env("GOOGLE_THINKING_BUDGET", 8192),
             # AWS Bedrock
             "ds_assistant_aws_profile":             os.environ.get("AWS_PROFILE", ""),
             "ds_assistant_aws_auth_refresh":        os.environ.get("AWS_AUTH_REFRESH", ""),
@@ -123,6 +132,9 @@ class DSAssistantExtension(ExtensionApp):
             "ds_assistant_aws_secret_access_key":   os.environ.get("AWS_SECRET_ACCESS_KEY", ""),
             "ds_assistant_aws_session_token":       os.environ.get("AWS_SESSION_TOKEN", ""),
             "ds_assistant_aws_region":              os.environ.get("AWS_REGION", "us-east-1"),
+            "ds_assistant_bedrock_enable_thinking": _bool_env("BEDROCK_ENABLE_THINKING"),
+            "ds_assistant_bedrock_thinking_budget": _int_env("BEDROCK_THINKING_BUDGET", 10000),
+            "ds_assistant_bedrock_max_tokens":      _int_env("BEDROCK_MAX_TOKENS", 0),
             # Azure OpenAI
             "ds_assistant_azure_openai_api_key":    os.environ.get("AZURE_OPENAI_API_KEY", ""),
             "ds_assistant_azure_openai_endpoint":   os.environ.get("AZURE_OPENAI_ENDPOINT", ""),

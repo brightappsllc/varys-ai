@@ -405,8 +405,13 @@ class GoogleProvider(BaseLLMProvider):
         )
         summary = plan.get("summary", "")
         if summary and on_text_chunk:
-            for i, word in enumerate(summary.split(" ")):
-                chunk = word if i == len(summary.split(" ")) - 1 else word + " "
+            # Emit the first word as-is, all subsequent words with a leading
+            # space.  This matches how streaming LLM tokenisers encode text
+            # (" will", " insert" …) and is safe after _strip_null's .rstrip()
+            # — unlike trailing-space encoding which gets stripped.
+            words = summary.split(" ")
+            for i, word in enumerate(words):
+                chunk = word if i == 0 else f" {word}"
                 if chunk:
                     await on_text_chunk(chunk)
                     await asyncio.sleep(0)

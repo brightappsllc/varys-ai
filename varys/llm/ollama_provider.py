@@ -373,7 +373,8 @@ class OllamaProvider(BaseLLMProvider):
         if summary and on_text_chunk:
             words = summary.split(" ")
             for i, word in enumerate(words):
-                chunk = word if i == len(words) - 1 else word + " "
+                # Leading-space encoding: safe from _strip_null's .rstrip()
+                chunk = word if i == 0 else f" {word}"
                 if chunk:
                     await on_text_chunk(chunk)
                     await asyncio.sleep(0)
