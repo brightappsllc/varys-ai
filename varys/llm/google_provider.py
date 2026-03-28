@@ -19,6 +19,7 @@ from ..completion.engine import _build_context_block, _extract_imports
 
 log = logging.getLogger(__name__)
 
+# Used by plan_task (JSON-schema / structured-output mode).
 _PLAN_SCHEMA = {
     "type": "OBJECT",
     "properties": {
@@ -43,6 +44,56 @@ _PLAN_SCHEMA = {
     },
     "required": ["steps", "requiresApproval", "summary"],
 }
+
+# Used by stream_plan_task (function-calling / streaming mode).
+# Identical structure but with lowercase type names which are required by
+# FunctionDeclaration.parameters.
+_PLAN_TOOL_NAME = "create_operation_plan"
+_PLAN_FN_PARAMETERS = {
+    "type": "object",
+    "properties": {
+        "steps": {
+            "type": "array",
+            "description": "Ordered list of notebook cell operations to perform.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "type":        {"type": "string",  "enum": ["insert", "modify", "delete", "run_cell"]},
+                    "cellIndex":   {"type": "integer", "description": "Zero-based cell index."},
+                    "cellType":    {"type": "string",  "enum": ["code", "markdown"]},
+                    "content":     {"type": "string",  "description": "Cell content (insert/modify only)."},
+                    "autoExecute": {"type": "boolean", "description": "Run the cell after inserting/modifying."},
+                    "description": {"type": "string",  "description": "Human-readable description of this step."},
+                },
+                "required": ["type", "cellIndex"],
+            },
+        },
+        "requiresApproval":   {"type": "boolean", "description": "True when the user should review before applying."},
+        "clarificationNeeded":{"type": "string",  "description": "Question for the user if the request is ambiguous."},
+        "summary":            {"type": "string",  "description": "One-sentence description of what the plan does."},
+    },
+    "required": ["steps", "requiresApproval", "summary"],
+}
+
+
+def _deep_convert_args(obj: Any) -> Any:
+    """Recursively convert proto MapComposite / RepeatedComposite to plain Python.
+
+    google.genai FunctionCall.args may arrive wrapped in proto container types.
+    This converts them to plain dict / list so the rest of the pipeline treats
+    them as ordinary JSON data.
+    """
+    if isinstance(obj, dict):
+        return {k: _deep_convert_args(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_deep_convert_args(i) for i in obj]
+    # MapComposite (dict-like proto container)
+    if hasattr(obj, "items") and callable(obj.items) and not isinstance(obj, str):
+        return {str(k): _deep_convert_args(v) for k, v in obj.items()}
+    # RepeatedComposite (list-like proto container)
+    if hasattr(obj, "__iter__") and not isinstance(obj, (str, bytes)):
+        return [_deep_convert_args(i) for i in obj]
+    return obj
 
 
 class GoogleProvider(BaseLLMProvider):
@@ -389,12 +440,101 @@ class GoogleProvider(BaseLLMProvider):
         chat_history: Optional[List[Dict[str, str]]] = None,
         reasoning_mode: str = "off",
     ) -> Dict[str, Any]:
-        """Run plan_task then stream the summary so the UI gets at least one
-        chunk event before the done event — ensuring ensureStreamStarted fires
-        and the DiffView renders correctly.
+        """Streaming agent plan with thinking + text preamble + function call.
+
+        Uses generate_content_stream with a FunctionDeclaration so the model:
+          1. Streams its reasoning trace → thought bubble in the UI.
+          2. Streams a text preamble    → progressive text in the chat window.
+          3. Calls create_operation_plan → structured plan returned to the caller.
+
+        This matches the Anthropic experience (thought → text → plan) rather than
+        the old blocking JSON-schema approach that returned everything at once.
+
+        Falls back to the synchronous JSON-schema plan_task if the function-call
+        streaming fails (e.g. the model doesn't support tool calling).
         """
-        op_id = operation_id or f"op_{uuid.uuid4().hex[:8]}"
-        plan  = await self.plan_task(
+        op_id    = operation_id or f"op_{uuid.uuid4().hex[:8]}"
+        system   = self._build_system(skills, memory, reasoning_mode=reasoning_mode)
+        user_msg = _build_context(user_message, notebook_context)
+        client   = self._client()
+        types    = self._types()
+
+        thinking_cfg = self._thinking_config(types)
+
+        # ── Primary path: streaming + function calling ────────────────────────
+        try:
+            plan_fn = types.FunctionDeclaration(
+                name=_PLAN_TOOL_NAME,
+                description=(
+                    "Create the notebook operation plan. "
+                    "First write a brief explanation of what you will do, "
+                    "then call this function exactly once with the complete plan."
+                ),
+                parameters=_PLAN_FN_PARAMETERS,
+            )
+            config = types.GenerateContentConfig(
+                system_instruction=system,
+                tools=[types.Tool(function_declarations=[plan_fn])],
+                temperature=0.2,
+                max_output_tokens=8192,
+                **({"thinking_config": thinking_cfg} if thinking_cfg is not None else {}),
+            )
+            contents = self._build_contents(user_msg, notebook_context, types)
+
+            collected_args: Optional[Dict[str, Any]] = None
+            last_chunk = None
+
+            async for chunk in await client.aio.models.generate_content_stream(
+                model=self.chat_model, contents=contents, config=config,
+            ):
+                last_chunk = chunk
+                if not chunk.candidates:
+                    continue
+                for part in chunk.candidates[0].content.parts:
+                    # Function call — collect the plan arguments.
+                    fc = getattr(part, "function_call", None)
+                    if fc and getattr(fc, "name", None) == _PLAN_TOOL_NAME:
+                        raw = getattr(fc, "args", {})
+                        collected_args = _deep_convert_args(raw)
+                    elif part.text:
+                        if getattr(part, "thought", False):
+                            if on_thought:
+                                await on_thought(part.text)
+                        else:
+                            if on_text_chunk:
+                                await on_text_chunk(part.text)
+
+            # Record token usage from the final chunk.
+            if last_chunk:
+                self._record_usage(last_chunk)
+
+            if collected_args and isinstance(collected_args.get("steps"), list):
+                collected_args.setdefault("operationId", op_id)
+                collected_args.setdefault("clarificationNeeded", None)
+                collected_args.setdefault("requiresApproval", False)
+                collected_args.setdefault("summary", "")
+                log.debug(
+                    "Google stream_plan_task: got %d step(s) via function call",
+                    len(collected_args["steps"]),
+                )
+                return collected_args
+
+            log.warning(
+                "Google stream_plan_task: model did not call '%s' (args=%s). "
+                "Falling back to JSON-schema plan_task.",
+                _PLAN_TOOL_NAME,
+                list(collected_args) if collected_args else None,
+            )
+
+        except Exception as exc:
+            log.warning(
+                "Google stream_plan_task: streaming with function calling failed "
+                "(%s). Falling back to JSON-schema plan_task.", exc,
+            )
+
+        # ── Fallback: synchronous JSON-schema plan + word-by-word summary ─────
+        # Keeps the UI from going completely blank while the plan is generated.
+        plan = await self.plan_task(
             user_message=user_message,
             notebook_context=notebook_context,
             skills=skills,
@@ -405,10 +545,6 @@ class GoogleProvider(BaseLLMProvider):
         )
         summary = plan.get("summary", "")
         if summary and on_text_chunk:
-            # Emit the first word as-is, all subsequent words with a leading
-            # space.  This matches how streaming LLM tokenisers encode text
-            # (" will", " insert" …) and is safe after _strip_null's .rstrip()
-            # — unlike trailing-space encoding which gets stripped.
             words = summary.split(" ")
             for i, word in enumerate(words):
                 chunk = word if i == 0 else f" {word}"
