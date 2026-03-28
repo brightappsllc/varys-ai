@@ -4300,6 +4300,15 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
             : [...cached.threads, savedThread];
           _updateCache(nbPath, updatedThreads, threadId);
         }
+        // Keep threadsRef (and threads state) in sync so switching back to
+        // this thread restores the correct messages without a disk round-trip.
+        // Without this, threadsRef retains the stale initial-load snapshot and
+        // handleSwitchThread restores an empty / outdated message list.
+        if (threadsRef.current.some(t => t.id === threadId)) {
+          const synced = threadsRef.current.map(t => t.id === threadId ? savedThread : t);
+          threadsRef.current = synced;
+          setThreads(synced);
+        }
         return;  // success
       } catch (err) {
         const isNetwork = err instanceof TypeError;
@@ -6082,7 +6091,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     // Persist the current thread before switching
     const curId   = currentThreadIdRef.current;
     const curName = threadsRef.current.find(th => th.id === curId)?.name ?? 'Thread';
-    void _saveThread(curId, curName, messages);
+    void _saveThread(curId, curName, messagesRef.current);
 
     const updated = [...threadsRef.current, t];
     setThreads(updated);
@@ -6107,10 +6116,11 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
 
   const handleSwitchThread = (threadId: string): void => {
     if (threadId === currentThreadIdRef.current) return;
-    // Save the current thread
+    // Save the current thread using the ref (always up-to-date, unlike the
+    // messages state which may be one render behind in async flows).
     const curId   = currentThreadIdRef.current;
     const curName = threadsRef.current.find(t => t.id === curId)?.name ?? 'Thread';
-    void _saveThread(curId, curName, messages);
+    void _saveThread(curId, curName, messagesRef.current);
 
     const thread = threadsRef.current.find(t => t.id === threadId);
     if (!thread) return;
@@ -6174,7 +6184,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     // Switch to the new duplicate
     const curId   = currentThreadIdRef.current;
     const curName = threadsRef.current.find(t => t.id === curId)?.name ?? 'Thread';
-    void _saveThread(curId, curName, messages);
+    void _saveThread(curId, curName, messagesRef.current);
     setCurrentThreadId(copy.id);
     currentThreadIdRef.current = copy.id;
     stopStreamQueue();
