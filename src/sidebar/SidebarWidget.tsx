@@ -15,6 +15,7 @@ import { CellEditor } from '../editor/CellEditor';
 import { DiffView, DiffInfo } from '../ui/DiffView';
 import { FileChangeCard, FileChangeEvent } from '../ui/FileChangeCard';
 import { ReproPanel } from '../reproducibility/ReproPanel';
+import { reproStore } from '../reproducibility/store';
 import { TagsPanel } from '../tags/TagsPanel';
 
 // ---------------------------------------------------------------------------
@@ -3987,6 +3988,14 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
   const [showSettings, setShowSettings]     = useState(false);
   const [showRepro,    setShowRepro]         = useState(false);
   const [showTags,     setShowTags]          = useState(false);
+  const [reproIssueCount, setReproIssueCount] = useState(reproStore.current.length);
+
+  // Keep the red-dot badge in sync with reproStore updates
+  useEffect(() => {
+    const handler = (issues: any[]) => setReproIssueCount(issues.length);
+    reproStore.subscribe(handler);
+    return () => reproStore.unsubscribe(handler);
+  }, []);
 
   // Reasoning mode chip: 'off' | 'cot' | 'sequential'
   // 'cot'       = Chain-of-Thought system prompt injection, 1 API call, steps inline
@@ -6596,12 +6605,19 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           data-tip="Cell Tags & Metadata"
           data-tip-below
         >🏷️</button>
-        <button
-          className="ds-repro-shield-btn"
-          onClick={() => setShowRepro(true)}
-          data-tip="Reproducibility Guardian"
-          data-tip-below
-        >🛡️</button>
+        <span className="ds-repro-shield-wrap">
+          <button
+            className="ds-repro-shield-btn"
+            onClick={() => setShowRepro(true)}
+            data-tip="Reproducibility Guardian"
+            data-tip-below
+          >🛡️</button>
+          {reproIssueCount > 0 && (
+            <span className="ds-repro-dot" aria-label={`${reproIssueCount} reproducibility issue${reproIssueCount === 1 ? '' : 's'}`}>
+              {reproIssueCount < 10 ? reproIssueCount : '9+'}
+            </span>
+          )}
+        </span>
         <button
           className="ds-theme-toggle-btn"
           onClick={toggleChatTheme}

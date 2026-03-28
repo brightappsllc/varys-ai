@@ -2689,6 +2689,37 @@
 
 /* Shared base for all small header icon buttons */
 .ds-settings-gear-btn,
+/* Wrapper keeps the shield button and its red-dot badge together */
+.ds-repro-shield-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* Red notification dot shown when there are active reproducibility issues */
+.ds-repro-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: #e53935;
+  color: #fff;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 13px;
+  text-align: center;
+  pointer-events: none;
+  box-shadow: 0 0 0 1.5px var(--ds-bg, #fff);
+  letter-spacing: 0;
+}
+.ds-chat-night .ds-repro-dot {
+  box-shadow: 0 0 0 1.5px var(--ds-bg, #13131c);
+}
+
 .ds-repro-shield-btn,
 .ds-theme-toggle-btn,
 .ds-wiki-help-btn {
