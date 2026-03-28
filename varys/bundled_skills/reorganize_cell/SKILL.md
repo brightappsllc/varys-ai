@@ -1,5 +1,6 @@
 ---
 name: reorganize_cell
+description: Move, reorder, or restructure notebook cells into a new sequence
 keywords: [reorganize, reorder, move cell, restructure notebook, rearrange, swap sections, move section, move before, move after]
 ---
 # Notebook Reorganization Skill
