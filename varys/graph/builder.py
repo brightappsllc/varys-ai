@@ -108,7 +108,10 @@ class GraphBuilder:
             cells: list of {cell_id, index, source} from the request body,
                    already filtered to code cells only by the frontend.
         """
-        sorted_cells = sorted(cells, key=lambda c: c["index"])
+        sorted_cells = sorted(
+            (c for c in cells if c.get("source", "").strip()),
+            key=lambda c: c["index"],
+        )
         store_data = self._store.get_all_current()
 
         nodes: List[NodeData] = []

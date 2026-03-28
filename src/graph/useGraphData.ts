@@ -24,6 +24,8 @@ function buildCellsPayload(tracker: INotebookTracker): {
 
   panel.content.widgets.forEach((cell, idx) => {
     if (cell.model.type !== 'code') return;
+    const source = cell.model.sharedModel.getSource();
+    if (!source.trim()) return;   // skip empty cells
     const cellId: string =
       (cell.model as any).id ??
       (cell.model as any).sharedModel?.id ??
@@ -32,7 +34,7 @@ function buildCellsPayload(tracker: INotebookTracker): {
     cells.push({
       cell_id: cellId,
       index:   idx,
-      source:  cell.model.sharedModel.getSource(),
+      source,
     });
   });
 
