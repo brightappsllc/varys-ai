@@ -49,6 +49,17 @@ export declare class CellEditor {
      * [id:XXXXXXXX] tag the assembler injects into the LLM context).
      */
     private _shortId;
+    /**
+     * Rearranges notebook cells so they appear in the order specified by
+     * newOrderIds (array of 8-char short cell IDs matching [id:XXXXXXXX] tags).
+     *
+     * Uses ISharedNotebook.moveCell() — the correct JupyterLab 4 API for cell
+     * reordering via the Yjs shared document.  Position tracking is done via an
+     * internal map so correctness does not depend on notebook.widgets updating
+     * synchronously after each move.
+     *
+     * Returns the original cell ID sequence so the operation can be undone.
+     */
     reorderCells(newOrderIds: string[]): Promise<string[]>;
     applyOperations(operationId: string, steps: OperationStep[]): Promise<ApplyResult>;
     /**
