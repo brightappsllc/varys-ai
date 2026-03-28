@@ -67,10 +67,11 @@ export class CellEditor {
    * Rearranges notebook cells so they appear in the order specified by
    * newOrderIds (array of 8-char short cell IDs matching [id:XXXXXXXX] tags).
    *
-   * Uses ISharedNotebook.moveCell() — the correct JupyterLab 4 API for cell
-   * reordering via the Yjs shared document.  Position tracking is done via an
-   * internal map so correctness does not depend on notebook.widgets updating
-   * synchronously after each move.
+   * Uses NotebookActions.moveUp / moveDown — the same actions JupyterLab
+   * fires for the keyboard shortcuts Shift+K / Shift+J.  These are guaranteed
+   * to work in all JupyterLab 4 versions.  A selection-sort pass positions
+   * each target cell one step at a time; internal posMap tracking avoids
+   * reading notebook.widgets after each step.
    *
    * Returns the original cell ID sequence so the operation can be undone.
    */
@@ -79,19 +80,17 @@ export class CellEditor {
     if (!panel) return [];
 
     const notebook = panel.content;
+    const n = notebook.widgets.length;
 
     // Snapshot all short IDs upfront (before any moves)
-    const originalOrder: string[] = notebook.widgets.map(c => this._shortId(c));
-
-    // Access ISharedNotebook.moveCell() — the official JupyterLab 4 API
-    const sharedModel = (notebook.model as any)?.sharedModel;
-    if (!sharedModel || typeof sharedModel.moveCell !== 'function') {
-      console.warn('[DSAssistant] reorderCells: sharedModel.moveCell not available');
-      return originalOrder;
+    const originalOrder: string[] = [];
+    for (let i = 0; i < n; i++) {
+      originalOrder.push(this._shortId(notebook.widgets[i]));
     }
 
-    // Build position map: shortId → current position (maintained manually
-    // so we don't rely on notebook.widgets reflecting moves in real-time).
+    // Internal tracking: currentOrder[pos] = shortId of the cell at position pos.
+    // This is kept in sync manually after every moveUp / moveDown so we never
+    // need to re-read notebook.widgets mid-sort.
     const currentOrder = [...originalOrder];
     const posMap = new Map<string, number>();
     for (let i = 0; i < currentOrder.length; i++) {
@@ -100,22 +99,37 @@ export class CellEditor {
 
     for (let targetPos = 0; targetPos < newOrderIds.length; targetPos++) {
       const targetId = newOrderIds[targetPos];
-      const currentPos = posMap.get(targetId);
-      if (currentPos === undefined || currentPos === targetPos) continue;
+      let pos = posMap.get(targetId);
+      if (pos === undefined || pos === targetPos) continue;
 
-      // Move via the shared document — this is transactional and fires signals
-      sharedModel.moveCell(currentPos, targetPos);
+      // Place the target cell at its desired position by moving it one step
+      // at a time.  NotebookActions.moveUp/moveDown operate on the active cell.
+      notebook.activeCellIndex = pos;
 
-      // Update our internal tracking to reflect the move.
-      // moveCell(from, to): cell at 'from' lands at 'to'; cells between shift ±1.
-      const movedId = currentOrder.splice(currentPos, 1)[0];
-      currentOrder.splice(targetPos, 0, movedId);
+      while (pos !== targetPos) {
+        if (pos > targetPos) {
+          // Move active cell one step toward the top
+          NotebookActions.moveUp(notebook);
 
-      // Rebuild posMap for all affected positions
-      const lo = Math.min(currentPos, targetPos);
-      const hi = Math.max(currentPos, targetPos);
-      for (let k = lo; k <= hi; k++) {
-        posMap.set(currentOrder[k], k);
+          // After moveUp: cell at pos ↔ cell at pos-1
+          const displaced = currentOrder[pos - 1];
+          currentOrder[pos - 1] = targetId;
+          currentOrder[pos]     = displaced;
+          posMap.set(targetId,   pos - 1);
+          posMap.set(displaced,  pos);
+          pos--;
+        } else {
+          // Move active cell one step toward the bottom
+          NotebookActions.moveDown(notebook);
+
+          // After moveDown: cell at pos ↔ cell at pos+1
+          const displaced = currentOrder[pos + 1];
+          currentOrder[pos + 1] = targetId;
+          currentOrder[pos]     = displaced;
+          posMap.set(targetId,   pos + 1);
+          posMap.set(displaced,  pos);
+          pos++;
+        }
       }
     }
 

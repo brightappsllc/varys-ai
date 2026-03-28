@@ -53,10 +53,11 @@ export declare class CellEditor {
      * Rearranges notebook cells so they appear in the order specified by
      * newOrderIds (array of 8-char short cell IDs matching [id:XXXXXXXX] tags).
      *
-     * Uses ISharedNotebook.moveCell() — the correct JupyterLab 4 API for cell
-     * reordering via the Yjs shared document.  Position tracking is done via an
-     * internal map so correctness does not depend on notebook.widgets updating
-     * synchronously after each move.
+     * Uses NotebookActions.moveUp / moveDown — the same actions JupyterLab
+     * fires for the keyboard shortcuts Shift+K / Shift+J.  These are guaranteed
+     * to work in all JupyterLab 4 versions.  A selection-sort pass positions
+     * each target cell one step at a time; internal posMap tracking avoids
+     * reading notebook.widgets after each step.
      *
      * Returns the original cell ID sequence so the operation can be undone.
      */
