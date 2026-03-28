@@ -2761,7 +2761,8 @@
 .ds-settings-gear-btn,
 .ds-repro-shield-btn,
 .ds-theme-toggle-btn,
-.ds-wiki-help-btn {
+.ds-wiki-help-btn,
+.ds-graph-open-btn {
   background: none;
   border: none;
   cursor: pointer;
@@ -2776,7 +2777,8 @@
 .ds-settings-gear-btn:hover,
 .ds-repro-shield-btn:hover,
 .ds-theme-toggle-btn:hover,
-.ds-wiki-help-btn:hover {
+.ds-wiki-help-btn:hover,
+.ds-graph-open-btn:hover {
   color: var(--jp-ui-font-color0, #333);
   background: var(--jp-layout-color3, rgba(0,0,0,0.08));
 }
@@ -3091,20 +3093,24 @@
 .ds-chat-day .ds-repro-shield-btn,
 .ds-chat-day .ds-theme-toggle-btn,
 .ds-chat-day .ds-wiki-help-btn,
+.ds-chat-day .ds-graph-open-btn,
 .ds-chat-night .ds-settings-gear-btn,
 .ds-chat-night .ds-repro-shield-btn,
 .ds-chat-night .ds-theme-toggle-btn,
-.ds-chat-night .ds-wiki-help-btn {
+.ds-chat-night .ds-wiki-help-btn,
+.ds-chat-night .ds-graph-open-btn {
   color: var(--ds-text-dim) !important;
 }
 .ds-chat-day .ds-settings-gear-btn:hover,
 .ds-chat-day .ds-repro-shield-btn:hover,
 .ds-chat-day .ds-theme-toggle-btn:hover,
 .ds-chat-day .ds-wiki-help-btn:hover,
+.ds-chat-day .ds-graph-open-btn:hover,
 .ds-chat-night .ds-settings-gear-btn:hover,
 .ds-chat-night .ds-repro-shield-btn:hover,
 .ds-chat-night .ds-theme-toggle-btn:hover,
-.ds-chat-night .ds-wiki-help-btn:hover {
+.ds-chat-night .ds-wiki-help-btn:hover,
+.ds-chat-night .ds-graph-open-btn:hover {
   color:      var(--ds-text) !important;
   background: var(--ds-border) !important;
 }
@@ -8814,21 +8820,10 @@ body[data-jp-theme-light="false"] .ds-tag-add-input::placeholder {
   gap: 4px;
 }
 
-.ds-graph-open-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 15px;
-  line-height: 1;
-  padding: 2px 4px;
-  border-radius: 4px;
-  color: var(--jp-ui-font-color1);
-  opacity: 0.7;
-  transition: opacity 0.15s, background 0.15s;
-}
-.ds-graph-open-btn:hover {
-  opacity: 1;
-  background: var(--jp-layout-color3, #e0e0e0);
+/* Size override to match the thread-bar shield button */
+.ds-thread-bar-right .ds-graph-open-btn {
+  font-size: 13px;
+  padding: 1px 3px;
 }
 
 /* Panel widget container */
@@ -8977,17 +8972,5 @@ body[data-jp-theme-light="false"] .ds-tag-add-input::placeholder {
   user-select: none;
 }
 
-/* ── Dark mode ───────────────────────────────────────────────────────────────── */
-
-[data-jp-theme-name*="dark"] .ds-graph-open-btn:hover,
-.jp-mod-dark .ds-graph-open-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-}
-[data-jp-theme-name*="dark"] .ds-graph-refresh-btn:hover,
-.jp-mod-dark .ds-graph-refresh-btn:hover {
-  background: var(--jp-layout-color3, #3a3a3a);
-}
-[data-jp-theme-name*="dark"] .ds-graph-legend,
-.jp-mod-dark .ds-graph-legend {
-  background: var(--jp-layout-color2, #2a2a2a);
-}
+/* ── Dark mode (graph panel uses jp-* tokens which already adapt) ────────────── */
+/* .ds-graph-open-btn color is handled by the shared button rule + ds-chat-night overrides above */
