@@ -40,6 +40,7 @@ from .handlers.agent_settings import AgentSettingsHandler, AgentToolSupportHandl
 from .handlers.notebook_opened import NotebookOpenedHandler
 from .handlers.warnings import WarningsHandler
 from .handlers.usage import UsageHandler
+from .handlers.graph import GraphHandler
 
 
 class DSAssistantExtension(ExtensionApp):
@@ -389,4 +390,6 @@ class DSAssistantExtension(ExtensionApp):
             (url_path_join(base, "notebook-opened"),        NotebookOpenedHandler),
             (url_path_join(base, "warnings"),               WarningsHandler),
             (url_path_join(base, "usage"),                  UsageHandler),
+            # Notebook Dependency Graph
+            (url_path_join(base, "graph"),                  GraphHandler),
         ])

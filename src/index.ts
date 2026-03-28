@@ -16,6 +16,7 @@ import { NotebookActions, INotebookTracker, NotebookPanel } from '@jupyterlab/no
 import { ISettingRegistry } from '@jupyterlab/settingregistry';
 import { Menu } from '@lumino/widgets';
 import { DSAssistantSidebar, dispatchNonNotebookFocus, dispatchNotebookActivated } from './sidebar/SidebarWidget';
+import { GraphPanelWidget } from './graph/GraphPanel';
 import { NotebookReader } from './context/NotebookReader';
 import { CellEditor } from './editor/CellEditor';
 import { APIClient } from './api/client';
@@ -55,6 +56,25 @@ const plugin: JupyterFrontEndPlugin<void> = {
     const notebookReader = new NotebookReader(notebookTracker);
     const cellEditor = new CellEditor(notebookTracker);
 
+    // ── Graph panel — created once, shown on demand ──────────────────────────
+    const graphPanel = new GraphPanelWidget(
+      notebookTracker,
+      (cellIndex: number) => {
+        const panel = notebookTracker.currentWidget;
+        if (!panel) return;
+        void app.commands.execute('notebook:scroll-to-cell', { index: cellIndex });
+      },
+    );
+
+    let graphPanelAdded = false;
+    const openGraphPanel = () => {
+      if (!graphPanelAdded) {
+        app.shell.add(graphPanel, 'main', { mode: 'split-right' });
+        graphPanelAdded = true;
+      }
+      app.shell.activateById(graphPanel.id);
+    };
+
     const sidebar = new DSAssistantSidebar({
       apiClient,
       notebookReader,
@@ -72,6 +92,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
         // the agent ran), so docmanager:reload is sufficient.
         try { await app.commands.execute('docmanager:reload'); } catch { /* no-op if not reloadable */ }
       },
+      onOpenGraph: openGraphPanel,
     });
 
     sidebar.id = 'varys-sidebar';
@@ -153,9 +174,16 @@ const plugin: JupyterFrontEndPlugin<void> = {
       }
     });
 
+    const commandGraph = 'varys:open-graph';
+    app.commands.addCommand(commandGraph, {
+      label: 'Varys: Open Dependency Graph',
+      execute: openGraphPanel,
+    });
+
     if (palette) {
       palette.addItem({ command: commandOpen,    category: 'Varys' });
       palette.addItem({ command: commandAnalyze, category: 'Varys' });
+      palette.addItem({ command: commandGraph,   category: 'Varys' });
     }
 
     // ── AI cell actions — context menu + palette ─────────────────────────────

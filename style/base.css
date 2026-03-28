@@ -8802,3 +8802,192 @@ body[data-jp-theme-light="false"] .ds-tag-add-input::placeholder {
   background: var(--ds-surface2, #28283a);
   border-color: var(--ds-border, #35354a);
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   NOTEBOOK DEPENDENCY GRAPH — light + dark
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* Graph icon button in the thread bar */
+.ds-thread-bar-icons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ds-graph-open-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: var(--jp-ui-font-color1);
+  opacity: 0.7;
+  transition: opacity 0.15s, background 0.15s;
+}
+.ds-graph-open-btn:hover {
+  opacity: 1;
+  background: var(--jp-layout-color3, #e0e0e0);
+}
+
+/* Panel widget container */
+.ds-graph-panel-widget {
+  background: var(--jp-layout-color1);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* Inner panel */
+.ds-graph-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  font-family: var(--jp-ui-font-family);
+  font-size: var(--jp-ui-font-size1);
+  color: var(--jp-ui-font-color0);
+  background: var(--jp-layout-color1);
+}
+
+/* Header */
+.ds-graph-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid var(--jp-border-color2);
+  flex-shrink: 0;
+}
+.ds-graph-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ds-graph-icon {
+  font-size: 20px;
+  line-height: 1;
+  opacity: 0.75;
+}
+.ds-graph-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--jp-ui-font-color0);
+}
+.ds-graph-subtitle {
+  font-size: 11px;
+  color: var(--jp-ui-font-color2);
+  margin-top: 1px;
+}
+.ds-graph-refresh-btn {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--jp-border-color1);
+  background: var(--jp-layout-color2);
+  color: var(--jp-ui-font-color1);
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.ds-graph-refresh-btn:hover {
+  background: var(--jp-layout-color3);
+}
+.ds-graph-refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Legend */
+.ds-graph-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--jp-border-color2);
+  background: var(--jp-layout-color2);
+  font-size: 11px;
+  color: var(--jp-ui-font-color2);
+  flex-shrink: 0;
+}
+.ds-graph-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.ds-graph-legend-line {
+  display: inline-block;
+  width: 20px;
+  height: 2px;
+  border-radius: 1px;
+}
+.ds-graph-legend-normal  { background: var(--jp-border-color2); }
+.ds-graph-legend-skip    { background: #E8891A; }
+.ds-graph-legend-order   { background: #D94040; }
+.ds-graph-legend-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.ds-graph-legend-dead    { background: #9CA3AF; }
+.ds-graph-legend-dashed {
+  display: inline-block;
+  width: 20px;
+  height: 12px;
+  border: 2px dashed #E8891A;
+  border-radius: 3px;
+}
+
+/* Canvas wrapper */
+.ds-graph-canvas-wrap {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+  background: var(--jp-layout-color1);
+  user-select: none;
+}
+.ds-graph-canvas-wrap svg {
+  min-width: 100%;
+  min-height: 100%;
+}
+
+/* States */
+.ds-graph-empty,
+.ds-graph-loading,
+.ds-graph-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  padding: 20px;
+  font-size: 13px;
+  color: var(--jp-ui-font-color2);
+  text-align: center;
+}
+.ds-graph-error {
+  color: #D94040;
+}
+
+/* Edge labels */
+.ds-graph-edge-label {
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ── Dark mode ───────────────────────────────────────────────────────────────── */
+
+[data-jp-theme-name*="dark"] .ds-graph-open-btn:hover,
+.jp-mod-dark .ds-graph-open-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+[data-jp-theme-name*="dark"] .ds-graph-refresh-btn:hover,
+.jp-mod-dark .ds-graph-refresh-btn:hover {
+  background: var(--jp-layout-color3, #3a3a3a);
+}
+[data-jp-theme-name*="dark"] .ds-graph-legend,
+.jp-mod-dark .ds-graph-legend {
+  background: var(--jp-layout-color2, #2a2a2a);
+}

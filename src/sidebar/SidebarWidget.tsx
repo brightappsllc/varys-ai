@@ -543,6 +543,8 @@ export interface SidebarProps {
    * editor reflects the newly-written content rather than the cached version.
    */
   reloadFile?: (path: string) => void;
+  /** Open (or focus) the Notebook Dependency Graph panel. */
+  onOpenGraph?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -3760,14 +3762,15 @@ const ContextChipBubble: React.FC<{ chip: { label: string; preview: string } }> 
 // Chat component
 // ---------------------------------------------------------------------------
 
-const DSAssistantChat: React.FC<SidebarProps> = ({
-  apiClient,
-  notebookReader,
-  cellEditor,
-  notebookTracker,
-  openFile,
-  reloadFile,
-}) => {
+const DSAssistantChat: React.FC<SidebarProps> = (props) => {
+  const {
+    apiClient,
+    notebookReader,
+    cellEditor,
+    notebookTracker,
+    openFile,
+    reloadFile,
+  } = props;
   // Resolves @variable_name references typed in the chat input
   const variableResolver = React.useMemo(
     () => new VariableResolver(notebookTracker),
@@ -6683,18 +6686,27 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
         onDuplicate={handleDuplicateThread}
         onDelete={(id) => void handleDeleteThread(id)}
         rightSlot={currentNotebookPath.endsWith('.ipynb') ? (
-          <span className="ds-repro-shield-wrap">
+          <span className="ds-thread-bar-icons">
+            <span className="ds-repro-shield-wrap">
+              <button
+                className="ds-repro-shield-btn"
+                onClick={() => setShowRepro(true)}
+                data-tip="Reproducibility Guardian"
+                data-tip-below
+              >🛡️</button>
+              {reproIssueCount > 0 && (
+                <span className="ds-repro-dot" aria-label={`${reproIssueCount} reproducibility issue${reproIssueCount === 1 ? '' : 's'}`}>
+                  {reproIssueCount < 10 ? reproIssueCount : '9+'}
+                </span>
+              )}
+            </span>
             <button
-              className="ds-repro-shield-btn"
-              onClick={() => setShowRepro(true)}
-              data-tip="Reproducibility Guardian"
+              className="ds-graph-open-btn"
+              onClick={() => props.onOpenGraph?.()}
+              title="Notebook dependency graph"
+              data-tip="Dependency Graph"
               data-tip-below
-            >🛡️</button>
-            {reproIssueCount > 0 && (
-              <span className="ds-repro-dot" aria-label={`${reproIssueCount} reproducibility issue${reproIssueCount === 1 ? '' : 's'}`}>
-                {reproIssueCount < 10 ? reproIssueCount : '9+'}
-              </span>
-            )}
+            >⬡</button>
           </span>
         ) : undefined}
       />
