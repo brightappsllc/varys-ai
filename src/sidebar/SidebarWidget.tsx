@@ -7392,6 +7392,11 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
                         threadReasoningMapRef.current.set(currentThreadIdRef.current, opt.value);
                         try { localStorage.setItem('ds-varys-reasoning-mode', opt.value); } catch { /* ignore */ }
                         setReasoningDropdownOpen(false);
+                        // Persist immediately so a refresh before the next message
+                        // does not lose the selection.
+                        const tid   = currentThreadIdRef.current;
+                        const tName = threadsRef.current.find(t => t.id === tid)?.name ?? 'Thread';
+                        void _saveThread(tid, tName, messagesRef.current);
                       }}
                     >
                       <span className="ds-reasoning-item-label">{opt.label}</span>
@@ -7534,6 +7539,11 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
                   cellModeRef.current = next;
                   threadModeMapRef.current.set(currentThreadIdRef.current, next);
                   try { localStorage.setItem('ds-assistant-cell-mode', next); } catch { /* ignore */ }
+                  // Persist immediately so a refresh before the next message
+                  // does not lose the selection.
+                  const tid   = currentThreadIdRef.current;
+                  const tName = threadsRef.current.find(t => t.id === tid)?.name ?? 'Thread';
+                  void _saveThread(tid, tName, messagesRef.current);
                 }}
               >
                 <option value="chat">💬 Chat</option>
