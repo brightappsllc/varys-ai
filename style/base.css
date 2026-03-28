@@ -2021,8 +2021,7 @@
   font-size: 10px;
   font-weight: 600;
   color: #7c3aed;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
   user-select: none;
   border-bottom: 1px solid rgba(124, 58, 237, 0.12);
   /* button reset so the header is keyboard-accessible */

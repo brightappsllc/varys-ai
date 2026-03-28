@@ -6959,7 +6959,6 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
                               title={isStreaming ? 'Thinking…' : (thinkIsCollapsed ? 'Show thought' : 'Hide thought')}
                               style={isStreaming ? { cursor: 'default' } : undefined}
                             >
-                              <span className="ds-thinking-icon">🧠</span>
                               <span className="ds-thinking-label">
                                 {isStreaming ? 'Thinking…' : 'Thought'}
                               </span>
