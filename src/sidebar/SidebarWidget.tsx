@@ -4086,6 +4086,9 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
   // or async _saveThread lag.
   const threadModeMapRef = useRef<Map<string, CellMode>>(new Map());
 
+  // Per-thread reasoning map — same pattern as threadModeMapRef.
+  const threadReasoningMapRef = useRef<Map<string, ReasoningMode>>(new Map());
+
   // ── Input area resize (drag from top) ─────────────────────────────────────
   const MIN_INPUT_HEIGHT = 56;
   const MAX_INPUT_HEIGHT = 400;
@@ -4291,6 +4294,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
       tokenUsage:    existing?.tokenUsage,
       notebookAware: existing?.notebookAware,
       cellMode:      cellModeRef.current,
+      reasoningMode: reasoningModeRef.current,
     };
     // Retry up to 3 times with back-off for transient network failures
     // (e.g. server restarting).  Each attempt is independent of React state.
@@ -4393,6 +4397,20 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     try { localStorage.setItem('ds-assistant-cell-mode', mode); } catch { /* ignore */ }
   };
 
+  const _restoreThreadReasoning = (thread: ChatThread | undefined): void => {
+    if (!thread) return;
+    const mapped = threadReasoningMapRef.current.get(thread.id);
+    const mode: ReasoningMode =
+      mapped !== undefined ? mapped :
+      (REASONING_CYCLE.includes(thread.reasoningMode as ReasoningMode)
+        ? (thread.reasoningMode as ReasoningMode)
+        : 'off');
+    setReasoningMode(mode);
+    reasoningModeRef.current = mode;
+    threadReasoningMapRef.current.set(thread.id, mode);
+    try { localStorage.setItem('ds-varys-reasoning-mode', mode); } catch { /* ignore */ }
+  };
+
   const _restoreFromCache = (path: string): boolean => {
     const cached = historyCacheRef.current.get(path);
     if (!cached || cached.threads.length === 0) return false;
@@ -4419,6 +4437,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     setMessages(_restoredMsgs);
     setPendingOps(_opsFromMessages(_restoredMsgs));
     _restoreThreadMode(lastThread);
+    _restoreThreadReasoning(lastThread);
     // Restore agent panel if there was one pending when we left this file.
     if (cached.agentPanel?.ready) {
       setAgentResultsReady(true);
@@ -4528,9 +4547,10 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           threadsRef.current = chatFile.threads;
           setCurrentThreadId(lastId);
           currentThreadIdRef.current = lastId;
-          // Seed the mode map from disk so non-active threads have correct modes.
+          // Seed the mode maps from disk so non-active threads have correct modes.
           chatFile.threads.forEach(t => {
             if (t.cellMode) threadModeMapRef.current.set(t.id, t.cellMode as CellMode);
+            if (t.reasoningMode) threadReasoningMapRef.current.set(t.id, t.reasoningMode as ReasoningMode);
           });
           const _diskMsgs: Message[] =
             lastThread && lastThread.messages.length > 0
@@ -4549,6 +4569,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           setMessages(_diskMsgs);
           setPendingOps(_opsFromMessages(_diskMsgs));
           _restoreThreadMode(lastThread);
+          _restoreThreadReasoning(lastThread);
           _updateCache(newPath, chatFile.threads, lastId);
         } else {
           const t = makeNewThread('Main');
@@ -4682,9 +4703,10 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           threadsRef.current = chatFile.threads;
           setCurrentThreadId(lastId);
           currentThreadIdRef.current = lastId;
-          // Seed the mode map from disk so non-active threads have correct modes.
+          // Seed the mode maps from disk so non-active threads have correct modes.
           chatFile.threads.forEach(t => {
             if (t.cellMode) threadModeMapRef.current.set(t.id, t.cellMode as CellMode);
+            if (t.reasoningMode) threadReasoningMapRef.current.set(t.id, t.reasoningMode as ReasoningMode);
           });
           const _fileMsgs: Message[] =
             lastThread && lastThread.messages.length > 0
@@ -4703,6 +4725,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           setMessages(_fileMsgs);
           setPendingOps(_opsFromMessages(_fileMsgs));
           _restoreThreadMode(lastThread);
+          _restoreThreadReasoning(lastThread);
           _updateCache(filePath, chatFile.threads, lastId);
         } else {
           const t = makeNewThread('Main');
@@ -6175,6 +6198,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     setMessages(restored);
     setPendingOps(_opsFromMessages(restored));
     _restoreThreadMode(thread);
+    _restoreThreadReasoning(thread);
     setAppliedFixes(new Map());
     setProgressText('');
     setActiveStreamId('');
@@ -7364,6 +7388,8 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
                       className={`ds-reasoning-item ds-reasoning-item--${opt.mod || 'off'}${reasoningMode === opt.value ? ' ds-reasoning-item--active' : ''}`}
                       onClick={() => {
                         setReasoningMode(opt.value);
+                        reasoningModeRef.current = opt.value;
+                        threadReasoningMapRef.current.set(currentThreadIdRef.current, opt.value);
                         try { localStorage.setItem('ds-varys-reasoning-mode', opt.value); } catch { /* ignore */ }
                         setReasoningDropdownOpen(false);
                       }}
