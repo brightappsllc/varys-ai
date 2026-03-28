@@ -120,12 +120,14 @@ export const ReproPanel: React.FC<ReproPanelProps> = ({
     };
     reproStore.subscribe(handler);
 
-    // Load persisted issues for the current notebook on mount
+    // Load persisted issues for the current notebook on mount.
+    // Always emit into reproStore so the badge in SidebarWidget stays in sync.
     const ctx = notebookReader.getFullContext();
     if (ctx?.notebookPath) {
       apiClient.getReproIssues(ctx.notebookPath).then(result => {
         if (result.issues.length > 0) {
           setIssues(result.issues);
+          reproStore.emit(result.issues);
         }
       }).catch(() => { /* silent — no DB yet */ });
     }

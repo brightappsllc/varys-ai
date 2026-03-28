@@ -3990,10 +3990,22 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
   const [showTags,     setShowTags]          = useState(false);
   const [reproIssueCount, setReproIssueCount] = useState(reproStore.current.length);
 
-  // Keep the red-dot badge in sync with reproStore updates
+  // Keep the red-dot badge in sync with reproStore updates.
+  // Also seed the store from the backend on mount so the badge shows
+  // even before the user ever opens the Reproducibility panel.
   useEffect(() => {
     const handler = (issues: any[]) => setReproIssueCount(issues.length);
     reproStore.subscribe(handler);
+
+    const ctx = notebookReader.getFullContext();
+    if (ctx?.notebookPath) {
+      apiClient.getReproIssues(ctx.notebookPath).then(result => {
+        if (result.issues.length > 0) {
+          reproStore.emit(result.issues);
+        }
+      }).catch(() => { /* backend may not have data yet — ignore */ });
+    }
+
     return () => reproStore.unsubscribe(handler);
   }, []);
 
