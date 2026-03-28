@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ast
 import builtins
+import importlib.metadata
 import re
 import uuid
 from dataclasses import dataclass, field
@@ -861,5 +862,169 @@ def check_inplace_transform_chain(cells: list) -> List[Issue]:
             fix_code=None,
             fix_description=None,
         ))
+
+    return issues
+
+
+# ---------------------------------------------------------------------------
+# RULE 11 — Unpinned package versions in pip install calls
+# ---------------------------------------------------------------------------
+
+# Regex that matches:  !pip install pkg  /  %pip install pkg  (with or
+# without leading whitespace inside a cell line).  Captures the raw
+# argument string after "pip install" so we can tokenise it further.
+_PIP_INSTALL_RE = re.compile(
+    r'^[ \t]*[!%]pip[ \t]+install[ \t]+(.+)$',
+    re.MULTILINE,
+)
+
+# A package spec is considered "pinned" if it contains == (exact pin).
+# Ranges like >=1.0 are intentionally excluded because they are still
+# not reproducible across environments.
+_PINNED_RE = re.compile(r'==')
+
+# Flags / options that appear as tokens in pip install argument strings.
+_PIP_FLAG_RE = re.compile(r'^-')
+
+# Import alias → canonical PyPI distribution name.
+# Used to generate informative fix suggestions (e.g. "pip install sklearn"
+# is invalid; the correct name is "scikit-learn").
+# Silently skip any mapping that produces a lookup failure.
+_IMPORT_TO_DIST: dict[str, str] = {
+    'sklearn':  'scikit-learn',
+    'cv2':      'opencv-python',
+    'PIL':      'Pillow',
+    'skimage':  'scikit-image',
+    'bs4':      'beautifulsoup4',
+    'yaml':     'PyYAML',
+    'dotenv':   'python-dotenv',
+    'usaddress':'usaddress',
+    'fitz':     'PyMuPDF',
+    'gi':       'PyGObject',
+}
+
+# Also the reverse: if a user writes  !pip install scikit-learn  we know
+# the installed distribution name already matches — no mapping needed.
+# But we still want to look up its installed version.
+
+
+def _split_pip_args(raw: str) -> list[str]:
+    """Tokenise the argument string from a pip install invocation.
+
+    Strips flags (``-q``, ``-U``, ``--quiet``, etc.) and ``--`` separators,
+    leaving only package spec tokens (e.g. ``pandas``, ``numpy>=1.24``).
+    """
+    tokens = []
+    for tok in raw.split():
+        tok = tok.strip()
+        if not tok or _PIP_FLAG_RE.match(tok) or tok == '--':
+            continue
+        # Ignore extras markers and inline comments
+        if tok.startswith('#'):
+            break
+        tokens.append(tok)
+    return tokens
+
+
+def _installed_version(dist_name: str) -> Optional[str]:
+    """Return the installed version of *dist_name*, or None on failure."""
+    try:
+        return importlib.metadata.version(dist_name)
+    except Exception:
+        return None
+
+
+def _pkg_base_name(spec: str) -> str:
+    """Strip version/extras from a package spec, returning just the name.
+
+    ``pandas>=1.3,<2``  →  ``pandas``
+    ``torch[cuda]``     →  ``torch``
+    """
+    return re.split(r'[>=<!,\[]', spec, maxsplit=1)[0].strip()
+
+
+def check_unpinned_packages(cell: dict, _cells: list) -> List[Issue]:
+    """Cell-level rule: flag ``!pip install`` / ``%pip install`` calls
+    that install a package **without an exact version pin** (``==``).
+
+    Reproducibility concern: without pinning, a fresh environment may
+    install a newer (or older) version of the package, silently changing
+    behaviour.
+
+    Detection:
+      • Matches ``!pip install`` and ``%pip install`` on any line.
+      • Ignores flags (``-q``, ``-U``, ``--upgrade``, etc.) and ``--``.
+      • A spec is considered "pinned" only when it contains ``==``.
+        Range-only specs such as ``pandas>=1.3`` are flagged.
+      • When possible, the currently-installed version is looked up and
+        embedded in the fix suggestion.
+      • Uses the ``_IMPORT_TO_DIST`` table to map common alias names
+        (e.g. ``sklearn``) to their PyPI distribution name before lookup.
+      • Lookup failures are silently ignored; the fix suggestion is
+        omitted rather than surfacing an error.
+
+    Known limitations:
+      • ``inplace=True`` style installs (``pip install -e .``) are not
+        detected as reproducibility issues and are left as-is.
+      • Conda / mamba / apt install calls are not covered.
+    """
+    if cell.get('type') != 'code':
+        return []
+
+    source = cell.get('source', '')
+    issues: List[Issue] = []
+    seen_specs: set[str] = set()
+
+    for m in _PIP_INSTALL_RE.finditer(source):
+        for spec in _split_pip_args(m.group(1)):
+            base = _pkg_base_name(spec)
+            # Skip empty, already-seen, or editable installs
+            if not base or base in seen_specs or base == '.':
+                continue
+            seen_specs.add(base)
+
+            if _PINNED_RE.search(spec):
+                continue  # already pinned — no issue
+
+            # Resolve distribution name for lookup
+            dist_name = _IMPORT_TO_DIST.get(base, base)
+            version = _installed_version(dist_name)
+
+            if version:
+                fix = f"pip install {dist_name}=={version}"
+                fix_desc = (
+                    f"Pin to the currently installed version: "
+                    f"``pip install {dist_name}=={version}``"
+                )
+            else:
+                fix = None
+                fix_desc = None
+
+            issues.append(Issue(
+                rule_id=f'unpinned_package_{base}',
+                severity='warning',
+                cell_index=cell['index'],
+                title=f"Unpinned dependency: {base}",
+                message=(
+                    f"``pip install {spec}`` installs the latest available "
+                    f"version of '{base}', which may differ across environments."
+                ),
+                explanation=(
+                    f"Without an exact version pin (``==``), a fresh install "
+                    f"may resolve a newer or older release of '{base}' and "
+                    f"silently change results, raise exceptions, or break the "
+                    f"notebook on other machines."
+                ),
+                suggestion=(
+                    f"Pin the package to a specific version: "
+                    f"``pip install {dist_name}=={{version}}``.  "
+                    f"Run ``pip show {dist_name}`` to find the version you "
+                    f"currently use and tested with."
+                    if not version else
+                    f"Replace with: ``{fix}``"
+                ),
+                fix_code=fix,
+                fix_description=fix_desc,
+            ))
 
     return issues
