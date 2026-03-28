@@ -1504,12 +1504,25 @@
   -webkit-user-select: text;
 }
 
-/* Placeholder via data-attribute — shown when the div is empty */
+/* Placeholder via data-attribute — shown when the div is empty.
+   Use --ds-text-dim rather than --jp-ui-font-color3 because the jp variable
+   resolves to near-black in JupyterLab's default light theme, which makes
+   the placeholder invisible against Varys's dark input background. */
 .ds-assistant-ce:empty::before {
   content: attr(data-placeholder);
-  color: var(--jp-ui-font-color3, #888);
-  opacity: 0.6;
+  color: var(--ds-text-dim, #8890a8);
+  opacity: 0.7;
   pointer-events: none;
+}
+/* Light-mode: dim but still readable on white input background */
+.ds-chat-day .ds-assistant-ce:empty::before {
+  color: #9098b0;
+  opacity: 0.75;
+}
+/* Dark-mode: light enough to see on the dark input background */
+.ds-chat-night .ds-assistant-ce:empty::before {
+  color: #8890a8;
+  opacity: 0.8;
 }
 
 /* Disabled state */
