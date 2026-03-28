@@ -7,20 +7,27 @@ keywords: [eda, exploratory, explore data, run analysis, visualiz, distribution,
 ---
 # EDA Skill
 
-When creating exploratory data analysis sections:
+## Cell organisation rules — MANDATORY
 
-## Structure
-1. Markdown header: "# Exploratory Data Analysis"
-2. Overview cell: df.info(), df.describe(), missing values
-3. Distribution plots for numerical features (seaborn histplot/boxplot)
-4. Correlation heatmap (seaborn heatmap)
-5. Categorical analysis (value_counts, bar plots)
-6. Time series if date columns present
+**Every analysis section must be its own separate notebook cell.**
+Never combine multiple sections into a single cell.
+Use this exact sequence of cells:
 
-## Code Preferences
-- Use seaborn for statistical plots
-- Use matplotlib.pyplot for basic plots
-- Set figure size: figsize=(12, 4) for single plots, (16, 10) for grids
-- Use plt.tight_layout()
-- Include plt.show()
+| # | Cell type | Content |
+|---|-----------|---------|
+| 1 | Markdown  | `# Exploratory Data Analysis` heading + one-sentence dataset summary |
+| 2 | Code      | Imports only (`import pandas as pd`, `import matplotlib.pyplot as plt`, `import seaborn as sns`) |
+| 3 | Code      | Overview: `df.info()`, `df.describe()`, missing-value counts |
+| 4 | Code      | Numerical distributions: one histplot/boxplot loop for numeric columns |
+| 5 | Code      | Correlation heatmap |
+| 6 | Code      | Categorical analysis: one value-counts/bar-plot loop for object/category columns |
+| 7 | Code      | Time-series plots — **only if** date/datetime columns exist; omit otherwise |
+
+If the user requests a subset (e.g. "just distributions and correlation"), generate only those cells, but still one cell per section.
+
+## Code preferences
+- Use seaborn for statistical plots, matplotlib.pyplot for basic plots
+- Figure sizes: `figsize=(12, 4)` for single plots, `(16, 10)` for grids
+- Always call `plt.tight_layout()` and `plt.show()` at the end of each plot cell
 - Add descriptive titles and axis labels
+- Never mix imports with analysis code — imports always live in their own cell
