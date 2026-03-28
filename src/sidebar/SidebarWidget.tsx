@@ -3720,13 +3720,13 @@ const ThreadBar: React.FC<ThreadBarProps> = ({
           </div>
         </div>
       )}
-        {rightSlot && (
-          <>
-            <span className="ds-thread-bar-sep">|</span>
-            <div className="ds-thread-bar-right">{rightSlot}</div>
-          </>
-        )}
       </div>
+      {rightSlot && (
+        <>
+          <span className="ds-thread-bar-sep">|</span>
+          <div className="ds-thread-bar-right">{rightSlot}</div>
+        </>
+      )}
     </div>
   );
 };
