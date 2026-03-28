@@ -44,6 +44,11 @@ export declare class CellEditor {
      * with the matching ID and moves it there via the observable cells list.
      * Returns the original cell ID sequence so the operation can be undone.
      */
+    /**
+     * Returns the short cell ID (first 8 chars of the UUID, matching the
+     * [id:XXXXXXXX] tag the assembler injects into the LLM context).
+     */
+    private _shortId;
     reorderCells(newOrderIds: string[]): Promise<string[]>;
     applyOperations(operationId: string, steps: OperationStep[]): Promise<ApplyResult>;
     /**

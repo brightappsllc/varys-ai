@@ -53,18 +53,24 @@ export class CellEditor {
    * with the matching ID and moves it there via the observable cells list.
    * Returns the original cell ID sequence so the operation can be undone.
    */
+  /**
+   * Returns the short cell ID (first 8 chars of the UUID, matching the
+   * [id:XXXXXXXX] tag the assembler injects into the LLM context).
+   */
+  private _shortId(cell: any): string {
+    const fullId: string = (cell.model as any).id ?? (cell.model as any).sharedModel?.id ?? '';
+    // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx — first segment is 8 hex chars
+    return fullId.slice(0, 8);
+  }
+
   async reorderCells(newOrderIds: string[]): Promise<string[]> {
     const panel = this.tracker.currentWidget;
     if (!panel) return [];
 
     const notebook = panel.content;
 
-    // Capture original order for undo
-    const originalOrder: string[] = [];
-    for (const cell of notebook.widgets) {
-      const cid = (cell.model as any).id ?? (cell.model as any).sharedModel?.id ?? '';
-      originalOrder.push(cid);
-    }
+    // Capture original order (as short IDs) for undo
+    const originalOrder: string[] = notebook.widgets.map(c => this._shortId(c));
 
     const cells = (notebook.model as any)?.cells;
     if (!cells || typeof cells.move !== 'function') {
@@ -75,12 +81,12 @@ export class CellEditor {
     for (let targetPos = 0; targetPos < newOrderIds.length; targetPos++) {
       const targetId = newOrderIds[targetPos];
 
-      // Search from targetPos onwards — everything before is already in place
+      // Search from targetPos onwards — everything before is already in place.
+      // Match on short ID (8 chars) OR full UUID to handle both formats gracefully.
       let currentPos = -1;
       for (let j = targetPos; j < notebook.widgets.length; j++) {
-        const cell = notebook.widgets[j];
-        const cid = (cell.model as any).id ?? (cell.model as any).sharedModel?.id ?? '';
-        if (cid === targetId) {
+        const shortId = this._shortId(notebook.widgets[j]);
+        if (shortId === targetId || shortId.startsWith(targetId) || targetId.startsWith(shortId)) {
           currentPos = j;
           break;
         }
