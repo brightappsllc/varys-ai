@@ -3720,10 +3720,13 @@ const ThreadBar: React.FC<ThreadBarProps> = ({
           </div>
         </div>
       )}
+        {rightSlot && (
+          <>
+            <span className="ds-thread-bar-sep">|</span>
+            <div className="ds-thread-bar-right">{rightSlot}</div>
+          </>
+        )}
       </div>
-      {rightSlot && (
-        <div className="ds-thread-bar-right">{rightSlot}</div>
-      )}
     </div>
   );
 };
@@ -6977,7 +6980,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
                               style={isStreaming ? { cursor: 'default' } : undefined}
                             >
                               <span className="ds-thinking-label">
-                                {isStreaming ? '··· Thinking ···' : '··· Thought ···'}
+                                {isStreaming ? 'Thinking…' : 'Thought'}
                               </span>
                               <span className="ds-thinking-chevron">
                                 {thinkIsCollapsed ? '▸' : '▾'}

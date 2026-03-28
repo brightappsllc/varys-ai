@@ -1696,12 +1696,18 @@
   gap: 0;
 }
 
-/* Right-anchored slot in the thread bar (e.g. shield button) */
+/* Separator and shield slot inside the overflow wrap */
+.ds-thread-bar-sep {
+  color: var(--ds-border, #c0c4d0);
+  font-size: 11px;
+  line-height: 1;
+  padding: 0 3px;
+  user-select: none;
+  opacity: 0.6;
+}
 .ds-thread-bar-right {
-  margin-left: auto;
   display: flex;
   align-items: center;
-  padding-right: 2px;
   flex-shrink: 0;
 }
 /* Shield in the thread bar is slightly smaller than the full header buttons */
