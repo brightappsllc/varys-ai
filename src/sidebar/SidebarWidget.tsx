@@ -6650,7 +6650,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           onClick={() => setShowSettings(true)}
           data-tip="Settings"
           data-tip-below
-        >⚙</button>
+        >⚙️</button>
       </div>
 
       {/* Thread bar */}

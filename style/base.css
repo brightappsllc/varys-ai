@@ -2700,8 +2700,6 @@
    Header icon buttons (gear, shield, theme toggle)
    ---------------------------------------------------------- */
 
-/* Shared base for all small header icon buttons */
-.ds-settings-gear-btn,
 /* Wrapper keeps the shield button and its red-dot badge together */
 .ds-repro-shield-wrap {
   position: relative;
@@ -2733,6 +2731,7 @@
   box-shadow: 0 0 0 1.5px var(--ds-bg, #13131c);
 }
 
+.ds-settings-gear-btn,
 .ds-repro-shield-btn,
 .ds-theme-toggle-btn,
 .ds-wiki-help-btn {
@@ -2773,11 +2772,9 @@
   opacity: 1;
 }
 
-/* Gear sits at far right — push it with auto margin; 1.5× larger than sibling icons */
+/* Gear sits at far right */
 .ds-settings-gear-btn {
   margin-left: auto;
-  font-size: 22px;
-  padding: 2px 5px;
 }
 
 /* ── Warning icon button (header) ── */
