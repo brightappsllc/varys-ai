@@ -7067,14 +7067,16 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
             const op = pendingOps.find(o => o.operationId === msg.operationId);
             const diffsToShow = (msg.diffs && msg.diffs.length > 0)
               ? msg.diffs
-              : op?.diffs;
-            if (!diffsToShow || !diffsToShow.length) return null;
+              : (op?.diffs ?? []);
+            // Reorder ops have no cell diffs but still need Accept/Undo buttons.
+            const isReorderOp = op?.steps.some(s => s.type === 'reorder') ?? false;
+            if (!diffsToShow.length && !isReorderOp && !msg.diffResolved) return null;
             const resolvedStatus = msg.diffResolved ?? op?.resolved;
             return (
               <DiffView
                 key={msg.operationId}
                 operationId={msg.operationId}
-                description={op?.description}
+                description={op?.description ?? msg.content?.split('\n')[0]}
                 diffs={diffsToShow}
                 onAccept={handleAccept}
                 onUndo={handleUndo}
