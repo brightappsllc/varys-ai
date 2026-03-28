@@ -1,5 +1,5 @@
 ---
-name: reorganize
+name: reorganize_cell
 keywords: [reorganize, reorder, move cell, restructure notebook, rearrange, swap sections, move section, move before, move after]
 ---
 # Notebook Reorganization Skill

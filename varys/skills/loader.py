@@ -305,10 +305,15 @@ class SkillLoader:
             bundled_skill = self._load_bundled_by_command(cmd_lower)
             if bundled_skill:
                 result.append(bundled_skill)
+                loaded_names.add(bundled_skill["name"])
                 log.debug("Varys skills: command '%s' → bundled skill '%s'",
                           cmd_lower, bundled_skill["name"])
             else:
                 log.warning("Varys skills: unknown command '%s'", cmd_lower)
+
+        # Always include Tier-1 bundled skills (no keywords, no command) so rules
+        # like safe_operations are injected regardless of how the skill is triggered.
+        result.extend(self._load_bundled_tier1(loaded_names, disabled))
 
         return result
 
@@ -330,6 +335,65 @@ class SkillLoader:
             except Exception:
                 pass
         return None
+
+    def _iter_bundled(self):
+        """Yield (name, meta, body) for every valid bundled skill entry."""
+        if not _BUNDLED_SKILLS_DIR.exists():
+            return
+        for entry in sorted(_BUNDLED_SKILLS_DIR.iterdir()):
+            if not entry.is_dir():
+                continue
+            skill_file = entry / "SKILL.md"
+            if not skill_file.exists():
+                continue
+            try:
+                meta, body = _parse_front_matter(skill_file.read_text(encoding="utf-8"))
+                yield entry.name, meta, body
+            except Exception:
+                pass
+
+    def _load_bundled_tier1(self, loaded_names: set, disabled: set) -> List[Dict[str, str]]:
+        """Return Tier-1 bundled skills (no keywords, no command) not already loaded.
+
+        Bundled Tier-1 skills are automatically injected into every request
+        without any manual import step.  User-imported skills with the same
+        name take precedence and are skipped here.
+        """
+        result = []
+        for name, meta, body in self._iter_bundled():
+            if name in loaded_names or name in disabled:
+                continue
+            kws = meta.get("keywords")
+            cmd = str(meta.get("command", "")).strip().lower()
+            has_keywords = isinstance(kws, list) and kws
+            if not has_keywords and not cmd:
+                result.append({"name": name, "content": body, "tier": 1})
+                loaded_names.add(name)
+        return result
+
+    def _load_bundled_by_keywords(
+        self, msg_lower: str, loaded_names: set, disabled: set
+    ) -> List[Dict[str, str]]:
+        """Return bundled skills whose keywords match *msg_lower* and are not yet loaded.
+
+        Skills that declare a command: are command-gated and are not triggered
+        by keywords, consistent with how user-imported skills work.
+        """
+        result = []
+        for name, meta, body in self._iter_bundled():
+            if name in loaded_names or name in disabled:
+                continue
+            kws = meta.get("keywords")
+            cmd = str(meta.get("command", "")).strip().lower()
+            if not isinstance(kws, list) or not kws:
+                continue
+            if cmd:
+                continue  # command-gated — only via /command
+            keywords = [str(k).lower() for k in kws]
+            if any(kw in msg_lower for kw in keywords):
+                result.append({"name": name, "content": body, "tier": 2})
+                loaded_names.add(name)
+        return result
 
     def validate_command(self, command: str, skill_name: str) -> Optional[str]:
         """Check *command* for the named skill.  Return an error string or None.
@@ -385,7 +449,8 @@ class SkillLoader:
             for cmd, desc in BUILTIN_COMMANDS.items()
         ]
 
-        # Only project-level skills (explicitly imported into .jupyter-assistant/skills/)
+        # Project-level (explicitly imported) skills — take priority over bundled ones
+        imported_cmds: set = set()
         for cmd, skill_name in sorted(self._command_map.items()):
             if skill_name in disabled:
                 continue
@@ -395,6 +460,23 @@ class SkillLoader:
                 "description": desc,
                 "type": "skill",
                 "skill_name": skill_name,
+            })
+            imported_cmds.add(cmd)
+
+        # Bundled skills with a command: always visible in the palette, no import needed.
+        # Skip any command already registered by an imported skill above.
+        for name, meta, _body in self._iter_bundled():
+            if name in disabled:
+                continue
+            cmd = str(meta.get("command", "")).strip().lower()
+            if not cmd or cmd in imported_cmds:
+                continue
+            desc = str(meta.get("description", name)).strip() or name
+            result.append({
+                "command": cmd,
+                "description": desc,
+                "type": "skill",
+                "skill_name": name,
             })
 
         return result
@@ -517,6 +599,14 @@ class SkillLoader:
         # Every skill that has a command: is loaded exclusively via /command.
         # Every skill without a command: is Tier-1 (always loaded).
         # There is no skill reachable only by the regex.
+
+        # Bundled skills: auto-available without manual import.
+        # Tier-1 bundled skills (no keywords, no command) are always injected.
+        # Tier-2 bundled skills are injected when their keywords match.
+        # User-imported skills with the same name take priority (already in loaded_names).
+        result.extend(self._load_bundled_tier1(loaded_names, disabled))
+        if not tier1_only:
+            result.extend(self._load_bundled_by_keywords(msg_lower, loaded_names, disabled))
 
         log.debug(
             "Varys skills: injecting %d skill(s) for message=%r",
