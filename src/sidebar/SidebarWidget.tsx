@@ -4535,6 +4535,15 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
       setCurrentNotebookPath(newPath);
       currentNotebookPathRef.current = newPath;
 
+      // Reset reproducibility badge for the new file and reload its persisted
+      // issues.  Without this the old notebook's issue count bleeds through.
+      reproStore.emit([]);
+      if (newPath.endsWith('.ipynb')) {
+        apiClient.getReproIssues(newPath).then(result => {
+          if (result.issues.length > 0) reproStore.emit(result.issues);
+        }).catch(() => { /* no data yet — badge stays at 0 */ });
+      }
+
       // Always reset agent panel when switching documents.  Without this the
       // panel from a previously-viewed py file bleeds onto notebook tabs.
       setAgentResultsReady(false);
@@ -4642,6 +4651,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           const tName = threadsRef.current.find(t => t.id === outgoingTid)?.name ?? 'Thread';
           void _saveThread(outgoingTid, tName, outgoingMsgs, outgoingPath);
         }
+        reproStore.emit([]);
         setCurrentNotebookPath('');
         currentNotebookPathRef.current = '';
         setCurrentFilePath('');
@@ -4698,6 +4708,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
       if (outgoingNbPath)   _saveAgentStateToCache(outgoingNbPath);
 
       // ── 2. Update path refs and clear UI ─────────────────────────────
+      reproStore.emit([]);
       setCurrentNotebookPath('');
       currentNotebookPathRef.current = '';
       setCurrentFilePath(filePath);
