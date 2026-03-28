@@ -13,6 +13,7 @@ from .rules import (
     check_numpy_seed,
     check_python_random_seed,
     check_undefined_before_definition,
+    check_used_but_never_imported,
 )
 
 
@@ -30,6 +31,7 @@ _NOTEBOOK_RULES = [
     check_numpy_seed,
     check_python_random_seed,
     check_undefined_before_definition,
+    check_used_but_never_imported,
 ]
 
 

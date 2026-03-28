@@ -466,6 +466,103 @@ def _ast_top_level_loads(source: str) -> Set[str]:
     return names
 
 
+def _ast_comprehension_vars(source: str) -> Set[str]:
+    """Return all names bound as loop variables inside comprehensions or generators.
+
+    In Python 3, these live in their own scope and will never appear in the
+    module-level namespace, so they must not be flagged as undefined names.
+    Example: ``[item.age for item in df.itertuples()]`` → {item}
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return set()
+    names: Set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)):
+            for gen in node.generators:
+                _collect_name_targets(gen.target, names)
+    return names
+
+
+def _has_wildcard_import(cells: list) -> bool:
+    """Return True if any code cell contains a ``from X import *`` statement.
+
+    When a wildcard import is present, static analysis cannot know which names
+    are in scope, so Rules 8 and 9 would produce unreliable results.
+    """
+    for cell in cells:
+        if cell.get('type') != 'code':
+            continue
+        try:
+            tree = ast.parse(cell.get('source', ''))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    if alias.name == '*':
+                        return True
+    return False
+
+
+# Common import alias → canonical import statement.
+# Used to generate fix_code suggestions for Rule 9.
+_IMPORT_SUGGESTIONS: dict[str, str] = {
+    # Data & numerics
+    'pd':        'import pandas as pd',
+    'np':        'import numpy as np',
+    'sp':        'import scipy as sp',
+    # Visualisation
+    'plt':       'import matplotlib.pyplot as plt',
+    'mpl':       'import matplotlib as mpl',
+    'sns':       'import seaborn as sns',
+    'px':        'import plotly.express as px',
+    'go':        'import plotly.graph_objects as go',
+    # ML / DL
+    'sklearn':   'import sklearn',
+    'tf':        'import tensorflow as tf',
+    'keras':     'import keras',
+    'torch':     'import torch',
+    'nn':        'import torch.nn as nn',
+    'F':         'import torch.nn.functional as F',
+    'xgb':       'import xgboost as xgb',
+    'lgb':       'import lightgbm as lgb',
+    'cb':        'import catboost as cb',
+    # Computer vision / NLP
+    'cv2':       'import cv2',
+    'PIL':       'from PIL import Image',
+    'Image':     'from PIL import Image',
+    'skimage':   'import skimage',
+    'spacy':     'import spacy',
+    'nltk':      'import nltk',
+    # Data engineering
+    'bs4':       'from bs4 import BeautifulSoup',
+    'BeautifulSoup': 'from bs4 import BeautifulSoup',
+    'requests':  'import requests',
+    'httpx':     'import httpx',
+    # Standard library shortcuts
+    'os':        'import os',
+    'sys':       'import sys',
+    're':        'import re',
+    'json':      'import json',
+    'io':        'import io',
+    'copy':      'import copy',
+    'time':      'import time',
+    'datetime':  'from datetime import datetime',
+    'Path':      'from pathlib import Path',
+    'partial':   'from functools import partial',
+    'defaultdict': 'from collections import defaultdict',
+    'Counter':   'from collections import Counter',
+    # Typing
+    'List':      'from typing import List',
+    'Dict':      'from typing import Dict',
+    'Optional':  'from typing import Optional',
+    'Tuple':     'from typing import Tuple',
+    'Any':       'from typing import Any',
+}
+
+
 # ---------------------------------------------------------------------------
 # RULE 8 — Variable used before it is defined (static analysis)
 # ---------------------------------------------------------------------------
@@ -543,5 +640,109 @@ def check_undefined_before_definition(cells: list) -> List[Issue]:
             ))
 
         cumulative_defs |= defs
+
+    return issues
+
+
+# ---------------------------------------------------------------------------
+# RULE 9 — Used but never imported / defined (static analysis)
+# ---------------------------------------------------------------------------
+
+def check_used_but_never_imported(cells: list) -> List[Issue]:
+    """Notebook-level rule: flag names that are read somewhere in the notebook
+    but never imported, assigned, or defined anywhere in it.
+
+    This catches the "works interactively because the kernel already has the
+    name from a previous session" pattern.  On a clean restart (Kernel →
+    Restart & Run All) the notebook will raise NameError immediately.
+
+    Differences from Rule 8:
+      Rule 8 — name IS defined, but in a LATER cell (order problem).
+      Rule 9 — name is NEVER defined or imported anywhere (missing import).
+
+    Bail-out conditions (to avoid unreliable results):
+      • Any cell contains ``from X import *`` (unknown namespace injection).
+
+    False-positive mitigations:
+      • Python builtins and IPython globals are excluded (_BUILTINS).
+      • Single-character names are excluded (overwhelmingly loop vars).
+      • Comprehension loop variables (Python 3 scoped) are excluded.
+      • Function / class bodies are not inspected for the "load" side.
+      • Each missing name is reported at most once (first cell that uses it).
+
+    Known limitations (documented, not detected):
+      • Names injected by ``%run``, ``%load``, ``exec()``, ``globals()``,
+        or ``from X import *`` will be missed (false negatives).
+      • Names expected from the environment (e.g. ``spark`` in PySpark)
+        will be flagged incorrectly (false positives).  Add an allowlist
+        when user reports justify the complexity.
+    """
+    code_cells = [
+        c for c in cells
+        if c.get('type') == 'code' and c.get('source', '').strip()
+    ]
+    if len(code_cells) < 1:
+        return []
+
+    # Bail out when wildcard imports are present — we can't know what's in scope.
+    if _has_wildcard_import(code_cells):
+        return []
+
+    # Build the complete set of every name defined anywhere in the notebook.
+    # This includes imports, assignments, function/class defs, and for-loop targets.
+    all_defs: Set[str] = set()
+    for cell in code_cells:
+        all_defs |= _ast_definitions(cell.get('source', ''))
+
+    issues: List[Issue] = []
+    reported: Set[str] = set()  # emit each missing name only once
+
+    for cell in code_cells:
+        src = cell.get('source', '')
+        loads     = _ast_top_level_loads(src)
+        comp_vars = _ast_comprehension_vars(src)
+
+        # Names used in this cell that are nowhere in the notebook
+        missing = (
+            loads
+            - all_defs      # defined/imported anywhere in the notebook
+            - comp_vars     # comprehension loop vars (Python 3 scoped)
+            - _BUILTINS
+        )
+
+        for name in sorted(missing):
+            if name in reported:
+                continue
+            # Single-character names are overwhelmingly loop vars / throwaway args
+            if len(name) <= 1:
+                continue
+            reported.add(name)
+
+            fix = _IMPORT_SUGGESTIONS.get(name)
+            issues.append(Issue(
+                rule_id=f'used_not_imported_{name}',
+                severity='critical',
+                cell_index=cell['index'],
+                title=f"'{name}' used but never imported or defined",
+                message=(
+                    f"'{name}' is referenced in cell {cell['index']} "
+                    f"but has no import statement or assignment anywhere "
+                    f"in the notebook."
+                ),
+                explanation=(
+                    f"This works interactively because '{name}' is already "
+                    f"in the kernel namespace from a prior run or session.  "
+                    f"A clean restart (Kernel \u2192 Restart \u2026 Run All) will "
+                    f"raise NameError at cell {cell['index']}."
+                ),
+                suggestion=(
+                    f"Add the missing import or assignment for '{name}' to "
+                    f"a cell before cell {cell['index']}.  "
+                    + (f"Suggested fix: ``{fix}``." if fix else
+                       f"Check which package provides '{name}' and add the import.")
+                ),
+                fix_code=fix,
+                fix_description=f"Add missing import: {fix}" if fix else None,
+            ))
 
     return issues
