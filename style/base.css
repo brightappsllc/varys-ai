@@ -1715,14 +1715,7 @@
   font-size: 13px;
   padding: 1px 3px;
 }
-.ds-thread-bar-right .ds-repro-dot {
-  top: -2px;
-  right: -2px;
-  min-width: 11px;
-  height: 11px;
-  font-size: 7px;
-  line-height: 11px;
-}
+/* dot is already a fixed 6px circle — no thread-bar override needed */
 
 /* ── Named thread pill strip ── */
 .ds-thread-pills {
@@ -2738,21 +2731,14 @@
 /* Red notification dot shown when there are active reproducibility issues */
 .ds-repro-dot {
   position: absolute;
-  top: -3px;
-  right: -3px;
-  min-width: 13px;
-  height: 13px;
-  padding: 0 3px;
-  border-radius: 7px;
-  background: rgba(229, 57, 53, 0.70);
-  color: #fff;
-  font-size: 8px;
-  font-weight: 700;
-  line-height: 13px;
-  text-align: center;
+  top: 0px;
+  right: 0px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #e53935;
   pointer-events: none;
   box-shadow: 0 0 0 1.5px var(--ds-bg, #fff);
-  letter-spacing: 0;
 }
 .ds-chat-night .ds-repro-dot {
   box-shadow: 0 0 0 1.5px var(--ds-bg, #13131c);

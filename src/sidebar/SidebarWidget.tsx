@@ -6695,9 +6695,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                 data-tip-below
               >🛡️</button>
               {reproIssueCount > 0 && (
-                <span className="ds-repro-dot" aria-label={`${reproIssueCount} reproducibility issue${reproIssueCount === 1 ? '' : 's'}`}>
-                  {reproIssueCount < 10 ? reproIssueCount : '9+'}
-                </span>
+                <span className="ds-repro-dot" aria-label={`${reproIssueCount} reproducibility issue${reproIssueCount === 1 ? '' : 's'}`} />
               )}
             </span>
             <button
