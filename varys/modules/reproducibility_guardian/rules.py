@@ -397,11 +397,15 @@ def check_python_random_seed(cells: list) -> List[Issue]:
 # ---------------------------------------------------------------------------
 
 def _ast_definitions(source: str) -> Set[str]:
-    """Return all names bound at the module level in *source*.
+    """Return all names bound at module scope in *source*.
 
     Covers: simple assignments, augmented/annotated assignments, imports,
-    ``for`` loop targets, ``with`` statement targets, function/class defs.
-    Only module-scope nodes are inspected (no recursion into function bodies).
+    ``for`` loop targets, ``with`` statement targets, function/class defs,
+    and assignments nested inside ``for``/``if``/``while``/``try``/``with``
+    blocks (Python does not create new scopes for those constructs).
+
+    Stops recursing at ``def``/``class`` boundaries because those DO create
+    new scopes — names assigned inside a function are not visible outside it.
     """
     try:
         tree = ast.parse(source)
@@ -409,27 +413,41 @@ def _ast_definitions(source: str) -> Set[str]:
         return set()
 
     names: Set[str] = set()
-    for node in ast.iter_child_nodes(tree):
-        if isinstance(node, ast.Assign):
-            for t in node.targets:
-                _collect_name_targets(t, names)
-        elif isinstance(node, (ast.AugAssign, ast.AnnAssign)):
-            _collect_name_targets(node.target, names)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            names.add(node.name)
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                names.add(alias.asname or alias.name.split('.')[0])
-        elif isinstance(node, ast.ImportFrom):
-            for alias in node.names:
-                if alias.name != '*':
-                    names.add(alias.asname or alias.name)
-        elif isinstance(node, ast.For):
-            _collect_name_targets(node.target, names)
-        elif isinstance(node, ast.With):
-            for item in node.items:
-                if item.optional_vars:
-                    _collect_name_targets(item.optional_vars, names)
+
+    def _walk(node: ast.AST) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                names.add(child.name)
+                # function body is a new scope — do not recurse
+            elif isinstance(child, ast.ClassDef):
+                names.add(child.name)
+                # class body is a new scope — do not recurse
+            elif isinstance(child, ast.Assign):
+                for t in child.targets:
+                    _collect_name_targets(t, names)
+                _walk(child)
+            elif isinstance(child, (ast.AugAssign, ast.AnnAssign)):
+                _collect_name_targets(child.target, names)
+            elif isinstance(child, ast.Import):
+                for alias in child.names:
+                    names.add(alias.asname or alias.name.split('.')[0])
+            elif isinstance(child, ast.ImportFrom):
+                for alias in child.names:
+                    if alias.name != '*':
+                        names.add(alias.asname or alias.name)
+            elif isinstance(child, ast.For):
+                _collect_name_targets(child.target, names)
+                _walk(child)   # recurse into body — same scope
+            elif isinstance(child, ast.With):
+                for item in child.items:
+                    if item.optional_vars:
+                        _collect_name_targets(item.optional_vars, names)
+                _walk(child)   # recurse into body — same scope
+            else:
+                # if / while / try / except / match / … — same scope, recurse
+                _walk(child)
+
+    _walk(tree)
     return names
 
 
