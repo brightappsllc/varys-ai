@@ -10,6 +10,20 @@ from ..context.summary_store import SummaryStore
 from .ast_fallback import ASTParser
 
 
+# ── Constants ─────────────────────────────────────────────────────────────────
+
+# Matplotlib / seaborn state handles that are not data artifacts.
+# Filtered from defines, loads, and external_loads at graph-build time;
+# the raw SummaryStore data is never mutated.
+VIZ_HANDLE_SYMBOLS = frozenset({"plt", "sns", "fig", "ax", "axes"})
+
+# Matches plt.title(...), plt.suptitle(...), fig.suptitle(...) — including
+# f-strings.  Group 1 = optional "f", group 2 = quote char, group 3 = content.
+_TITLE_RE = re.compile(
+    r'(?:plt\.(?:sup)?title|fig\.suptitle)\s*\(\s*(f?)([\'"])(.*?)\2'
+)
+
+
 # ── Data classes ──────────────────────────────────────────────────────────────
 
 
@@ -21,8 +35,8 @@ class NodeData:
     sublabel: str
     unexecuted: bool
     data_source: str          # "store" | "ast"
-    defines: List[str]
-    loads: List[str]
+    defines: List[str]        # effective defines — viz handles already removed
+    loads: List[str]          # effective loads   — viz handles already removed
     external_loads: List[str]
     execution_count: Optional[int]
     anomalies: List[str] = field(default_factory=list)
@@ -46,67 +60,97 @@ class GraphData:
 
 # ── Label helpers ─────────────────────────────────────────────────────────────
 
-# Matches plt.title("…"), ax.set_title("…"), fig.suptitle("…"), axes[0].set_title("…")
-_PLOT_TITLE_RE = re.compile(
-    r'(?:plt|ax(?:es)?(?:\s*\[[^\]]*\])?|fig)\s*\.\s*(?:set_)?(?:title|suptitle)'
-    r'\s*\(\s*(?:label\s*=\s*)?["\']([^"\']+)["\']',
-    re.IGNORECASE,
-)
+
+def _extract_plot_titles(source: str) -> List[str]:
+    """Return all plot title string literals found in source.
+
+    Handles ``plt.title()``, ``plt.suptitle()``, ``fig.suptitle()``.
+    For f-strings the literal prefix up to the first ``{`` is extracted;
+    if that prefix is fewer than 4 characters the extraction is discarded
+    individually — other valid titles in the same cell are unaffected.
+    """
+    titles: List[str] = []
+    for m in _TITLE_RE.finditer(source):
+        is_fstring = bool(m.group(1))
+        content = m.group(3)
+        if is_fstring:
+            brace = content.find("{")
+            if brace != -1:
+                content = content[:brace]
+            if len(content) < 4:
+                continue
+        if content:
+            titles.append(content)
+    return titles
 
 
-def _extract_plot_title(source: str) -> Optional[str]:
-    """Return the first plot title string literal found in source, or None."""
-    m = _PLOT_TITLE_RE.search(source)
-    return m.group(1)[:40] if m else None
+def _build_label(
+    effective_defines: List[str],
+    symbol_types: Dict[str, str],
+    symbol_values: Dict[str, Any],
+    source: str,
+    unexecuted: bool,
+) -> tuple[str, str]:
+    """Return ``(label, sublabel)`` using the unified four-priority cascade.
 
+    ``effective_defines`` must already have ``VIZ_HANDLE_SYMBOLS`` removed.
+    If ``unexecuted`` is True, ``" · not executed"`` is appended to the sublabel.
 
-def _build_label(summary: Dict[str, Any], source: str = "") -> tuple[str, str]:
-    """Return (label, sublabel) derived deterministically from SummaryStore data."""
-    defines: List[str] = summary.get("symbols_defined") or []
-    symbol_types: Dict[str, str] = summary.get("symbol_types") or {}
-    symbol_values: Dict[str, Any] = summary.get("symbol_values") or {}
-
-    # Primary symbol: first define with a non-null type; else first define
+    Priority:
+      1. First define with a ``symbol_types`` entry  → symbol name / type shape
+      2. First define with no type info              → symbol name / ""
+      3. Plot title extraction                       → joined titles / "plot"
+      4. Source truncation                           → first 40 chars / ""
+    """
+    # ── Priority 1 & 2: symbol-based label ────────────────────────────────────
     primary: Optional[str] = None
-    for sym in defines:
+    for sym in effective_defines:
         if sym in symbol_types:
             primary = sym
             break
-    if primary is None and defines:
-        primary = defines[0]
+    if primary is None and effective_defines:
+        primary = effective_defines[0]
 
-    if primary is None:
-        # Side-effect-only cell (e.g. plt.show()) — try to extract a plot title
-        if source:
-            title = _extract_plot_title(source)
-            if title:
-                return title, "plot"
-        return "(no output)", ""
+    if primary is not None:
+        label = primary
+        typ = symbol_types.get(primary, "")
+        val = symbol_values.get(primary)
 
-    label = primary
-    typ = symbol_types.get(primary, "")
-    val = symbol_values.get(primary)
-
-    if typ == "DataFrame":
-        if isinstance(val, str):
-            sublabel = f"DataFrame · {val}"
-        elif isinstance(val, dict):
-            rows = val.get("rows", "?")
-            cols = val.get("cols", "?")
-            if isinstance(rows, int):
-                sublabel = f"DataFrame · {rows:,} × {cols}"
+        if typ == "DataFrame":
+            if isinstance(val, str):
+                base_sub = f"DataFrame · {val}"
+            elif isinstance(val, dict):
+                rows = val.get("rows", "?")
+                cols = val.get("cols", "?")
+                base_sub = (
+                    f"DataFrame · {rows:,} × {cols}"
+                    if isinstance(rows, int)
+                    else f"DataFrame · {rows} × {cols}"
+                )
             else:
-                sublabel = f"DataFrame · {rows} × {cols}"
+                base_sub = "DataFrame"
+        elif typ == "ndarray":
+            base_sub = f"ndarray · {val}" if isinstance(val, str) else "ndarray"
+        elif typ in ("str", "int", "float", "bool"):
+            val_str = str(val) if val is not None else ""
+            base_sub = f"{typ} · {val_str}" if val_str and len(val_str) <= 20 else typ
         else:
-            sublabel = "DataFrame"
-    elif typ == "ndarray":
-        sublabel = f"ndarray · {val}" if isinstance(val, str) else "ndarray"
-    elif typ in ("str", "int", "float", "bool"):
-        val_str = str(val) if val is not None else ""
-        sublabel = f"{typ} · {val_str}" if val_str and len(val_str) <= 20 else typ
-    else:
-        sublabel = typ  # type name only
+            base_sub = typ
 
+        sublabel = f"{base_sub} · not executed" if unexecuted and base_sub else (
+            "not executed" if unexecuted else base_sub
+        )
+        return label, sublabel
+
+    # ── Priority 3: plot title extraction ─────────────────────────────────────
+    titles = _extract_plot_titles(source)
+    if titles:
+        sublabel = "plot · not executed" if unexecuted else "plot"
+        return ", ".join(titles), sublabel
+
+    # ── Priority 4: source truncation ─────────────────────────────────────────
+    label = source[:40].strip().replace("\n", " ") if source else "(empty)"
+    sublabel = "not executed" if unexecuted else ""
     return label, sublabel
 
 
@@ -124,8 +168,9 @@ class GraphBuilder:
         """Build and return GraphData.
 
         Args:
-            cells: list of {cell_id, index, source} from the request body,
+            cells: list of ``{cell_id, index, source}`` from the request body,
                    already filtered to code cells only by the frontend.
+                   Empty-source cells are also dropped here.
         """
         sorted_cells = sorted(
             (c for c in cells if c.get("source", "").strip()),
@@ -148,21 +193,30 @@ class GraphBuilder:
             )
 
             if executed and summary is not None:
-                defines: List[str] = summary.get("symbols_defined") or []
-                loads: List[str] = summary.get("symbols_consumed") or []
+                raw_defines: List[str] = summary.get("symbols_defined") or []
+                raw_loads: List[str] = summary.get("symbols_consumed") or []
+                symbol_types: Dict[str, str] = summary.get("symbol_types") or {}
+                symbol_values: Dict[str, Any] = summary.get("symbol_values") or {}
                 execution_count: Optional[int] = summary.get("execution_count")
-                label, sublabel = _build_label(summary, source=source)
                 data_source = "store"
                 unexecuted = False
             else:
                 parsed = ASTParser.extract(source)
-                defines = parsed["defines"]
-                loads = parsed["loads"]
+                raw_defines = parsed["defines"]
+                raw_loads = parsed["loads"]
+                symbol_types = {}
+                symbol_values = {}
                 execution_count = None
-                label = (source[:40] if source else "(empty)").replace("\n", " ")
-                sublabel = "not executed"
                 data_source = "ast"
                 unexecuted = True
+
+            # Filter viz handles at build time — never mutate stored data
+            effective_defines = [d for d in raw_defines if d not in VIZ_HANDLE_SYMBOLS]
+            effective_loads = [s for s in raw_loads if s not in VIZ_HANDLE_SYMBOLS]
+
+            label, sublabel = _build_label(
+                effective_defines, symbol_types, symbol_values, source, unexecuted
+            )
 
             nodes.append(NodeData(
                 cell_uuid=cell_uuid,
@@ -171,14 +225,17 @@ class GraphBuilder:
                 sublabel=sublabel,
                 unexecuted=unexecuted,
                 data_source=data_source,
-                defines=defines,
-                loads=loads,
+                defines=effective_defines,
+                loads=effective_loads,
                 external_loads=[],
                 execution_count=execution_count,
                 anomalies=[],
             ))
 
         # ── Edge construction ─────────────────────────────────────────────────
+        # node.defines and node.loads are already free of viz handle symbols,
+        # so no plt/sns/fig/ax edges will be created and no false SKIP_LINKs
+        # will fire.
         edges: List[EdgeData] = []
 
         for node in nodes:
