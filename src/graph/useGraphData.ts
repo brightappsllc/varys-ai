@@ -25,7 +25,10 @@ function buildCellsPayload(tracker: INotebookTracker): {
   panel.content.widgets.forEach((cell, idx) => {
     if (cell.model.type !== 'code') return;
     const source = cell.model.sharedModel.getSource();
-    if (!source.trim()) return;   // skip empty cells
+    // Empty cells are excluded: they carry no symbol information and would
+    // never form edges, so they cannot trigger UNEXECUTED_IN_CHAIN either.
+    // The backend applies the same guard as a defense-in-depth measure.
+    if (!source.trim()) return;
     const cellId: string =
       (cell.model as any).id ??
       (cell.model as any).sharedModel?.id ??

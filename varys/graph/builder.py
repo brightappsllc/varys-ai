@@ -1,6 +1,7 @@
 """GraphBuilder — produces GraphData from SummaryStore + AST fallback."""
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -45,8 +46,21 @@ class GraphData:
 
 # ── Label helpers ─────────────────────────────────────────────────────────────
 
+# Matches plt.title("…"), ax.set_title("…"), fig.suptitle("…"), axes[0].set_title("…")
+_PLOT_TITLE_RE = re.compile(
+    r'(?:plt|ax(?:es)?(?:\s*\[[^\]]*\])?|fig)\s*\.\s*(?:set_)?(?:title|suptitle)'
+    r'\s*\(\s*(?:label\s*=\s*)?["\']([^"\']+)["\']',
+    re.IGNORECASE,
+)
 
-def _build_label(summary: Dict[str, Any]) -> tuple[str, str]:
+
+def _extract_plot_title(source: str) -> Optional[str]:
+    """Return the first plot title string literal found in source, or None."""
+    m = _PLOT_TITLE_RE.search(source)
+    return m.group(1)[:40] if m else None
+
+
+def _build_label(summary: Dict[str, Any], source: str = "") -> tuple[str, str]:
     """Return (label, sublabel) derived deterministically from SummaryStore data."""
     defines: List[str] = summary.get("symbols_defined") or []
     symbol_types: Dict[str, str] = summary.get("symbol_types") or {}
@@ -62,6 +76,11 @@ def _build_label(summary: Dict[str, Any]) -> tuple[str, str]:
         primary = defines[0]
 
     if primary is None:
+        # Side-effect-only cell (e.g. plt.show()) — try to extract a plot title
+        if source:
+            title = _extract_plot_title(source)
+            if title:
+                return title, "plot"
         return "(no output)", ""
 
     label = primary
@@ -132,7 +151,7 @@ class GraphBuilder:
                 defines: List[str] = summary.get("symbols_defined") or []
                 loads: List[str] = summary.get("symbols_consumed") or []
                 execution_count: Optional[int] = summary.get("execution_count")
-                label, sublabel = _build_label(summary)
+                label, sublabel = _build_label(summary, source=source)
                 data_source = "store"
                 unexecuted = False
             else:

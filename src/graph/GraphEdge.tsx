@@ -89,7 +89,7 @@ export const GraphEdge: React.FC<Props> = ({ edge, layout, nodeLayouts, zoom, di
         stroke={color}
         strokeWidth={edge.anomaly ? 2 : 1.5}
         markerEnd={`url(#${arrowId})`}
-        strokeDasharray={edge.anomaly === 'OUT_OF_ORDER' ? '5,3' : undefined}
+        strokeDasharray={undefined}
       />
       {showLabel && (
         <text

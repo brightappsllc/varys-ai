@@ -53,12 +53,11 @@ export function computeLayoutSync(data: GraphData): LayoutResult {
   };
 }
 
-// ── Async wrapper (runs sync, yields to event loop first to keep UI responsive) ──
+// ── Async wrapper (waits for a paint frame so the spinner renders first) ──────
 
-export function computeLayout(data: GraphData): Promise<LayoutResult> {
-  return new Promise(resolve => {
-    // Use setTimeout(0) to yield to the browser event loop before computing,
-    // so the loading spinner can render before dagre runs.
-    setTimeout(() => resolve(computeLayoutSync(data)), 0);
-  });
+export async function computeLayout(data: GraphData): Promise<LayoutResult> {
+  // requestAnimationFrame ensures the browser commits the current render
+  // (showing the loading spinner) before dagre runs on the next tick.
+  await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+  return computeLayoutSync(data);
 }
