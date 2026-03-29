@@ -374,15 +374,23 @@ async def run(
         # Preview write: apply created/modified changes to disk NOW so the
         # user sees the actual file content before accepting or declining.
         # Deletions are NOT applied here — they only happen on Accept.
+        # Uses an atomic temp-file + os.replace() so that a crash mid-write
+        # cannot leave a 0-byte or partial file on disk.
         if staged_fc.change_type in ("created", "modified"):
             try:
                 parent = Path(resolved_path).parent
                 parent.mkdir(parents=True, exist_ok=True)
-                with open(resolved_path, "w", encoding="utf-8") as _fh:
+                tmp_path = resolved_path + ".varys_preview_tmp"
+                with open(tmp_path, "w", encoding="utf-8") as _fh:
                     _fh.write(staged_fc.new_content or "")
+                os.replace(tmp_path, resolved_path)
                 log.debug("Preview write: %s (%s)", rel_path, staged_fc.change_type)
             except Exception as _exc:
                 log.warning("Preview write failed for %s: %s", resolved_path, _exc)
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
 
         if session:
             session["pending_changes"][change_id] = fc
