@@ -2736,9 +2736,10 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #e53935;
+  /* background color is set inline based on severity */
   pointer-events: none;
   box-shadow: 0 0 0 1.5px var(--ds-bg, #fff);
+  transition: background 0.2s;
 }
 .ds-chat-night .ds-repro-dot {
   box-shadow: 0 0 0 1.5px var(--ds-bg, #13131c);

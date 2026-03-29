@@ -16,6 +16,7 @@ import { DiffView, DiffInfo } from '../ui/DiffView';
 import { FileChangeCard, FileChangeEvent } from '../ui/FileChangeCard';
 import { ReproPanel } from '../reproducibility/ReproPanel';
 import { reproStore } from '../reproducibility/store';
+import type { ReproIssue } from '../reproducibility/types';
 import { TagsPanel } from '../tags/TagsPanel';
 
 // ---------------------------------------------------------------------------
@@ -3998,13 +3999,13 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   const [showSettings, setShowSettings]     = useState(false);
   const [showRepro,    setShowRepro]         = useState(false);
   const [showTags,     setShowTags]          = useState(false);
-  const [reproIssueCount, setReproIssueCount] = useState(reproStore.current.length);
+  const [reproIssues, setReproIssues] = useState<ReproIssue[]>(reproStore.current);
 
-  // Keep the red-dot badge in sync with reproStore updates.
+  // Keep the dot badge in sync with reproStore updates.
   // Also seed the store from the backend on mount so the badge shows
   // even before the user ever opens the Reproducibility panel.
   useEffect(() => {
-    const handler = (issues: any[]) => setReproIssueCount(issues.length);
+    const handler = (issues: ReproIssue[]) => setReproIssues(issues);
     reproStore.subscribe(handler);
 
     const ctx = notebookReader.getFullContext();
@@ -6694,9 +6695,23 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                 data-tip="Reproducibility Guardian"
                 data-tip-below
               >🛡️</button>
-              {reproIssueCount > 0 && (
-                <span className="ds-repro-dot" aria-label={`${reproIssueCount} reproducibility issue${reproIssueCount === 1 ? '' : 's'}`} />
-              )}
+              {((): React.ReactNode => {
+                const hasCritical = reproIssues.some(i => i.severity === 'critical');
+                const hasWarning  = reproIssues.some(i => i.severity === 'warning');
+                const hasInfo     = reproIssues.some(i => i.severity === 'info');
+                const color = hasCritical ? '#e53935'
+                            : hasWarning  ? '#F97316'
+                            : hasInfo     ? '#3B82F6'
+                            : null;
+                if (!color) return null;
+                return (
+                  <span
+                    className="ds-repro-dot"
+                    style={{ background: color }}
+                    aria-label={`${reproIssues.length} reproducibility issue${reproIssues.length === 1 ? '' : 's'}`}
+                  />
+                );
+              })()}
             </span>
             <button
               className="ds-graph-open-btn"
