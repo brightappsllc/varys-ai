@@ -2732,7 +2732,7 @@
 .ds-repro-dot {
   position: absolute;
   top: 0px;
-  right: 0px;
+  right: 3px;
   width: 6px;
   height: 6px;
   border-radius: 50%;
