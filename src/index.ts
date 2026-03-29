@@ -66,11 +66,9 @@ const plugin: JupyterFrontEndPlugin<void> = {
       },
     );
 
-    let graphPanelAdded = false;
     const openGraphPanel = () => {
-      if (!graphPanelAdded) {
+      if (!graphPanel.isAttached) {
         app.shell.add(graphPanel, 'main', { mode: 'split-right' });
-        graphPanelAdded = true;
       }
       app.shell.activateById(graphPanel.id);
     };
