@@ -6719,7 +6719,20 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
               title="Notebook dependency graph"
               data-tip="Dependency Graph"
               data-tip-below
-            >⬡</button>
+            >
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+                {/* top node */}
+                <circle cx="6.5" cy="2" r="1.7" fill="currentColor"/>
+                {/* bottom-left node */}
+                <circle cx="2.2" cy="10.5" r="1.7" fill="currentColor"/>
+                {/* bottom-right node */}
+                <circle cx="10.8" cy="10.5" r="1.7" fill="currentColor"/>
+                {/* left edge */}
+                <line x1="5.7" y1="3.6" x2="3.0" y2="8.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                {/* right edge */}
+                <line x1="7.3" y1="3.6" x2="10.0" y2="8.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+              </svg>
+            </button>
           </span>
         ) : undefined}
       />

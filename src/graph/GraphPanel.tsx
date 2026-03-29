@@ -26,7 +26,7 @@ const Legend: React.FC = () => (
       <span className="ds-graph-legend-dot ds-graph-legend-dead" />Dead symbol
     </span>
     <span className="ds-graph-legend-item">
-      <span className="ds-graph-legend-dashed" />Unexecuted
+      <span className="ds-graph-legend-dashed" /> Unexecuted
     </span>
   </div>
 );
@@ -146,7 +146,13 @@ const GraphCanvas: React.FC<CanvasProps> = ({ tracker, onScrollToCell }) => {
       {/* Header */}
       <div className="ds-graph-header">
         <div className="ds-graph-header-left">
-          <span className="ds-graph-icon">⬡</span>
+          <svg width="18" height="18" viewBox="0 0 13 13" fill="none" aria-hidden="true" style={{ opacity: 0.75, flexShrink: 0 }}>
+              <circle cx="6.5" cy="2" r="1.7" fill="currentColor"/>
+              <circle cx="2.2" cy="10.5" r="1.7" fill="currentColor"/>
+              <circle cx="10.8" cy="10.5" r="1.7" fill="currentColor"/>
+              <line x1="5.7" y1="3.6" x2="3.0" y2="8.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+              <line x1="7.3" y1="3.6" x2="10.0" y2="8.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+            </svg>
           <div>
             <div className="ds-graph-title">Notebook dependency graph</div>
             {data && (
