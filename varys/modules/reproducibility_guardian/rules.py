@@ -1028,3 +1028,37 @@ def check_unpinned_packages(cell: dict, _cells: list) -> List[Issue]:
             ))
 
     return issues
+
+
+# ---------------------------------------------------------------------------
+# check_empty_cells
+# ---------------------------------------------------------------------------
+
+def check_empty_cells(cells: List[dict]) -> List[Issue]:
+    """Flag code cells whose source is empty or contains only whitespace/comments."""
+    issues: List[Issue] = []
+    for cell in cells:
+        if cell.get('type') != 'code':
+            continue
+        source: str = cell.get('source', '') or ''
+        # Strip comments and whitespace to determine if there is any real content
+        stripped = re.sub(r'#[^\n]*', '', source).strip()
+        if stripped:
+            continue
+        issues.append(Issue(
+            rule_id='empty_cell',
+            severity='info',
+            cell_index=cell['index'],
+            title='Empty code cell',
+            message='This code cell contains no executable statements.',
+            explanation=(
+                'Empty cells add visual noise and can cause confusion during '
+                'handoff or re-execution. They are harmless, but keeping the '
+                'notebook tidy makes it easier for others to follow the flow.'
+            ),
+            suggestion=(
+                'Delete the cell if it serves no purpose, or add a comment '
+                'explaining its intended use.'
+            ),
+        ))
+    return issues
