@@ -4850,21 +4850,60 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   const [activeCommand, setActiveCommand] = useState<SlashCommand | null>(null);
 
   // ── Version update check ──────────────────────────────────────────────────
-  const [updateVersion, setUpdateVersion] = useState<string | null>(null);
-  const [updateUrl,     setUpdateUrl]     = useState('');
+  const [updateVersion,  setUpdateVersion]  = useState<string | null>(null);
+  const [updateUrl,      setUpdateUrl]      = useState('');
+  const [releaseNotes,   setReleaseNotes]   = useState('');
+  const [currentVersion, setCurrentVersion] = useState('0.7.0');
+  const [showChangelog,  setShowChangelog]  = useState(false);
+  // 'whats-new' = GitHub release notes for latest; 'history' = full local CHANGELOG.md
+  const [changelogMode,  setChangelogMode]  = useState<'whats-new' | 'history'>('whats-new');
+  const [changelogBody,  setChangelogBody]  = useState('');
+  const [changelogLoading, setChangelogLoading] = useState(false);
+
   useEffect(() => {
     void (async () => {
       try {
         const r = await fetch('/varys/version-check');
         if (!r.ok) return;
-        const d = await r.json() as { update_available: boolean; latest: string; release_url: string };
+        const d = await r.json() as {
+          update_available: boolean; latest: string;
+          release_url: string; release_notes: string; current: string;
+        };
+        setCurrentVersion(d.current || '0.7.0');
         if (d.update_available) {
           setUpdateVersion(d.latest);
           setUpdateUrl(d.release_url || '');
+          setReleaseNotes(d.release_notes || '');
         }
       } catch { /* network error — silent */ }
     })();
   }, []);
+
+  const openWhatsNew = () => {
+    setChangelogMode('whats-new');
+    if (releaseNotes) {
+      setChangelogBody(releaseNotes);
+      setShowChangelog(true);
+      return;
+    }
+    // Fallback: load local changelog sliced from current version
+    setChangelogLoading(true);
+    setShowChangelog(true);
+    void fetch(`/varys/changelog?since=${encodeURIComponent(currentVersion)}`)
+      .then(r => r.json())
+      .then((d: { content: string }) => { setChangelogBody(d.content || ''); setChangelogLoading(false); })
+      .catch(() => { setChangelogBody('_Could not load release notes._'); setChangelogLoading(false); });
+  };
+
+  const openHistory = () => {
+    setChangelogMode('history');
+    setChangelogLoading(true);
+    setShowChangelog(true);
+    void fetch('/varys/changelog')
+      .then(r => r.json())
+      .then((d: { content: string }) => { setChangelogBody(d.content || ''); setChangelogLoading(false); })
+      .catch(() => { setChangelogBody('_Could not load changelog._'); setChangelogLoading(false); });
+  };
 
   // Agent session state (for /file_agent)
   const [agentBadgeVisible, setAgentBadgeVisible] = useState(false);
@@ -6649,23 +6688,95 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
     );
   }
 
+  if (showChangelog) {
+    const isWhatsNew = changelogMode === 'whats-new';
+    const title = isWhatsNew
+      ? `What's New${updateVersion ? ` in v${updateVersion}` : ''}`
+      : 'Changelog';
+    return (
+      <div className={`ds-assistant-sidebar ds-chat-${chatTheme}`}>
+        <div className="ds-assistant-header">
+          <span className="ds-assistant-title">
+            <span className="ds-varys-spider">🕷️</span>{' '}
+            {title}
+          </span>
+          <button
+            className="ds-settings-close-btn"
+            onClick={() => setShowChangelog(false)}
+            title="Back to chat"
+          >✕</button>
+        </div>
+        <div className="ds-changelog-panel">
+          {/* Tab bar */}
+          <div className="ds-changelog-tabs">
+            <button
+              className={`ds-changelog-tab${isWhatsNew ? ' ds-changelog-tab--active' : ''}`}
+              onClick={openWhatsNew}
+            >
+              {updateVersion ? `↑ v${updateVersion}` : "What's New"}
+            </button>
+            <button
+              className={`ds-changelog-tab${!isWhatsNew ? ' ds-changelog-tab--active' : ''}`}
+              onClick={openHistory}
+            >
+              Full History
+            </button>
+          </div>
+
+          {/* Body */}
+          <div className="ds-changelog-body">
+            {changelogLoading ? (
+              <div className="ds-changelog-loading">Loading…</div>
+            ) : changelogBody ? (
+              <>
+                <div
+                  className="ds-changelog-content ds-message-content"
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(changelogBody) }}
+                />
+                {isWhatsNew && updateUrl && (
+                  <div className="ds-changelog-footer">
+                    <a href={updateUrl} target="_blank" rel="noreferrer"
+                       className="ds-changelog-github-link">
+                      View on GitHub ↗
+                    </a>
+                    <div className="ds-changelog-update-cmd">
+                      <code>pip install --upgrade varys</code>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="ds-changelog-empty">
+                {isWhatsNew
+                  ? 'You are on the latest version.'
+                  : 'Changelog not available.'}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`ds-assistant-sidebar ds-chat-${chatTheme}`}>
       {/* Header */}
       <div className="ds-assistant-header">
         <span className="ds-assistant-title">
           <span className="ds-varys-spider">🕷️</span>{' '}Varys{' '}
-          <span className="ds-varys-version">v0.7.0</span>
+          <span
+            className="ds-varys-version ds-varys-version--clickable"
+            onClick={openHistory}
+            title="View changelog"
+          >v0.7.0</span>
           {updateVersion && (
-            <a
+            <button
               className="ds-varys-update-pill"
-              href={updateUrl || '#'}
-              target="_blank"
-              rel="noreferrer"
-              title={`v${updateVersion} is available — click to view release notes`}
+              onClick={openWhatsNew}
+              title={`v${updateVersion} is available — click to see what's new`}
             >
               ↑ v{updateVersion}
-            </a>
+            </button>
           )}
         </span>
         <button

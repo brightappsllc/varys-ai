@@ -39,7 +39,8 @@ _CACHE_TTL_SECS = 3600   # re-check at most once per hour per server session
 _REQUEST_TIMEOUT = 4     # seconds — must be fast enough not to delay sidebar load
 
 # Module-level cache: (fetched_at, current, latest, update_available, release_url)
-_cache: Optional[Tuple[float, str, str, bool, str]] = None
+# (fetched_at, current, latest, update_available, release_url, release_notes)
+_cache: Optional[Tuple[float, str, str, bool, str, str]] = None
 
 
 def _current_version() -> str:
@@ -58,12 +59,12 @@ def _semver_tuple(v: str) -> tuple:
         return (0, 0, 0)
 
 
-def _fetch_latest() -> Tuple[str, str]:
-    """Return (latest_version_tag, release_html_url) from the GitHub API.
+def _fetch_latest() -> Tuple[str, str, str]:
+    """Return (latest_version_tag, release_html_url, release_body_markdown).
 
     Raises on any network/parse error — caller decides how to handle.
     """
-    url  = os.environ.get("VARYS_UPDATE_CHECK_URL", _GITHUB_API_URL)
+    url   = os.environ.get("VARYS_UPDATE_CHECK_URL", _GITHUB_API_URL)
     token = os.environ.get("VARYS_GITHUB_TOKEN", "")
 
     headers = {"Accept": "application/vnd.github+json", "User-Agent": "varys-update-check"}
@@ -74,9 +75,10 @@ def _fetch_latest() -> Tuple[str, str]:
     with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT) as resp:
         data = json.loads(resp.read())
 
-    tag = data.get("tag_name", "")
+    tag      = data.get("tag_name", "")
     html_url = data.get("html_url", "https://github.com/brightappsllc/varys-ai/releases")
-    return tag, html_url
+    body     = data.get("body", "")  # markdown release notes authored by maintainers
+    return tag, html_url, body
 
 
 def get_update_info() -> dict:
@@ -87,25 +89,28 @@ def get_update_info() -> dict:
 
     # Honour opt-out
     if os.environ.get("VARYS_UPDATE_CHECK", "").lower() in ("false", "0", "no"):
-        return {"current": current, "latest": current, "update_available": False, "release_url": ""}
+        return {
+            "current": current, "latest": current,
+            "update_available": False, "release_url": "", "release_notes": "",
+        }
 
     now = time.monotonic()
 
     # Return cached result if still fresh
     if _cache is not None and (now - _cache[0]) < _CACHE_TTL_SECS:
-        _, cached_current, latest, update_available, release_url = _cache
-        # If the installed version changed (e.g. hot-reload during dev), bust cache
+        _, cached_current, latest, update_available, release_url, release_notes = _cache
         if cached_current == current:
             return {
                 "current": current,
                 "latest": latest,
                 "update_available": update_available,
                 "release_url": release_url,
+                "release_notes": release_notes,
             }
 
     # Fetch from GitHub
     try:
-        latest_tag, release_url = _fetch_latest()
+        latest_tag, release_url, release_notes = _fetch_latest()
         update_available = _semver_tuple(latest_tag) > _semver_tuple(current)
         latest = latest_tag.lstrip("v") if latest_tag else current
     except urllib.error.HTTPError as exc:
@@ -113,17 +118,18 @@ def get_update_info() -> dict:
             log.debug("version-check: GitHub API returned %d — private repo or rate-limited", exc.code)
         else:
             log.debug("version-check: HTTP error %d — %s", exc.code, exc)
-        latest, update_available, release_url = current, False, ""
+        latest, update_available, release_url, release_notes = current, False, "", ""
     except Exception as exc:
         log.debug("version-check: could not reach GitHub: %s", exc)
-        latest, update_available, release_url = current, False, ""
+        latest, update_available, release_url, release_notes = current, False, "", ""
 
-    _cache = (now, current, latest, update_available, release_url)
+    _cache = (now, current, latest, update_available, release_url, release_notes)
     return {
         "current": current,
         "latest": latest,
         "update_available": update_available,
         "release_url": release_url,
+        "release_notes": release_notes,
     }
 
 

@@ -3220,16 +3220,25 @@
   line-height: 1;
 }
 
-/* Update-available pill — shown next to the version badge */
+/* Version badge — clickable to open changelog history */
+.ds-varys-version--clickable {
+  cursor: pointer;
+}
+.ds-varys-version--clickable:hover {
+  opacity: 0.75;
+  text-decoration: underline dotted;
+}
+
+/* Update-available pill — opens the What's New panel */
 .ds-varys-update-pill {
   display: inline-block;
   margin-left: 5px;
-  padding: 1px 5px;
+  padding: 1px 6px;
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.04em;
   border-radius: 8px;
-  text-decoration: none;
+  border: none;
   vertical-align: middle;
   cursor: pointer;
   line-height: 1.6;
@@ -3240,7 +3249,148 @@
 .ds-varys-update-pill:hover {
   background: #d97706;
   transform: scale(1.05);
+}
+
+/* ── Changelog panel ────────────────────────────────────────────────────── */
+.ds-changelog-panel {
+  display: flex;
+  flex-direction: column;
+  height: calc(100% - 38px);   /* fill below the header */
+  overflow: hidden;
+}
+
+/* Tab strip */
+.ds-changelog-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--ds-border, rgba(128,128,128,0.2));
+  flex-shrink: 0;
+  padding: 0 8px;
+}
+.ds-changelog-tab {
+  flex: 1;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 7px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--ds-text-dim, rgba(128,128,128,0.7));
+  transition: color 0.15s, border-color 0.15s;
+}
+.ds-changelog-tab:hover {
+  color: var(--ds-text, inherit);
+}
+.ds-changelog-tab--active {
+  color: var(--ds-accent, #7c5cbf) !important;
+  border-bottom-color: var(--ds-accent, #7c5cbf);
+  font-weight: 600;
+}
+
+/* Scrollable body */
+.ds-changelog-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px 20px;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.ds-changelog-loading {
+  color: var(--ds-text-dim, rgba(128,128,128,0.6));
+  font-style: italic;
+  padding: 16px 0;
+  text-align: center;
+}
+.ds-changelog-empty {
+  color: var(--ds-text-dim, rgba(128,128,128,0.6));
+  font-style: italic;
+  padding: 24px 0;
+  text-align: center;
+}
+
+/* Markdown content reuses .ds-message-content rules; add sizing overrides */
+.ds-changelog-content h2 {
+  font-size: 13.5px;
+  margin: 18px 0 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--ds-border, rgba(128,128,128,0.15));
+}
+.ds-changelog-content h3 {
+  font-size: 12px;
+  margin: 12px 0 4px;
+}
+.ds-changelog-content h4 {
+  font-size: 11.5px;
+  margin: 8px 0 3px;
+}
+.ds-changelog-content ul,
+.ds-changelog-content ol {
+  padding-left: 18px;
+  margin: 4px 0;
+}
+.ds-changelog-content li {
+  margin: 2px 0;
+}
+.ds-changelog-content p {
+  margin: 4px 0;
+}
+.ds-changelog-content code {
+  font-size: 10.5px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--ds-surface-alt, rgba(128,128,128,0.12));
+}
+.ds-changelog-content hr {
+  margin: 14px 0;
+  border: none;
+  border-top: 1px solid var(--ds-border, rgba(128,128,128,0.2));
+}
+.ds-changelog-content table {
+  font-size: 11px;
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+}
+.ds-changelog-content th,
+.ds-changelog-content td {
+  border: 1px solid var(--ds-border, rgba(128,128,128,0.2));
+  padding: 3px 7px;
+  text-align: left;
+}
+.ds-changelog-content th {
+  background: var(--ds-surface-alt, rgba(128,128,128,0.08));
+  font-weight: 600;
+}
+
+/* Footer with update command */
+.ds-changelog-footer {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ds-border, rgba(128,128,128,0.15));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.ds-changelog-github-link {
+  font-size: 11px;
+  color: var(--ds-accent, #7c5cbf);
   text-decoration: none;
+}
+.ds-changelog-github-link:hover {
+  text-decoration: underline;
+}
+.ds-changelog-update-cmd {
+  font-size: 11px;
+}
+.ds-changelog-update-cmd code {
+  background: var(--ds-surface-alt, rgba(128,128,128,0.12));
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  user-select: all;
 }
 
 /* Loading / progress text */
