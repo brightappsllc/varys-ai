@@ -153,7 +153,11 @@ WRITE_TOOL_SCHEMA = {
     "name": "Write",
     "description": (
         "Write (or overwrite) a file with the given content. "
-        "The change is staged and NOT written to disk until the user accepts it."
+        "The change is staged and NOT written to disk until the user accepts it. "
+        "PREFERRED for: creating new files, adding new functions/classes, or any task "
+        "where you have the full desired content. "
+        "When the task message already includes the current file content, construct "
+        "the new full content and call Write — do NOT call Read first."
     ),
     "input_schema": {
         "type": "object",
@@ -227,7 +231,11 @@ EDIT_TOOL_SCHEMA = {
     "name": "Edit",
     "description": (
         "Replace the first occurrence of old_string with new_string in a file. "
-        "The change is staged. Use Read first to verify exact whitespace and content."
+        "The change is staged. old_string must match the file content exactly "
+        "(character-for-character, including indentation and newlines). "
+        "If the task message already contains the file content, use that — "
+        "do NOT call Read before Edit. "
+        "If you need to ADD new content (not replace existing lines), use Write instead."
     ),
     "input_schema": {
         "type": "object",

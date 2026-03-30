@@ -606,19 +606,21 @@ CRITICAL RULES — you MUST follow these without exception:
 1. NEVER describe or explain a change without actually making it via a tool call.
    Saying "I'll remove X" or "The file now contains Y" without calling Edit/Write is wrong.
 2. ALWAYS use Edit or Write to apply any code change — never show the edited code as plain text.
-3. When the task message includes the current file content, skip Read and go straight to Edit/Write.
-4. STRICT tool-call budget:
-   • MAX 1 Glob call total — only to locate the single target file when not specified.
-     Do NOT glob to "explore the project" or "check for existing files".
-   • MAX 1 Read call — only on the exact file you are about to edit, and only when you
-     need its current content to make a precise insertion or edit.
-   • ZERO reads of any other file. Do NOT read files to "understand conventions",
-     "check existing style", "see how a function is called", or "find similar code".
-     Write standard, idiomatic code immediately without any codebase research.
-   Violation: calling Glob or Read more than once, or reading any file you will not edit.
-5. After all edits are applied, write a brief one-sentence summary of what was changed.
-6. ALWAYS use the exact absolute path shown in "Target file:" — never shorten it to a basename.
-   Using a basename like "utils.py" instead of "/data/test/utils.py" risks editing the WRONG file.
+3. CHOOSING BETWEEN Write AND Edit:
+   • Use Write when: adding new content (new function, new class, new file), or when you
+     already have the full desired file content from the task message.
+   • Use Edit ONLY when: replacing a specific, clearly-identified existing block of text.
+     Edit requires an exact verbatim match of old_string — if unsure, use Write instead.
+   • NEVER call Edit speculatively; if old_string might not match exactly, prefer Write.
+4. When the task message includes the current file content, that IS the file — skip Read
+   and call Write or Edit immediately using that content.
+5. STRICT tool-call budget — violations waste turns and must be avoided:
+   • MAX 1 Glob call total — only to locate the target file when its path is not given.
+   • MAX 1 Read call total — only when the file content was NOT provided in the task.
+   • ZERO reads of unrelated files. Write idiomatic code without codebase research.
+6. After all edits are applied, write a brief one-sentence summary of what was changed.
+7. ALWAYS use the exact absolute path shown in "Target file:" — never shorten to a basename.
+   Using "utils.py" instead of "/data/test/utils.py" risks editing the WRONG file.
 """
 
 # Used as preamble when a custom skill with agent_mode: true is invoked.
@@ -1780,7 +1782,7 @@ class TaskHandler(JupyterHandler):
             return
 
         max_tokens = int(os.environ.get("VARYS_AGENT_MAX_TOKENS", "8192"))
-        max_turns  = int(get_agent_env("VARYS_AGENT_MAX_TURNS", local_cfg, "10") or "10")
+        max_turns  = int(get_agent_env("VARYS_AGENT_MAX_TURNS", local_cfg, "20") or "20")
 
         # ── Load system prompt ────────────────────────────────────────────────
         # For custom skills with agent_mode: true, load the skill's own content
