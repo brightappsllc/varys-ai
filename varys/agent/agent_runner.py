@@ -159,6 +159,7 @@ async def run(
     bash_outputs: list[BashOutput] = []
     blocked_commands: list[BlockedCommand] = []
     incomplete = False
+    _provider_error: str | None = None   # set when stop_reason == "error"
     turn_count = 0
     start_time = time.monotonic()
     total_input_tokens = 0
@@ -338,6 +339,7 @@ async def run(
                         log.error("Agent provider error (turn %d): %s", turn_count, event.error_message)
                         await callbacks.on_progress(f"API error: {event.error_message}. Stopping.")
                         incomplete = True
+                        _provider_error = event.error_message
 
             if not continue_loop:
                 break
@@ -428,6 +430,9 @@ async def run(
         duration_seconds=time.monotonic() - start_time,
         model=_model_name,
         token_usage={"input": total_input_tokens, "output": total_output_tokens},
+        # Populated only when a provider API error (e.g. billing, network) stopped the run
+        error=_provider_error,
+        error_type="provider_api_error" if _provider_error else None,
     )
 
 

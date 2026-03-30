@@ -2016,6 +2016,44 @@ class TaskHandler(JupyterHandler):
                 self.finish()
             return
 
+        # ── Handle provider API error (billing, quota, network) ──────────────
+        # The run() loop captured stop_reason="error" and stored the message.
+        # Surface it as a readable chat response so the user knows what happened.
+        if result.error_type == "provider_api_error" and result.error:
+            err = result.error
+            if "credit balance" in err or "billing" in err.lower() or "quota" in err.lower():
+                friendly = (
+                    f"⚠ Anthropic API: your credit balance is too low.\n\n"
+                    f"Add credits at [console.anthropic.com/settings/billing]"
+                    f"(https://console.anthropic.com/settings/billing) then retry."
+                )
+            else:
+                friendly = f"⚠ Provider API error: {err}"
+            done_event = {
+                "type":              "done",
+                "operationId":       operation_id,
+                "steps":             [],
+                "requiresApproval":  False,
+                "clarificationNeeded": None,
+                "cellInsertionMode": "chat",
+                "is_file_agent":     True,
+                "chatResponse":      friendly,
+                "summary":           "Provider API error",
+                "file_changes":      [],
+                "files_read":        [],
+                "incomplete":        False,
+                "bash_outputs":      [],
+                "blocked_commands":  [],
+            }
+            await _emit(done_event)
+            if not stream_requested:
+                self.set_header("Content-Type", "application/json")
+                del done_event["type"]
+                self.finish(_json.dumps(done_event))
+            else:
+                self.finish()
+            return
+
         # ── Enrich session with metadata for audit log ─────────────────────────
         sessions = self.settings.get("agent_sessions", {})
         if operation_id in sessions:
