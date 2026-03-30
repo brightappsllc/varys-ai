@@ -48,6 +48,18 @@ class GoogleAgentProvider(AgentProvider):
     Credentials resolution (same priority order as the chat GoogleProvider):
       1. GOOGLE_SERVICE_ACCOUNT_JSON (service-account path) if non-empty and file exists
       2. GOOGLE_API_KEY (direct API key)
+
+    Design note — thought_signature preservation
+    ─────────────────────────────────────────────
+    When thinking-capable models (gemini-2.5-*) produce function calls, each
+    function_call Part carries an opaque thought_signature field that Gemini
+    requires in the next turn's history.  Reconstructing the Part via
+    Part.from_function_call(name, args) silently drops this field, causing a
+    400 INVALID_ARGUMENT on turn 2+.
+
+    To avoid this, stream_turn() stores the raw Part objects it receives from
+    the SDK in self._last_model_parts.  build_assistant_history_message() then
+    wraps them in a Content directly instead of reconstructing from scratch.
     """
 
     def __init__(
@@ -60,6 +72,9 @@ class GoogleAgentProvider(AgentProvider):
         self._service_account_json = service_account_json
         self._model = model
         self.last_usage: dict = {"input": 0, "output": 0}
+        # Set by stream_turn(); consumed by build_assistant_history_message().
+        # Holds the raw Part objects (text + function_call with thought_signature).
+        self._last_model_parts: list | None = None
 
     # ── SDK helpers ──────────────────────────────────────────────────────────
 
@@ -153,6 +168,10 @@ class GoogleAgentProvider(AgentProvider):
         config = types.GenerateContentConfig(**config_kwargs)
 
         collected_tool_calls: list[ToolCall] = []
+        # Accumulate raw SDK Part objects so build_assistant_history_message()
+        # can return them verbatim, preserving any thought_signature fields.
+        raw_fc_parts: list = []
+        text_buffer: str = ""
         self.last_usage = {"input": 0, "output": 0}
 
         try:
@@ -177,6 +196,9 @@ class GoogleAgentProvider(AgentProvider):
                 for part in candidate.content.parts:
                     fc = getattr(part, "function_call", None)
                     if fc and getattr(fc, "name", None):
+                        # Keep the raw Part object — it carries thought_signature
+                        # which must be sent back verbatim in the next history turn.
+                        raw_fc_parts.append(part)
                         raw_args = _deep_convert_args(getattr(fc, "args", {}))
                         collected_tool_calls.append(ToolCall(
                             call_id=str(uuid4()),
@@ -184,12 +206,23 @@ class GoogleAgentProvider(AgentProvider):
                             tool_input=raw_args,
                         ))
                     elif part.text and not getattr(part, "thought", False):
+                        text_buffer += part.text
                         yield TextDelta(text=part.text)
+                    # Thought (reasoning) parts are skipped — the thought_signature
+                    # on function_call parts is the only reference needed in history.
 
         except Exception as exc:
             log.error("GoogleAgentProvider API error: %s", exc)
             yield TurnEnd(stop_reason="error", error_message=str(exc))
             return
+
+        # Build the parts list for the history Content (used by
+        # build_assistant_history_message below).  Text first, then function calls.
+        assembled_parts: list = []
+        if text_buffer:
+            assembled_parts.append(types.Part.from_text(text=text_buffer))
+        assembled_parts.extend(raw_fc_parts)
+        self._last_model_parts = assembled_parts if assembled_parts else None
 
         if collected_tool_calls:
             for tc in collected_tool_calls:
@@ -213,8 +246,22 @@ class GoogleAgentProvider(AgentProvider):
         text_content: str,
         tool_calls: list[ToolCall],
     ) -> object:
-        """Return a model-role Content containing text and/or function-call parts."""
+        """Return a model-role Content for the conversation history.
+
+        Uses the raw Part objects stored by stream_turn() so that any
+        thought_signature fields on function-call parts are preserved verbatim.
+        Falls back to reconstruction when no stored parts are available.
+        """
         types = self._types()
+
+        if self._last_model_parts is not None:
+            parts = self._last_model_parts
+            self._last_model_parts = None
+            return types.Content(role="model", parts=parts)
+
+        # Fallback: reconstruct from parsed data (no thought_signature — only
+        # reached if build_assistant_history_message is called without a prior
+        # stream_turn, which should not happen in normal agent-runner flow).
         parts = []
         if text_content:
             parts.append(types.Part.from_text(text=text_content))
@@ -225,7 +272,6 @@ class GoogleAgentProvider(AgentProvider):
                     args=tc.tool_input,
                 ))
             except AttributeError:
-                # Fallback for older google-genai SDK versions
                 parts.append(types.Part(
                     function_call=types.FunctionCall(
                         name=tc.tool_name,
