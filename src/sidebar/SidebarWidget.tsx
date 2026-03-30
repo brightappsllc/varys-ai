@@ -4478,6 +4478,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
       setAgentOperationId(cached.agentPanel.operationId);
       setAgentResolved(cached.agentPanel.resolved);
       setAgentIncomplete(cached.agentPanel.incomplete);
+      setAgentTimedOut(Boolean((cached.agentPanel as any).timedOut));
       setAgentBashCount(cached.agentPanel.bashCount);
     }
     return true;
@@ -4559,6 +4560,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
       setAgentResolved({});
       setAgentOperationId('');
       setAgentIncomplete(false);
+      setAgentTimedOut(false);
       setAgentBashCount(0);
       setAgentBashWarnings([]);
       setAgentBlockedCmds([]);
@@ -4852,6 +4854,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   const [agentFileChanges, setAgentFileChanges] = useState<FileChangeEvent[]>([]);
   const [agentFilesRead, setAgentFilesRead] = useState<string[]>([]);
   const [agentIncomplete, setAgentIncomplete] = useState(false);
+  const [agentTimedOut,   setAgentTimedOut]   = useState(false);
   const [agentBashCount, setAgentBashCount] = useState(0);
   const [agentBashWarnings, setAgentBashWarnings]     = useState<string[]>([]);
   const [agentBlockedCmds, setAgentBlockedCmds]       = useState<{command: string; reason: string}[]>([]);
@@ -5644,6 +5647,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
         setAgentFileChanges(indexedChanges);
         setAgentFilesRead(Array.isArray(rawFilesRead) ? (rawFilesRead as string[]) : []);
         setAgentIncomplete(Boolean(rawResponse.incomplete));
+        setAgentTimedOut(Boolean(rawResponse.timed_out));
         setAgentBashCount(Array.isArray(rawBashOutputs) ? rawBashOutputs.length : 0);
         // Collect warn_reason strings from bash outputs
         const warnReasons: string[] = Array.isArray(rawBashOutputs)
@@ -7255,7 +7259,9 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
 
           {agentIncomplete && (
             <div className="ds-agent-incomplete-banner">
-              ⚠ Task reached the turn limit — results may be incomplete.
+              {agentTimedOut
+                ? '⚠ Task reached the time limit — results may be incomplete.'
+                : '⚠ Task reached the turn limit — results may be incomplete.'}
             </div>
           )}
 

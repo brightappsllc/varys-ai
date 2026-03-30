@@ -1781,8 +1781,9 @@ class TaskHandler(JupyterHandler):
                 self.finish(_json.dumps({"error": msg}))
             return
 
-        max_tokens = int(os.environ.get("VARYS_AGENT_MAX_TOKENS", "8192"))
-        max_turns  = int(get_agent_env("VARYS_AGENT_MAX_TURNS", local_cfg, "20") or "20")
+        max_tokens    = int(os.environ.get("VARYS_AGENT_MAX_TOKENS", "8192"))
+        max_turns     = int(get_agent_env("VARYS_AGENT_MAX_TURNS",   local_cfg, "50")  or "50")
+        timeout_secs  = float(get_agent_env("VARYS_AGENT_TIMEOUT_SECS", local_cfg, "120") or "120")
 
         # ── Load system prompt ────────────────────────────────────────────────
         # For custom skills with agent_mode: true, load the skill's own content
@@ -1940,6 +1941,7 @@ class TaskHandler(JupyterHandler):
                 system_prompt=system_prompt,
                 max_turns=max_turns,
                 max_tokens=max_tokens,
+                timeout_secs=timeout_secs,
                 operation_id=operation_id,
                 app_settings=self.settings,
                 callbacks=callbacks,
@@ -2116,6 +2118,7 @@ class TaskHandler(JupyterHandler):
             ],
             "files_read":    result.files_read,
             "incomplete":    result.incomplete,
+            "timed_out":     result.timed_out,
             "bash_outputs": [
                 {
                     "command":     b.command,

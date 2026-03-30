@@ -88,6 +88,7 @@ class AgentTaskResult:
     files_read: list[str]       # deduplicated, disk reads only
     bash_outputs: list[BashOutput]
     incomplete: bool
+    timed_out: bool = False     # True when the wall-clock timeout fired
     turn_count: int
     duration_seconds: float
     model: str
@@ -135,6 +136,7 @@ async def run(
     system_prompt: str,
     max_turns: int,
     max_tokens: int,
+    timeout_secs: float,
     operation_id: str,
     app_settings: dict,
     callbacks: AgentCallbacks,
@@ -159,6 +161,7 @@ async def run(
     bash_outputs: list[BashOutput] = []
     blocked_commands: list[BlockedCommand] = []
     incomplete = False
+    timed_out  = False
     _provider_error: str | None = None   # set when stop_reason == "error"
     turn_count = 0
     start_time = time.monotonic()
@@ -278,6 +281,18 @@ async def run(
     # ── Multi-turn loop ───────────────────────────────────────────────────────
     try:
         while turn_count < max_turns:
+            # Time-limit check — abort before issuing a new LLM call if the
+            # wall-clock budget is exhausted.  We never interrupt a call that
+            # is already in-flight; we only prevent new ones from starting.
+            elapsed = time.monotonic() - start_time
+            if elapsed >= timeout_secs:
+                timed_out  = True
+                incomplete = True
+                await callbacks.on_progress(
+                    f"Time limit ({timeout_secs:.0f}s) reached — showing partial results."
+                )
+                break
+
             accumulated_text = ""
             collected_calls: list[tuple[ProviderToolCall, str]] = []
             continue_loop = False
@@ -347,9 +362,9 @@ async def run(
             turn_count += 1
 
         else:
-            # Exited via turn_count >= max_turns
+            # Safety backstop: exited via turn_count >= max_turns
             incomplete = True
-            await callbacks.on_progress("Reached task limit — showing partial results.")
+            await callbacks.on_progress("Turn limit reached — showing partial results.")
 
     except ToolUseNotSupportedError as e:
         return AgentTaskResult(
@@ -426,6 +441,7 @@ async def run(
         bash_outputs=bash_outputs,
         blocked_commands=blocked_commands,
         incomplete=incomplete,
+        timed_out=timed_out,
         turn_count=turn_count,
         duration_seconds=time.monotonic() - start_time,
         model=_model_name,
