@@ -48,6 +48,8 @@ export interface ChatThread {
     notebookAware?: boolean;
     /** Interaction mode for this thread: 'agent' (default) or 'chat'. */
     cellMode?: 'chat' | 'agent';
+    /** Reasoning mode for this thread: 'off' (default), 'cot', or 'sequential'. */
+    reasoningMode?: 'off' | 'cot' | 'sequential';
 }
 /** The persisted chat file containing all threads for one notebook. */
 export interface ChatFile {
@@ -212,8 +214,11 @@ export interface CompositeStep {
     prompt: string;
 }
 export interface OperationStep {
-    type: 'insert' | 'modify' | 'delete' | 'run_cell';
+    type: 'insert' | 'modify' | 'delete' | 'run_cell' | 'reorder';
+    /** Required for insert/modify/delete/run_cell. Not used for reorder. */
     cellIndex: number;
+    /** For reorder only: cell short IDs in desired final order. */
+    newOrder?: string[];
     cellType?: 'code' | 'markdown';
     content?: string;
     autoExecute?: boolean;

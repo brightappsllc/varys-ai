@@ -181,9 +181,10 @@ export const DiffView: React.FC<DiffViewProps> = ({
   resolved,
 }) => {
   const totalCells   = diffs.length;
-  const cellLabel    = totalCells > 0
-    ? `${totalCells} cell${totalCells !== 1 ? 's' : ''}`
-    : null;
+  const isReorder    = totalCells === 0;
+  const cellLabel    = isReorder
+    ? 'Reorder cells'
+    : `${totalCells} cell${totalCells !== 1 ? 's' : ''}`;
   const defaultOpen  = diffs.length === 1;
 
   const totalInsertions = diffs.reduce(
@@ -258,9 +259,12 @@ export const DiffView: React.FC<DiffViewProps> = ({
       </div>
 
       {/* Hint — only shown when active (not yet resolved) */}
-      {!resolved && totalCells > 0 && (
+      {!resolved && (
         <div className="ds-diff-hint">
-          Review the changes below, then use <strong>✓ Accept</strong> or <strong>✕ Reject</strong> above.
+          {isReorder
+            ? <>Cells have been rearranged in the notebook. Use <strong>✓ Accept</strong> to keep the new order or <strong>✕ Reject</strong> to undo.</>
+            : <>Review the changes below, then use <strong>✓ Accept</strong> or <strong>✕ Reject</strong> above.</>
+          }
         </div>
       )}
 

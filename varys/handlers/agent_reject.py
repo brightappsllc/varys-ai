@@ -88,9 +88,12 @@ class AgentRejectHandler(JupyterHandler):
         reverted_path: str | None = None
         try:
             if fc.change_type == "modified":
-                # Restore original content.
-                with open(abs_path, "w", encoding="utf-8") as fh:
+                # Restore original content atomically so a crash mid-revert
+                # cannot leave the file empty or partial.
+                tmp_path = abs_path + ".varys_revert_tmp"
+                with open(tmp_path, "w", encoding="utf-8") as fh:
                     fh.write(fc.original_content or "")
+                os.replace(tmp_path, abs_path)
                 reverted_path = fc.file_path
                 log.debug("Reverted modified file: %s", abs_path)
             elif fc.change_type == "created":

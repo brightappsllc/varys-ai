@@ -98,17 +98,35 @@ def _ensure_notebook_id(abs_nb_path: str) -> str | None:
         # 3. generate and persist a standard metadata.id
         new_id = str(uuid.uuid4())
         nb.setdefault("metadata", {})["id"] = new_id
+
+        # Safety: verify the cell count in memory matches what we loaded.
+        # If something went wrong during json.load this guard catches it.
+        orig_cells = nb.get("cells", [])
+        if not isinstance(orig_cells, list):
+            log.warning("Chat: unexpected cells structure in %s — skipping id write",
+                        os.path.basename(abs_nb_path))
+            return None
+
+        # Atomic write: dump to a sibling temp file, then os.replace() so that
+        # a crash, OOM, or disk-full event can never leave a 0-byte or partial
+        # notebook.  We intentionally use plain json.dump (not nbformat.write +
+        # nbformat.from_dict) to avoid any schema-normalization that could
+        # silently drop cells or outputs from notebooks that predate nbformat 4.5.
+        tmp_path = abs_nb_path + ".varys_id_tmp"
         try:
-            import nbformat  # noqa: PLC0415 — optional at module level
-            with open(abs_nb_path, "w", encoding="utf-8") as fh:
-                nbformat.write(nbformat.from_dict(nb), fh)
-            log.info("Chat: wrote varys_id to %s", os.path.basename(abs_nb_path))
-        except Exception as write_exc:
-            # Fall back to plain json.dump if nbformat unavailable
-            log.debug("nbformat write failed (%s); using json.dump", write_exc)
-            with open(abs_nb_path, "w", encoding="utf-8") as fh:
+            with open(tmp_path, "w", encoding="utf-8") as fh:
                 json.dump(nb, fh, indent=1, ensure_ascii=False)
                 fh.write("\n")
+            os.replace(tmp_path, abs_nb_path)   # atomic rename on POSIX & Windows
+            log.info("Chat: wrote metadata.id to %s", os.path.basename(abs_nb_path))
+        except Exception as exc:
+            log.warning("Chat: could not write notebook id for %s — %s",
+                        os.path.basename(abs_nb_path), exc)
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            return None
 
         return new_id.replace("-", "")[:8]
 

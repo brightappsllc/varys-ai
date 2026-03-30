@@ -12,6 +12,11 @@ from .rules import (
     check_execution_order,
     check_numpy_seed,
     check_python_random_seed,
+    check_undefined_before_definition,
+    check_used_but_never_imported,
+    check_inplace_transform_chain,
+    check_unpinned_packages,
+    check_empty_cells,
 )
 
 
@@ -21,6 +26,7 @@ _CELL_RULES = [
     check_sklearn_estimators,
     check_cuda_no_fallback,
     check_hardcoded_path,
+    check_unpinned_packages,
 ]
 
 # Notebook-level rules (receive the full cells list)
@@ -28,6 +34,10 @@ _NOTEBOOK_RULES = [
     check_execution_order,
     check_numpy_seed,
     check_python_random_seed,
+    check_undefined_before_definition,
+    check_used_but_never_imported,
+    check_inplace_transform_chain,
+    check_empty_cells,
 ]
 
 

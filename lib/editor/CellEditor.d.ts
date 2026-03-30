@@ -8,6 +8,8 @@ export interface PendingOperation {
     operationId: string;
     cellIndices: number[];
     originalContents: Map<number, string>;
+    /** Populated for reorder ops — used to restore original cell sequence on undo. */
+    originalOrder?: string[];
 }
 export interface ApplyResult {
     /** Maps step array index → actual notebook cell index after apply */
@@ -34,6 +36,32 @@ export declare class CellEditor {
      * Steps are applied in safe order (modifies first, then inserts ascending,
      * then deletes descending) to prevent index-shift errors.
      */
+    /**
+     * Rearranges notebook cells so they appear in the order specified by
+     * newOrderIds (array of short cell IDs, i.e. the [id:XXXXXXXX] tag values).
+     *
+     * Uses a selection-sort approach: for each target position, finds the cell
+     * with the matching ID and moves it there via the observable cells list.
+     * Returns the original cell ID sequence so the operation can be undone.
+     */
+    /**
+     * Returns the short cell ID (first 8 chars of the UUID, matching the
+     * [id:XXXXXXXX] tag the assembler injects into the LLM context).
+     */
+    private _shortId;
+    /**
+     * Rearranges notebook cells so they appear in the order specified by
+     * newOrderIds (array of 8-char short cell IDs matching [id:XXXXXXXX] tags).
+     *
+     * Uses NotebookActions.moveUp / moveDown — the same actions JupyterLab
+     * fires for the keyboard shortcuts Shift+K / Shift+J.  These are guaranteed
+     * to work in all JupyterLab 4 versions.  A selection-sort pass positions
+     * each target cell one step at a time; internal posMap tracking avoids
+     * reading notebook.widgets after each step.
+     *
+     * Returns the original cell ID sequence so the operation can be undone.
+     */
+    reorderCells(newOrderIds: string[]): Promise<string[]>;
     applyOperations(operationId: string, steps: OperationStep[]): Promise<ApplyResult>;
     /**
      * Inserts a new cell of the given type at the specified position.
@@ -92,6 +120,7 @@ export declare class CellEditor {
     /**
      * Reverses an operation: restores original content for modified cells,
      * deletes inserted cells, and clears highlighting.
+     * For reorder operations, restores the original cell sequence.
      */
     undoOperation(operationId: string): void;
 }

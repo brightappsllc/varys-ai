@@ -50,6 +50,7 @@
     "watch:labextension": "jupyter labextension watch ."
   },
   "dependencies": {
+    "@dagrejs/dagre": "^3.0.0",
     "@jupyterlab/application": "^4.0.0",
     "@jupyterlab/apputils": "^4.0.0",
     "@jupyterlab/cells": "^4.0.0",
@@ -82,7 +83,7 @@
     "outputDir": "varys/labextension",
     "schemaDir": "schema",
     "_build": {
-      "load": "static/remoteEntry.edf50ec4bf6ac6d06153.js",
+      "load": "static/remoteEntry.e86654b863bf7e4d15a0.js",
       "extension": "./extension",
       "style": "./style"
     }

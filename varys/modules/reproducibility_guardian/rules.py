@@ -13,12 +13,26 @@ All checks are pure functions: no I/O, no side effects.
 """
 from __future__ import annotations
 
+import ast
+import builtins
+import importlib.metadata
 import re
 import uuid
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Set
 
 from ...utils.config import get_config as _get_cfg
+
+# Python built-in names that are always available without definition.
+_BUILTINS: Set[str] = set(dir(builtins)) | {
+    # IPython / Jupyter globals that are injected automatically
+    'In', 'Out', 'get_ipython', 'exit', 'quit', 'display',
+    # Common magic-command results
+    '_', '__', '___',
+    # Dunder module-level names
+    '__name__', '__file__', '__doc__', '__package__', '__spec__',
+    '__builtins__', '__loader__', '__cached__',
+}
 
 
 def _default_seed() -> int:
@@ -376,3 +390,693 @@ def check_python_random_seed(cells: list) -> List[Issue]:
                 fix_description='Insert seed cell',
             )]
     return []
+
+
+# ---------------------------------------------------------------------------
+# AST helpers for RULE 8
+# ---------------------------------------------------------------------------
+
+def _ast_definitions(source: str) -> Set[str]:
+    """Return all names bound at module scope in *source*.
+
+    Covers: simple assignments, augmented/annotated assignments, imports,
+    ``for`` loop targets, ``with`` statement targets, function/class defs,
+    and assignments nested inside ``for``/``if``/``while``/``try``/``with``
+    blocks (Python does not create new scopes for those constructs).
+
+    Stops recursing at ``def``/``class`` boundaries because those DO create
+    new scopes — names assigned inside a function are not visible outside it.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return set()
+
+    names: Set[str] = set()
+
+    def _walk(node: ast.AST) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                names.add(child.name)
+                # function body is a new scope — do not recurse
+            elif isinstance(child, ast.ClassDef):
+                names.add(child.name)
+                # class body is a new scope — do not recurse
+            elif isinstance(child, ast.Assign):
+                for t in child.targets:
+                    _collect_name_targets(t, names)
+                _walk(child)
+            elif isinstance(child, (ast.AugAssign, ast.AnnAssign)):
+                _collect_name_targets(child.target, names)
+            elif isinstance(child, ast.Import):
+                for alias in child.names:
+                    names.add(alias.asname or alias.name.split('.')[0])
+            elif isinstance(child, ast.ImportFrom):
+                for alias in child.names:
+                    if alias.name != '*':
+                        names.add(alias.asname or alias.name)
+            elif isinstance(child, ast.For):
+                _collect_name_targets(child.target, names)
+                _walk(child)   # recurse into body — same scope
+            elif isinstance(child, ast.With):
+                for item in child.items:
+                    if item.optional_vars:
+                        _collect_name_targets(item.optional_vars, names)
+                _walk(child)   # recurse into body — same scope
+            else:
+                # if / while / try / except / match / … — same scope, recurse
+                _walk(child)
+
+    _walk(tree)
+    return names
+
+
+def _collect_name_targets(node: ast.AST, names: Set[str]) -> None:
+    """Recursively collect Name ids from assignment targets."""
+    if isinstance(node, ast.Name):
+        names.add(node.id)
+    elif isinstance(node, (ast.Tuple, ast.List)):
+        for elt in node.elts:
+            _collect_name_targets(elt, names)
+    elif isinstance(node, ast.Starred):
+        _collect_name_targets(node.value, names)
+
+
+def _ast_top_level_loads(source: str) -> Set[str]:
+    """Return Name nodes that are *loaded* (read) at module scope.
+
+    Only nodes that are direct children of the module are inspected —
+    names used exclusively inside function or class bodies are excluded
+    to reduce false positives (they run in their own scope).
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return set()
+
+    names: Set[str] = set()
+    for node in ast.iter_child_nodes(tree):
+        # Skip pure definitions — we only want the right-hand-side loads
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        for child in ast.walk(node):
+            if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load):
+                names.add(child.id)
+    return names
+
+
+def _ast_comprehension_vars(source: str) -> Set[str]:
+    """Return all names bound as loop variables inside comprehensions or generators.
+
+    In Python 3, these live in their own scope and will never appear in the
+    module-level namespace, so they must not be flagged as undefined names.
+    Example: ``[item.age for item in df.itertuples()]`` → {item}
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return set()
+    names: Set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)):
+            for gen in node.generators:
+                _collect_name_targets(gen.target, names)
+    return names
+
+
+def _has_wildcard_import(cells: list) -> bool:
+    """Return True if any code cell contains a ``from X import *`` statement.
+
+    When a wildcard import is present, static analysis cannot know which names
+    are in scope, so Rules 8 and 9 would produce unreliable results.
+    """
+    for cell in cells:
+        if cell.get('type') != 'code':
+            continue
+        try:
+            tree = ast.parse(cell.get('source', ''))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    if alias.name == '*':
+                        return True
+    return False
+
+
+# Common import alias → canonical import statement.
+# Used to generate fix_code suggestions for Rule 9.
+_IMPORT_SUGGESTIONS: dict[str, str] = {
+    # Data & numerics
+    'pd':        'import pandas as pd',
+    'np':        'import numpy as np',
+    'sp':        'import scipy as sp',
+    # Visualisation
+    'plt':       'import matplotlib.pyplot as plt',
+    'mpl':       'import matplotlib as mpl',
+    'sns':       'import seaborn as sns',
+    'px':        'import plotly.express as px',
+    'go':        'import plotly.graph_objects as go',
+    # ML / DL
+    'sklearn':   'import sklearn',
+    'tf':        'import tensorflow as tf',
+    'keras':     'import keras',
+    'torch':     'import torch',
+    'nn':        'import torch.nn as nn',
+    'F':         'import torch.nn.functional as F',
+    'xgb':       'import xgboost as xgb',
+    'lgb':       'import lightgbm as lgb',
+    'cb':        'import catboost as cb',
+    # Computer vision / NLP
+    'cv2':       'import cv2',
+    'PIL':       'from PIL import Image',
+    'Image':     'from PIL import Image',
+    'skimage':   'import skimage',
+    'spacy':     'import spacy',
+    'nltk':      'import nltk',
+    # Data engineering
+    'bs4':       'from bs4 import BeautifulSoup',
+    'BeautifulSoup': 'from bs4 import BeautifulSoup',
+    'requests':  'import requests',
+    'httpx':     'import httpx',
+    # Standard library shortcuts
+    'os':        'import os',
+    'sys':       'import sys',
+    're':        'import re',
+    'json':      'import json',
+    'io':        'import io',
+    'copy':      'import copy',
+    'time':      'import time',
+    'datetime':  'from datetime import datetime',
+    'Path':      'from pathlib import Path',
+    'partial':   'from functools import partial',
+    'defaultdict': 'from collections import defaultdict',
+    'Counter':   'from collections import Counter',
+    # Typing
+    'List':      'from typing import List',
+    'Dict':      'from typing import Dict',
+    'Optional':  'from typing import Optional',
+    'Tuple':     'from typing import Tuple',
+    'Any':       'from typing import Any',
+}
+
+
+# ---------------------------------------------------------------------------
+# RULE 8 — Variable used before it is defined (static analysis)
+# ---------------------------------------------------------------------------
+
+def check_undefined_before_definition(cells: list) -> List[Issue]:
+    """Notebook-level rule: flag names used in cell N that are only defined
+    in a later cell M > N, meaning a top-to-bottom restart would raise
+    NameError at cell N.
+
+    Only simple module-scope definitions are tracked (assignments, imports,
+    function/class defs).  Python builtins and IPython globals are excluded.
+    At most one issue is emitted per offending cell to keep the report clean.
+    """
+    code_cells = [
+        c for c in cells
+        if c.get('type') == 'code' and c.get('source', '').strip()
+    ]
+    if len(code_cells) < 2:
+        return []
+
+    # Pass 1: map name → first cell index where it is defined.
+    first_def: dict[str, int] = {}
+    for cell in code_cells:
+        for name in _ast_definitions(cell.get('source', '')):
+            if name not in first_def:
+                first_def[name] = cell['index']
+
+    issues: List[Issue] = []
+    cumulative_defs: Set[str] = set()
+
+    for cell in code_cells:
+        src   = cell.get('source', '')
+        defs  = _ast_definitions(src)
+        loads = _ast_top_level_loads(src)
+
+        # Names that are read but not yet available at this position
+        unknown = (
+            loads
+            - cumulative_defs   # defined in a prior cell
+            - defs              # defined in this cell (e.g. x = x + 1 is fine)
+            - _BUILTINS
+        )
+
+        # Only report names that ARE eventually defined later — otherwise
+        # they might be external library attributes or injected by magic.
+        flagged = sorted(
+            name for name in unknown
+            if first_def.get(name, -1) > cell['index']
+        )
+
+        if flagged:
+            first_name = flagged[0]
+            later_idx  = first_def[first_name]
+            issues.append(Issue(
+                rule_id=f'var_used_before_def_{first_name}',
+                severity='critical',
+                cell_index=cell['index'],
+                title=f"'{first_name}' used before it is defined",
+                message=(
+                    f"'{first_name}' is referenced in cell {cell['index']} "
+                    f"but first assigned in cell {later_idx}."
+                ),
+                explanation=(
+                    f"Running the notebook top-to-bottom (Restart & Run All) will "
+                    f"raise a NameError at cell {cell['index']} because "
+                    f"'{first_name}' is not yet defined — it appears for the first "
+                    f"time in cell {later_idx}."
+                ),
+                suggestion=(
+                    f"Move the definition of '{first_name}' to a cell before "
+                    f"cell {cell['index']}, or reorder the cells so imports and "
+                    f"assignments come first."
+                ),
+                fix_code=None,
+            ))
+
+        cumulative_defs |= defs
+
+    return issues
+
+
+# ---------------------------------------------------------------------------
+# RULE 9 — Used but never imported / defined (static analysis)
+# ---------------------------------------------------------------------------
+
+def check_used_but_never_imported(cells: list) -> List[Issue]:
+    """Notebook-level rule: flag names that are read somewhere in the notebook
+    but never imported, assigned, or defined anywhere in it.
+
+    This catches the "works interactively because the kernel already has the
+    name from a previous session" pattern.  On a clean restart (Kernel →
+    Restart & Run All) the notebook will raise NameError immediately.
+
+    Differences from Rule 8:
+      Rule 8 — name IS defined, but in a LATER cell (order problem).
+      Rule 9 — name is NEVER defined or imported anywhere (missing import).
+
+    Bail-out conditions (to avoid unreliable results):
+      • Any cell contains ``from X import *`` (unknown namespace injection).
+
+    False-positive mitigations:
+      • Python builtins and IPython globals are excluded (_BUILTINS).
+      • Single-character names are excluded (overwhelmingly loop vars).
+      • Comprehension loop variables (Python 3 scoped) are excluded.
+      • Function / class bodies are not inspected for the "load" side.
+      • Each missing name is reported at most once (first cell that uses it).
+
+    Known limitations (documented, not detected):
+      • Names injected by ``%run``, ``%load``, ``exec()``, ``globals()``,
+        or ``from X import *`` will be missed (false negatives).
+      • Names expected from the environment (e.g. ``spark`` in PySpark)
+        will be flagged incorrectly (false positives).  Add an allowlist
+        when user reports justify the complexity.
+    """
+    code_cells = [
+        c for c in cells
+        if c.get('type') == 'code' and c.get('source', '').strip()
+    ]
+    if len(code_cells) < 1:
+        return []
+
+    # Bail out when wildcard imports are present — we can't know what's in scope.
+    if _has_wildcard_import(code_cells):
+        return []
+
+    # Build the complete set of every name defined anywhere in the notebook.
+    # This includes imports, assignments, function/class defs, and for-loop targets.
+    all_defs: Set[str] = set()
+    for cell in code_cells:
+        all_defs |= _ast_definitions(cell.get('source', ''))
+
+    issues: List[Issue] = []
+    reported: Set[str] = set()  # emit each missing name only once
+
+    for cell in code_cells:
+        src = cell.get('source', '')
+        loads     = _ast_top_level_loads(src)
+        comp_vars = _ast_comprehension_vars(src)
+
+        # Names used in this cell that are nowhere in the notebook
+        missing = (
+            loads
+            - all_defs      # defined/imported anywhere in the notebook
+            - comp_vars     # comprehension loop vars (Python 3 scoped)
+            - _BUILTINS
+        )
+
+        for name in sorted(missing):
+            if name in reported:
+                continue
+            # Single-character names are overwhelmingly loop vars / throwaway args
+            if len(name) <= 1:
+                continue
+            reported.add(name)
+
+            fix = _IMPORT_SUGGESTIONS.get(name)
+            issues.append(Issue(
+                rule_id=f'used_not_imported_{name}',
+                severity='critical',
+                cell_index=cell['index'],
+                title=f"'{name}' used but never imported or defined",
+                message=(
+                    f"'{name}' is referenced in cell {cell['index']} "
+                    f"but has no import statement or assignment anywhere "
+                    f"in the notebook."
+                ),
+                explanation=(
+                    f"This works interactively because '{name}' is already "
+                    f"in the kernel namespace from a prior run or session.  "
+                    f"A clean restart (Kernel \u2192 Restart \u2026 Run All) will "
+                    f"raise NameError at cell {cell['index']}."
+                ),
+                suggestion=(
+                    f"Add the missing import or assignment for '{name}' to "
+                    f"a cell before cell {cell['index']}.  "
+                    + (f"Suggested fix: ``{fix}``." if fix else
+                       f"Check which package provides '{name}' and add the import.")
+                ),
+                fix_code=fix,
+                fix_description=f"Add missing import: {fix}" if fix else None,
+            ))
+
+    return issues
+
+
+# ---------------------------------------------------------------------------
+# RULE 12 — In-place variable transformation chain
+# ---------------------------------------------------------------------------
+
+_CHAIN_THRESHOLD = 3  # minimum distinct cells to flag
+
+
+def _self_ref_names_in_cell(source: str) -> Set[str]:
+    """Return names that are self-referentially reassigned in *source*.
+
+    A "self-referential" assignment is one where the same name appears
+    on both the left-hand side (Store) and somewhere in the right-hand
+    side (Load) of a simple assignment:
+        df = df.dropna()          → yes
+        df = df[df.age > 0]      → yes
+        df = df.merge(other_df)  → yes
+        X  = X + 1               → yes
+        df = pd.read_csv(...)    → no  (df not in RHS)
+
+    Only simple, single-target assignments are considered.  Tuple
+    unpacking, augmented assignments, and function definitions are
+    intentionally excluded to keep the false-positive rate low.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return set()
+
+    names: Set[str] = set()
+    for node in ast.iter_child_nodes(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        # Only single-target Name assignments
+        if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
+            continue
+        lhs_name = node.targets[0].id
+        # Check whether that name is read anywhere in the RHS
+        for child in ast.walk(node.value):
+            if (isinstance(child, ast.Name)
+                    and child.id == lhs_name
+                    and isinstance(child.ctx, ast.Load)):
+                names.add(lhs_name)
+                break  # found once — enough
+    return names
+
+
+def check_inplace_transform_chain(cells: list) -> List[Issue]:
+    """Notebook-level rule: flag variables that are self-referentially
+    reassigned (``X = f(X)`` or ``X = X.method()``) across 3+ distinct cells.
+
+    This is informational only — the pattern is idiomatic in data science
+    but is fragile: re-running an individual cell in the chain leaves the
+    variable in an unexpected intermediate state.
+
+    Severity: info  (does not cause a crash; purely a code quality signal)
+    Threshold: 3 cells (hardcoded; configurable in a future release if needed)
+
+    Known limitations:
+      • Only simple, single-target assignments are detected.
+      • ``df.drop(columns=..., inplace=True)`` is not detected (no assignment).
+      • Multiple self-referential assignments within the same cell count as
+        one step (we count distinct cells, not distinct statements).
+      • False positives for loop counters (``n = n + 1``) are expected but
+        rare at module scope; the 3-cell threshold mitigates this.
+    """
+    code_cells = [
+        c for c in cells
+        if c.get('type') == 'code' and c.get('source', '').strip()
+    ]
+    if len(code_cells) < _CHAIN_THRESHOLD:
+        return []
+
+    # name → ordered list of distinct cell indices with a self-ref assignment
+    chains: dict[str, list[int]] = {}
+
+    for cell in code_cells:
+        for name in _self_ref_names_in_cell(cell.get('source', '')):
+            entry = chains.setdefault(name, [])
+            # Track distinct cells only (ignore multiple statements in same cell)
+            if not entry or entry[-1] != cell['index']:
+                entry.append(cell['index'])
+
+    issues: List[Issue] = []
+    for name, cell_indices in sorted(chains.items()):
+        if len(cell_indices) < _CHAIN_THRESHOLD:
+            continue
+
+        cell_list = ', '.join(str(i) for i in cell_indices)
+        issues.append(Issue(
+            rule_id=f'inplace_transform_chain_{name}',
+            severity='info',
+            cell_index=cell_indices[0],
+            title=f"'{name}' transformed in-place across {len(cell_indices)} cells",
+            message=(
+                f"'{name}' is reassigned using itself as input in cells "
+                f"{cell_list}."
+            ),
+            explanation=(
+                f"Each step depends on the result of the previous one.  "
+                f"Re-running any cell individually leaves '{name}' in an "
+                f"unexpected intermediate state, making the results "
+                f"difficult to reproduce selectively."
+            ),
+            suggestion=(
+                f"Consider naming intermediate results to make the pipeline "
+                f"explicit and order-independent:\n"
+                f"  {name}_raw \u2192 {name}_clean \u2192 {name}_filtered\n"
+                f"This makes each cell's input visible and the full pipeline "
+                f"self-documenting."
+            ),
+            fix_code=None,
+            fix_description=None,
+        ))
+
+    return issues
+
+
+# ---------------------------------------------------------------------------
+# RULE 11 — Unpinned package versions in pip install calls
+# ---------------------------------------------------------------------------
+
+# Regex that matches:  !pip install pkg  /  %pip install pkg  (with or
+# without leading whitespace inside a cell line).  Captures the raw
+# argument string after "pip install" so we can tokenise it further.
+_PIP_INSTALL_RE = re.compile(
+    r'^[ \t]*[!%]pip[ \t]+install[ \t]+(.+)$',
+    re.MULTILINE,
+)
+
+# A package spec is considered "pinned" if it contains == (exact pin).
+# Ranges like >=1.0 are intentionally excluded because they are still
+# not reproducible across environments.
+_PINNED_RE = re.compile(r'==')
+
+# Flags / options that appear as tokens in pip install argument strings.
+_PIP_FLAG_RE = re.compile(r'^-')
+
+# Import alias → canonical PyPI distribution name.
+# Used to generate informative fix suggestions (e.g. "pip install sklearn"
+# is invalid; the correct name is "scikit-learn").
+# Silently skip any mapping that produces a lookup failure.
+_IMPORT_TO_DIST: dict[str, str] = {
+    'sklearn':  'scikit-learn',
+    'cv2':      'opencv-python',
+    'PIL':      'Pillow',
+    'skimage':  'scikit-image',
+    'bs4':      'beautifulsoup4',
+    'yaml':     'PyYAML',
+    'dotenv':   'python-dotenv',
+    'usaddress':'usaddress',
+    'fitz':     'PyMuPDF',
+    'gi':       'PyGObject',
+}
+
+# Also the reverse: if a user writes  !pip install scikit-learn  we know
+# the installed distribution name already matches — no mapping needed.
+# But we still want to look up its installed version.
+
+
+def _split_pip_args(raw: str) -> list[str]:
+    """Tokenise the argument string from a pip install invocation.
+
+    Strips flags (``-q``, ``-U``, ``--quiet``, etc.) and ``--`` separators,
+    leaving only package spec tokens (e.g. ``pandas``, ``numpy>=1.24``).
+    """
+    tokens = []
+    for tok in raw.split():
+        tok = tok.strip()
+        if not tok or _PIP_FLAG_RE.match(tok) or tok == '--':
+            continue
+        # Ignore extras markers and inline comments
+        if tok.startswith('#'):
+            break
+        tokens.append(tok)
+    return tokens
+
+
+def _installed_version(dist_name: str) -> Optional[str]:
+    """Return the installed version of *dist_name*, or None on failure."""
+    try:
+        return importlib.metadata.version(dist_name)
+    except Exception:
+        return None
+
+
+def _pkg_base_name(spec: str) -> str:
+    """Strip version/extras from a package spec, returning just the name.
+
+    ``pandas>=1.3,<2``  →  ``pandas``
+    ``torch[cuda]``     →  ``torch``
+    """
+    return re.split(r'[>=<!,\[]', spec, maxsplit=1)[0].strip()
+
+
+def check_unpinned_packages(cell: dict, _cells: list) -> List[Issue]:
+    """Cell-level rule: flag ``!pip install`` / ``%pip install`` calls
+    that install a package **without an exact version pin** (``==``).
+
+    Reproducibility concern: without pinning, a fresh environment may
+    install a newer (or older) version of the package, silently changing
+    behaviour.
+
+    Detection:
+      • Matches ``!pip install`` and ``%pip install`` on any line.
+      • Ignores flags (``-q``, ``-U``, ``--upgrade``, etc.) and ``--``.
+      • A spec is considered "pinned" only when it contains ``==``.
+        Range-only specs such as ``pandas>=1.3`` are flagged.
+      • When possible, the currently-installed version is looked up and
+        embedded in the fix suggestion.
+      • Uses the ``_IMPORT_TO_DIST`` table to map common alias names
+        (e.g. ``sklearn``) to their PyPI distribution name before lookup.
+      • Lookup failures are silently ignored; the fix suggestion is
+        omitted rather than surfacing an error.
+
+    Known limitations:
+      • ``inplace=True`` style installs (``pip install -e .``) are not
+        detected as reproducibility issues and are left as-is.
+      • Conda / mamba / apt install calls are not covered.
+    """
+    if cell.get('type') != 'code':
+        return []
+
+    source = cell.get('source', '')
+    issues: List[Issue] = []
+    seen_specs: set[str] = set()
+
+    for m in _PIP_INSTALL_RE.finditer(source):
+        for spec in _split_pip_args(m.group(1)):
+            base = _pkg_base_name(spec)
+            # Skip empty, already-seen, or editable installs
+            if not base or base in seen_specs or base == '.':
+                continue
+            seen_specs.add(base)
+
+            if _PINNED_RE.search(spec):
+                continue  # already pinned — no issue
+
+            # Resolve distribution name for lookup
+            dist_name = _IMPORT_TO_DIST.get(base, base)
+            version = _installed_version(dist_name)
+
+            if version:
+                fix = f"pip install {dist_name}=={version}"
+                fix_desc = (
+                    f"Pin to the currently installed version: "
+                    f"``pip install {dist_name}=={version}``"
+                )
+            else:
+                fix = None
+                fix_desc = None
+
+            issues.append(Issue(
+                rule_id=f'unpinned_package_{base}',
+                severity='warning',
+                cell_index=cell['index'],
+                title=f"Unpinned dependency: {base}",
+                message=(
+                    f"``pip install {spec}`` installs the latest available "
+                    f"version of '{base}', which may differ across environments."
+                ),
+                explanation=(
+                    f"Without an exact version pin (``==``), a fresh install "
+                    f"may resolve a newer or older release of '{base}' and "
+                    f"silently change results, raise exceptions, or break the "
+                    f"notebook on other machines."
+                ),
+                suggestion=(
+                    f"Pin the package to a specific version: "
+                    f"``pip install {dist_name}=={{version}}``.  "
+                    f"Run ``pip show {dist_name}`` to find the version you "
+                    f"currently use and tested with."
+                    if not version else
+                    f"Replace with: ``{fix}``"
+                ),
+                fix_code=fix,
+                fix_description=fix_desc,
+            ))
+
+    return issues
+
+
+# ---------------------------------------------------------------------------
+# check_empty_cells
+# ---------------------------------------------------------------------------
+
+def check_empty_cells(cells: List[dict]) -> List[Issue]:
+    """Flag code cells whose source is empty or contains only whitespace/comments."""
+    issues: List[Issue] = []
+    for cell in cells:
+        if cell.get('type') != 'code':
+            continue
+        source: str = cell.get('source', '') or ''
+        # Strip comments and whitespace to determine if there is any real content
+        stripped = re.sub(r'#[^\n]*', '', source).strip()
+        if stripped:
+            continue
+        issues.append(Issue(
+            rule_id='empty_cell',
+            severity='info',
+            cell_index=cell['index'],
+            title='Empty code cell',
+            message='This code cell contains no executable statements.',
+            explanation=(
+                'Empty cells add visual noise and can cause confusion during '
+                'handoff or re-execution. They are harmless, but keeping the '
+                'notebook tidy makes it easier for others to follow the flow.'
+            ),
+            suggestion=(
+                'Delete the cell if it serves no purpose, or add a comment '
+                'explaining its intended use.'
+            ),
+        ))
+    return issues

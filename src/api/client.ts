@@ -57,6 +57,8 @@ export interface ChatThread {
   notebookAware?: boolean;
   /** Interaction mode for this thread: 'agent' (default) or 'chat'. */
   cellMode?: 'chat' | 'agent';
+  /** Reasoning mode for this thread: 'off' (default), 'cot', or 'sequential'. */
+  reasoningMode?: 'off' | 'cot' | 'sequential';
 }
 
 /** The persisted chat file containing all threads for one notebook. */
@@ -230,8 +232,11 @@ export interface CompositeStep {
 }
 
 export interface OperationStep {
-  type: 'insert' | 'modify' | 'delete' | 'run_cell';
+  type: 'insert' | 'modify' | 'delete' | 'run_cell' | 'reorder';
+  /** Required for insert/modify/delete/run_cell. Not used for reorder. */
   cellIndex: number;
+  /** For reorder only: cell short IDs in desired final order. */
+  newOrder?: string[];
   cellType?: 'code' | 'markdown';
   content?: string;
   autoExecute?: boolean;
@@ -755,6 +760,9 @@ export class APIClient {
         cellMode: (t.cell_mode === 'chat' || t.cell_mode === 'agent')
           ? (t.cell_mode as 'chat' | 'agent')
           : undefined,
+        reasoningMode: (t.reasoning_mode === 'off' || t.reasoning_mode === 'cot' || t.reasoning_mode === 'sequential')
+          ? (t.reasoning_mode as 'off' | 'cot' | 'sequential')
+          : undefined,
       })) as ChatThread[],
     };
   }
@@ -776,7 +784,8 @@ export class APIClient {
           messages: thread.messages,
           ...(thread.tokenUsage    ? { token_usage:      thread.tokenUsage }    : {}),
           ...(thread.notebookAware !== undefined ? { notebook_aware: thread.notebookAware } : {}),
-          ...(thread.cellMode !== undefined      ? { cell_mode:      thread.cellMode }      : {}),
+          ...(thread.cellMode !== undefined         ? { cell_mode:       thread.cellMode }       : {}),
+          ...(thread.reasoningMode !== undefined    ? { reasoning_mode:  thread.reasoningMode }   : {}),
         },
       }),
     });

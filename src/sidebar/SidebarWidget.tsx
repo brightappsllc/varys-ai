@@ -15,6 +15,8 @@ import { CellEditor } from '../editor/CellEditor';
 import { DiffView, DiffInfo } from '../ui/DiffView';
 import { FileChangeCard, FileChangeEvent } from '../ui/FileChangeCard';
 import { ReproPanel } from '../reproducibility/ReproPanel';
+import { reproStore } from '../reproducibility/store';
+import type { ReproIssue } from '../reproducibility/types';
 import { TagsPanel } from '../tags/TagsPanel';
 
 // ---------------------------------------------------------------------------
@@ -523,6 +525,11 @@ interface PendingOp {
   compositeOpIds?: string[];
   /** Set after the user resolves the op — keeps the diff visible but collapsed. */
   resolved?: 'accepted' | 'undone';
+  /**
+   * Whether the plan required approval (auto-execute was held back).
+   * When true, handleAccept will run autoExecute:true cells after accepting.
+   */
+  requiresApproval?: boolean;
 }
 
 export interface SidebarProps {
@@ -537,6 +544,8 @@ export interface SidebarProps {
    * editor reflects the newly-written content rather than the cached version.
    */
   reloadFile?: (path: string) => void;
+  /** Open (or focus) the Notebook Dependency Graph panel. */
+  onOpenGraph?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -3555,10 +3564,11 @@ interface ThreadBarProps {
   onRename: (id: string, name: string) => void;
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
+  rightSlot?: React.ReactNode;
 }
 
 const ThreadBar: React.FC<ThreadBarProps> = ({
-  threads, currentId, notebookName, onSwitch, onNew, onRename, onDuplicate, onDelete,
+  threads, currentId, notebookName, onSwitch, onNew, onRename, onDuplicate, onDelete, rightSlot,
 }) => {
   const [open, setOpen]           = useState(false);
   const [editingId, setEditingId] = useState('');
@@ -3714,6 +3724,12 @@ const ThreadBar: React.FC<ThreadBarProps> = ({
         </div>
       )}
       </div>
+      {rightSlot && (
+        <>
+          <span className="ds-thread-bar-sep">|</span>
+          <div className="ds-thread-bar-right">{rightSlot}</div>
+        </>
+      )}
     </div>
   );
 };
@@ -3747,14 +3763,15 @@ const ContextChipBubble: React.FC<{ chip: { label: string; preview: string } }> 
 // Chat component
 // ---------------------------------------------------------------------------
 
-const DSAssistantChat: React.FC<SidebarProps> = ({
-  apiClient,
-  notebookReader,
-  cellEditor,
-  notebookTracker,
-  openFile,
-  reloadFile,
-}) => {
+const DSAssistantChat: React.FC<SidebarProps> = (props) => {
+  const {
+    apiClient,
+    notebookReader,
+    cellEditor,
+    notebookTracker,
+    openFile,
+    reloadFile,
+  } = props;
   // Resolves @variable_name references typed in the chat input
   const variableResolver = React.useMemo(
     () => new VariableResolver(notebookTracker),
@@ -3982,6 +3999,26 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
   const [showSettings, setShowSettings]     = useState(false);
   const [showRepro,    setShowRepro]         = useState(false);
   const [showTags,     setShowTags]          = useState(false);
+  const [reproIssues, setReproIssues] = useState<ReproIssue[]>(reproStore.current);
+
+  // Keep the dot badge in sync with reproStore updates.
+  // Also seed the store from the backend on mount so the badge shows
+  // even before the user ever opens the Reproducibility panel.
+  useEffect(() => {
+    const handler = (issues: ReproIssue[]) => setReproIssues(issues);
+    reproStore.subscribe(handler);
+
+    const ctx = notebookReader.getFullContext();
+    if (ctx?.notebookPath) {
+      apiClient.getReproIssues(ctx.notebookPath).then(result => {
+        if (result.issues.length > 0) {
+          reproStore.emit(result.issues);
+        }
+      }).catch(() => { /* backend may not have data yet — ignore */ });
+    }
+
+    return () => reproStore.unsubscribe(handler);
+  }, []);
 
   // Reasoning mode chip: 'off' | 'cot' | 'sequential'
   // 'cot'       = Chain-of-Thought system prompt injection, 1 API call, steps inline
@@ -4080,6 +4117,9 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
   // so handleSwitchThread always sees the correct mode regardless of render timing
   // or async _saveThread lag.
   const threadModeMapRef = useRef<Map<string, CellMode>>(new Map());
+
+  // Per-thread reasoning map — same pattern as threadModeMapRef.
+  const threadReasoningMapRef = useRef<Map<string, ReasoningMode>>(new Map());
 
   // ── Input area resize (drag from top) ─────────────────────────────────────
   const MIN_INPUT_HEIGHT = 56;
@@ -4286,6 +4326,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
       tokenUsage:    existing?.tokenUsage,
       notebookAware: existing?.notebookAware,
       cellMode:      cellModeRef.current,
+      reasoningMode: reasoningModeRef.current,
     };
     // Retry up to 3 times with back-off for transient network failures
     // (e.g. server restarting).  Each attempt is independent of React state.
@@ -4388,6 +4429,20 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     try { localStorage.setItem('ds-assistant-cell-mode', mode); } catch { /* ignore */ }
   };
 
+  const _restoreThreadReasoning = (thread: ChatThread | undefined): void => {
+    if (!thread) return;
+    const mapped = threadReasoningMapRef.current.get(thread.id);
+    const mode: ReasoningMode =
+      mapped !== undefined ? mapped :
+      (REASONING_CYCLE.includes(thread.reasoningMode as ReasoningMode)
+        ? (thread.reasoningMode as ReasoningMode)
+        : 'off');
+    setReasoningMode(mode);
+    reasoningModeRef.current = mode;
+    threadReasoningMapRef.current.set(thread.id, mode);
+    try { localStorage.setItem('ds-varys-reasoning-mode', mode); } catch { /* ignore */ }
+  };
+
   const _restoreFromCache = (path: string): boolean => {
     const cached = historyCacheRef.current.get(path);
     if (!cached || cached.threads.length === 0) return false;
@@ -4414,6 +4469,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     setMessages(_restoredMsgs);
     setPendingOps(_opsFromMessages(_restoredMsgs));
     _restoreThreadMode(lastThread);
+    _restoreThreadReasoning(lastThread);
     // Restore agent panel if there was one pending when we left this file.
     if (cached.agentPanel?.ready) {
       setAgentResultsReady(true);
@@ -4486,6 +4542,15 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
       setCurrentNotebookPath(newPath);
       currentNotebookPathRef.current = newPath;
 
+      // Reset reproducibility badge for the new file and reload its persisted
+      // issues.  Without this the old notebook's issue count bleeds through.
+      reproStore.emit([]);
+      if (newPath.endsWith('.ipynb')) {
+        apiClient.getReproIssues(newPath).then(result => {
+          if (result.issues.length > 0) reproStore.emit(result.issues);
+        }).catch(() => { /* no data yet — badge stays at 0 */ });
+      }
+
       // Always reset agent panel when switching documents.  Without this the
       // panel from a previously-viewed py file bleeds onto notebook tabs.
       setAgentResultsReady(false);
@@ -4523,9 +4588,10 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           threadsRef.current = chatFile.threads;
           setCurrentThreadId(lastId);
           currentThreadIdRef.current = lastId;
-          // Seed the mode map from disk so non-active threads have correct modes.
+          // Seed the mode maps from disk so non-active threads have correct modes.
           chatFile.threads.forEach(t => {
             if (t.cellMode) threadModeMapRef.current.set(t.id, t.cellMode as CellMode);
+            if (t.reasoningMode) threadReasoningMapRef.current.set(t.id, t.reasoningMode as ReasoningMode);
           });
           const _diskMsgs: Message[] =
             lastThread && lastThread.messages.length > 0
@@ -4544,6 +4610,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           setMessages(_diskMsgs);
           setPendingOps(_opsFromMessages(_diskMsgs));
           _restoreThreadMode(lastThread);
+          _restoreThreadReasoning(lastThread);
           _updateCache(newPath, chatFile.threads, lastId);
         } else {
           const t = makeNewThread('Main');
@@ -4591,6 +4658,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           const tName = threadsRef.current.find(t => t.id === outgoingTid)?.name ?? 'Thread';
           void _saveThread(outgoingTid, tName, outgoingMsgs, outgoingPath);
         }
+        reproStore.emit([]);
         setCurrentNotebookPath('');
         currentNotebookPathRef.current = '';
         setCurrentFilePath('');
@@ -4647,6 +4715,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
       if (outgoingNbPath)   _saveAgentStateToCache(outgoingNbPath);
 
       // ── 2. Update path refs and clear UI ─────────────────────────────
+      reproStore.emit([]);
       setCurrentNotebookPath('');
       currentNotebookPathRef.current = '';
       setCurrentFilePath(filePath);
@@ -4677,9 +4746,10 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           threadsRef.current = chatFile.threads;
           setCurrentThreadId(lastId);
           currentThreadIdRef.current = lastId;
-          // Seed the mode map from disk so non-active threads have correct modes.
+          // Seed the mode maps from disk so non-active threads have correct modes.
           chatFile.threads.forEach(t => {
             if (t.cellMode) threadModeMapRef.current.set(t.id, t.cellMode as CellMode);
+            if (t.reasoningMode) threadReasoningMapRef.current.set(t.id, t.reasoningMode as ReasoningMode);
           });
           const _fileMsgs: Message[] =
             lastThread && lastThread.messages.length > 0
@@ -4698,6 +4768,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           setMessages(_fileMsgs);
           setPendingOps(_opsFromMessages(_fileMsgs));
           _restoreThreadMode(lastThread);
+          _restoreThreadReasoning(lastThread);
           _updateCache(filePath, chatFile.threads, lastId);
         } else {
           const t = makeNewThread('Main');
@@ -5902,7 +5973,11 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
 
       const affectedIndices = Array.from(stepIndexMap.values());
       const stepSummary = response.steps
-        .map(s => `- ${s.description ?? `${s.type} cell at index ${s.cellIndex}`}`)
+        .map(s => {
+          if (s.description) return `- ${s.description}`;
+          if (s.type === 'reorder') return `- Reorder ${(s.newOrder ?? []).length} cells`;
+          return `- ${s.type} cell at index ${s.cellIndex}`;
+        })
         .join('\n');
 
       // ── Auto mode ────────────────────────────────────────────────────
@@ -5940,7 +6015,8 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
         cellIndices: affectedIndices,
         steps: response.steps,
         description: response.summary ?? `Created/modified ${response.steps.length} cell(s)`,
-        diffs
+        diffs,
+        requiresApproval: response.requiresApproval,
       };
       setPendingOps(prev => [...prev, op]);
       // Mark the chat bubble and store the diffs directly on the message so
@@ -6016,7 +6092,23 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
 
   const handleAccept = (operationId: string): void => {
     const op = pendingOps.find(o => o.operationId === operationId);
-    if (op) _acceptSingleOrComposite(op);
+    if (op) {
+      _acceptSingleOrComposite(op);
+      // When the plan required approval, auto-execute was held back.
+      // Run cells now so the user doesn't have to manually execute each one.
+      if (op.requiresApproval) {
+        void (async () => {
+          for (const step of op.steps) {
+            if (
+              step.autoExecute === true &&
+              (step.type === 'insert' || step.type === 'modify' || step.type === 'run_cell')
+            ) {
+              try { await cellEditor.executeCell(step.cellIndex); } catch { /* ignore */ }
+            }
+          }
+        })();
+      }
+    }
     setPendingOps(prev =>
       prev.map(o => o.operationId === operationId ? { ...o, resolved: 'accepted' as const } : o)
     );
@@ -6149,6 +6241,7 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
     setMessages(restored);
     setPendingOps(_opsFromMessages(restored));
     _restoreThreadMode(thread);
+    _restoreThreadReasoning(thread);
     setAppliedFixes(new Map());
     setProgressText('');
     setActiveStreamId('');
@@ -6547,12 +6640,6 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           data-tip-below
         >🏷️</button>
         <button
-          className="ds-repro-shield-btn"
-          onClick={() => setShowRepro(true)}
-          data-tip="Reproducibility Guardian"
-          data-tip-below
-        >🛡️</button>
-        <button
           className="ds-theme-toggle-btn"
           onClick={toggleChatTheme}
           data-tip={chatTheme === 'day' ? 'Switch to night mode' : 'Switch to day mode'}
@@ -6584,10 +6671,10 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
           onClick={() => setShowSettings(true)}
           data-tip="Settings"
           data-tip-below
-        >⚙</button>
+        >⚙️</button>
       </div>
 
-      {/* Thread bar */}
+      {/* Thread bar — shield lives here so it is notebook-scoped */}
       <ThreadBar
         threads={threads}
         currentId={currentThreadId}
@@ -6599,6 +6686,55 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
         onRename={(id, name) => void handleRenameThread(id, name)}
         onDuplicate={handleDuplicateThread}
         onDelete={(id) => void handleDeleteThread(id)}
+        rightSlot={currentNotebookPath.endsWith('.ipynb') ? (
+          <span className="ds-thread-bar-icons">
+            <span className="ds-repro-shield-wrap">
+              <button
+                className="ds-repro-shield-btn"
+                onClick={() => setShowRepro(true)}
+                data-tip="Reproducibility Guardian"
+                data-tip-below
+              >🛡️</button>
+              {((): React.ReactNode => {
+                const hasCritical = reproIssues.some(i => i.severity === 'critical');
+                const hasWarning  = reproIssues.some(i => i.severity === 'warning');
+                const hasInfo     = reproIssues.some(i => i.severity === 'info');
+                const color = hasCritical ? '#e53935'
+                            : hasWarning  ? '#F97316'
+                            : hasInfo     ? '#3B82F6'
+                            : null;
+                if (!color) return null;
+                return (
+                  <span
+                    className="ds-repro-dot"
+                    style={{ background: color }}
+                    aria-label={`${reproIssues.length} reproducibility issue${reproIssues.length === 1 ? '' : 's'}`}
+                  />
+                );
+              })()}
+            </span>
+            <button
+              className="ds-graph-open-btn"
+              onClick={() => props.onOpenGraph?.()}
+              title="Notebook dependency graph"
+              data-tip="Dependency Graph"
+              data-tip-below
+            >
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+                {/* top node */}
+                <circle cx="6.5" cy="2" r="1.7" fill="currentColor"/>
+                {/* bottom-left node */}
+                <circle cx="2.2" cy="10.5" r="1.7" fill="currentColor"/>
+                {/* bottom-right node */}
+                <circle cx="10.8" cy="10.5" r="1.7" fill="currentColor"/>
+                {/* left edge */}
+                <line x1="5.7" y1="3.6" x2="3.0" y2="8.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                {/* right edge */}
+                <line x1="7.3" y1="3.6" x2="10.0" y2="8.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+              </svg>
+            </button>
+          </span>
+        ) : undefined}
       />
 
       {/* Message list */}
@@ -6881,7 +7017,6 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
                               title={isStreaming ? 'Thinking…' : (thinkIsCollapsed ? 'Show thought' : 'Hide thought')}
                               style={isStreaming ? { cursor: 'default' } : undefined}
                             >
-                              <span className="ds-thinking-icon">🧠</span>
                               <span className="ds-thinking-label">
                                 {isStreaming ? 'Thinking…' : 'Thought'}
                               </span>
@@ -7041,14 +7176,16 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
             const op = pendingOps.find(o => o.operationId === msg.operationId);
             const diffsToShow = (msg.diffs && msg.diffs.length > 0)
               ? msg.diffs
-              : op?.diffs;
-            if (!diffsToShow || !diffsToShow.length) return null;
+              : (op?.diffs ?? []);
+            // Reorder ops have no cell diffs but still need Accept/Undo buttons.
+            const isReorderOp = op?.steps.some(s => s.type === 'reorder') ?? false;
+            if (!diffsToShow.length && !isReorderOp && !msg.diffResolved) return null;
             const resolvedStatus = msg.diffResolved ?? op?.resolved;
             return (
               <DiffView
                 key={msg.operationId}
                 operationId={msg.operationId}
-                description={op?.description}
+                description={op?.description ?? msg.content?.split('\n')[0]}
                 diffs={diffsToShow}
                 onAccept={handleAccept}
                 onUndo={handleUndo}
@@ -7336,8 +7473,15 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
                       className={`ds-reasoning-item ds-reasoning-item--${opt.mod || 'off'}${reasoningMode === opt.value ? ' ds-reasoning-item--active' : ''}`}
                       onClick={() => {
                         setReasoningMode(opt.value);
+                        reasoningModeRef.current = opt.value;
+                        threadReasoningMapRef.current.set(currentThreadIdRef.current, opt.value);
                         try { localStorage.setItem('ds-varys-reasoning-mode', opt.value); } catch { /* ignore */ }
                         setReasoningDropdownOpen(false);
+                        // Persist immediately so a refresh before the next message
+                        // does not lose the selection.
+                        const tid   = currentThreadIdRef.current;
+                        const tName = threadsRef.current.find(t => t.id === tid)?.name ?? 'Thread';
+                        void _saveThread(tid, tName, messagesRef.current);
                       }}
                     >
                       <span className="ds-reasoning-item-label">{opt.label}</span>
@@ -7480,6 +7624,11 @@ const DSAssistantChat: React.FC<SidebarProps> = ({
                   cellModeRef.current = next;
                   threadModeMapRef.current.set(currentThreadIdRef.current, next);
                   try { localStorage.setItem('ds-assistant-cell-mode', next); } catch { /* ignore */ }
+                  // Persist immediately so a refresh before the next message
+                  // does not lose the selection.
+                  const tid   = currentThreadIdRef.current;
+                  const tName = threadsRef.current.find(t => t.id === tid)?.name ?? 'Thread';
+                  void _saveThread(tid, tName, messagesRef.current);
                 }}
               >
                 <option value="chat">💬 Chat</option>

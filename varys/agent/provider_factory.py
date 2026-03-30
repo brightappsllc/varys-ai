@@ -125,14 +125,33 @@ def build_agent_provider(
 ) -> AgentProvider:
     """Instantiate and return the configured AgentProvider.
 
-    Reads VARYS_AGENT_PROVIDER from local_cfg (project-local) then os.environ.
-    Raises AgentConfigError for missing credentials.
+    Provider resolution order:
+      1. VARYS_AGENT_PROVIDER in project-local config
+      2. VARYS_AGENT_PROVIDER in os.environ
+      3. ds_assistant_chat_provider from app_settings (the user's chat provider)
+      4. Raise AgentConfigError — no implicit Anthropic default
+
+    Raises AgentConfigError for missing credentials or unconfigured provider.
     Raises ToolUseNotSupportedError for known-incompatible models.
     """
     if local_cfg is None:
         local_cfg = {}
 
-    name = get_agent_env("VARYS_AGENT_PROVIDER", local_cfg, "anthropic").lower()
+    # Check if VARYS_AGENT_PROVIDER is explicitly configured (local cfg or env)
+    explicit = get_agent_env("VARYS_AGENT_PROVIDER", local_cfg, "")
+    if explicit:
+        name = explicit.lower()
+    else:
+        # Fall back to the user's configured chat provider so the File Agent /
+        # background scan uses the same LLM stack as chat — no surprise Anthropic
+        # calls when the user is on OpenAI/Google/Bedrock/etc.
+        chat_provider = (app_settings or {}).get("ds_assistant_chat_provider", "")
+        if not chat_provider:
+            raise AgentConfigError(
+                "File Agent provider not configured. "
+                "Set VARYS_AGENT_PROVIDER in your varys.env file."
+            )
+        name = chat_provider.lower()
 
     if name == "anthropic":
         from .utils import validate_agent_config  # type: ignore[attr-defined]

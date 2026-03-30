@@ -29,14 +29,14 @@ dependencies = [
 [project.optional-dependencies]
 anthropic = ["anthropic"]
 openai    = ["openai"]
-ollama    = ["httpx"]
+ollama    = ["httpx>=0.24,<0.28"]
 bedrock   = ["boto3"]
 google    = ["google-genai"]
 rag       = ["chromadb"]
 mcp       = ["mcp>=1.0"]
 images    = ["Pillow>=10.0"]
 # Install all LLM providers + RAG + MCP + image processing at once
-all = ["anthropic", "openai", "httpx", "boto3", "chromadb", "mcp>=1.0", "Pillow>=10.0"]
+all = ["anthropic", "openai", "httpx>=0.24,<0.28", "boto3", "chromadb", "mcp>=1.0", "Pillow>=10.0"]
 
 [project.urls]
 Homepage = "https://github.com/brightappsllc/varys-ai"

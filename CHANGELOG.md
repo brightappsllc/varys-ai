@@ -5,6 +5,66 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.7.0] — Notebook Dependency Graph + Reproducibility Guardian Overhaul
+
+### New Features
+
+#### Notebook Dependency Graph
+- New **DAG panel** accessible from the thread-bar icon and the `varys:open-graph` command palette entry; re-opens correctly after being closed via the tab ×
+- Interactive SVG canvas with **pan and zoom**; click any node to highlight its upstream and downstream paths (unrelated nodes dimmed)
+- **Node labels** derived from SummaryStore with a unified four-priority cascade: (1) typed defined symbol with type/shape sublabel (e.g. `df · DataFrame · 891 × 12`); (2) untyped defined symbol; (3) plot title extraction from `plt.title()`, `plt.suptitle()`, `fig.suptitle()` — including f-string prefix handling; (4) source truncation. Unexecuted cells append `· not executed` to the sublabel at every priority level
+- **Visualization handle suppression**: `plt`, `sns`, `fig`, `ax`, `axes` are filtered from both `defines` and `loads` at build time (stored data unchanged). Eliminates false edges and spurious anomalies sourced from matplotlib/seaborn state handles
+- **Four anomaly types** with distinct visual encoding:
+  - `SKIP_LINK` — orange edge: the execution-order definer of a symbol differs from the position-order definer
+  - `DEAD_SYMBOL` — gray badge on node: a defined symbol is never consumed by any downstream cell
+  - `OUT_OF_ORDER` — solid red edge: non-monotonic execution counts on a dependency path
+  - `UNEXECUTED_IN_CHAIN` — dashed node border + severity badge: an unexecuted cell sits between two executed cells in a dependency chain
+- **Dagre.js** layout engine runs on the main thread with a `requestAnimationFrame` yield so the loading spinner renders before the layout computes
+- Empty and whitespace-only cells are excluded; cells use SummaryStore data when executed, AST fallback when not
+- Backend: new `POST /varys/graph` endpoint in `varys/handlers/graph.py`; registered in `varys/app.py`
+
+#### Reproducibility Guardian — Full Redesign
+- Panel rebuilt from scratch with dedicated **light and dark mode** designs
+- Shield badge in the thread bar now shows a small **severity-colored dot** (red = critical, orange = warning, blue = info) instead of the previous numbered oval — remains hidden for non-notebook files and resets when switching notebooks
+- **Three new rules:**
+  - Rule 9 — *Used but never defined*: flags symbols consumed in a cell that are never imported or assigned in any preceding cell
+  - Rule 11 — *Unpinned package versions*: flags `pip install <pkg>` calls without a `==version` pin
+  - Rule 12 — *In-place transformation chain*: flags the same variable being reassigned multiple times in sequence without an intermediate use
+  - Empty/comment-only code cells flagged at `info` level
+
+---
+
+### Bug Fixes
+
+#### Critical — Notebook Corruption Risk Eliminated
+Three `open("w")` write paths that could silently corrupt or zero-out a notebook on a crash, OOM, or disk-full event were replaced with **atomic temp-file + `os.replace()`** writes:
+
+- **`_ensure_notebook_id`** (`varys/handlers/chat_history.py`) — fires on the first chat message for any notebook without a `metadata.id`. The `nbformat.from_dict()` round-trip was also removed: it ran the full nbformat schema normalizer, which could silently drop cells or outputs from older notebooks. Plain `json.dump` on the already-loaded dict is lossless and sufficient to inject `metadata.id`
+- **Agent preview write** (`varys/agent/agent_runner.py`) — applies staged file changes to disk for the user to review before accepting
+- **Agent revert write** (`varys/handlers/agent_reject.py`) — restores the original file when the user rejects an agent change
+
+#### Agent Provider
+- Background repo scan no longer defaults to Anthropic when `VARYS_AGENT_PROVIDER` is not explicitly set. Falls back to `ds_assistant_chat_provider` (the user's configured chat LLM) instead; raises `AgentConfigError` silently if that provider has no agent implementation, skipping the scan rather than making unexpected API calls
+
+#### Reproducibility Guardian
+- Badge no longer persists across notebook switches — resets correctly when focus moves to a different notebook
+
+#### UI
+- Dependency graph icon is visible in both light and dark mode (inherits `--jp-ui-font-color2` via shared header-button CSS rule)
+- Input placeholder and typed-text color corrected for both light and dark JupyterLab themes
+- Settings gear button now matches the style of other header icon buttons
+- Thought bubble label cleaned up: consistent `"Thought"` casing, no brain emoji, no uppercase transform
+
+---
+
+### Developer / Ops
+
+- `@dagrejs/dagre` added as a bundled dependency for the DAG layout engine
+- New modules: `varys/graph/__init__.py`, `varys/graph/builder.py`, `varys/graph/anomaly.py`, `varys/graph/ast_fallback.py`
+- New frontend modules: `src/graph/graphTypes.ts`, `src/graph/graphUtils.ts`, `src/graph/useGraphData.ts`, `src/graph/GraphNode.tsx`, `src/graph/GraphEdge.tsx`, `src/graph/GraphPanel.tsx`
+
+---
+
 ## [0.5.0] — Varys File Agent: Filesystem Agent
 
 ### New Features

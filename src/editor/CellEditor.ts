@@ -11,6 +11,8 @@ export interface PendingOperation {
   operationId: string;
   cellIndices: number[];
   originalContents: Map<number, string>;
+  /** Populated for reorder ops — used to restore original cell sequence on undo. */
+  originalOrder?: string[];
 }
 
 export interface ApplyResult {
@@ -43,6 +45,97 @@ export class CellEditor {
    * Steps are applied in safe order (modifies first, then inserts ascending,
    * then deletes descending) to prevent index-shift errors.
    */
+  /**
+   * Rearranges notebook cells so they appear in the order specified by
+   * newOrderIds (array of short cell IDs, i.e. the [id:XXXXXXXX] tag values).
+   *
+   * Uses a selection-sort approach: for each target position, finds the cell
+   * with the matching ID and moves it there via the observable cells list.
+   * Returns the original cell ID sequence so the operation can be undone.
+   */
+  /**
+   * Returns the short cell ID (first 8 chars of the UUID, matching the
+   * [id:XXXXXXXX] tag the assembler injects into the LLM context).
+   */
+  private _shortId(cell: any): string {
+    const fullId: string = (cell.model as any).id ?? (cell.model as any).sharedModel?.id ?? '';
+    // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx — first segment is 8 hex chars
+    return fullId.slice(0, 8);
+  }
+
+  /**
+   * Rearranges notebook cells so they appear in the order specified by
+   * newOrderIds (array of 8-char short cell IDs matching [id:XXXXXXXX] tags).
+   *
+   * Uses NotebookActions.moveUp / moveDown — the same actions JupyterLab
+   * fires for the keyboard shortcuts Shift+K / Shift+J.  These are guaranteed
+   * to work in all JupyterLab 4 versions.  A selection-sort pass positions
+   * each target cell one step at a time; internal posMap tracking avoids
+   * reading notebook.widgets after each step.
+   *
+   * Returns the original cell ID sequence so the operation can be undone.
+   */
+  async reorderCells(newOrderIds: string[]): Promise<string[]> {
+    const panel = this.tracker.currentWidget;
+    if (!panel) return [];
+
+    const notebook = panel.content;
+    const n = notebook.widgets.length;
+
+    // Snapshot all short IDs upfront (before any moves)
+    const originalOrder: string[] = [];
+    for (let i = 0; i < n; i++) {
+      originalOrder.push(this._shortId(notebook.widgets[i]));
+    }
+
+    // Internal tracking: currentOrder[pos] = shortId of the cell at position pos.
+    // This is kept in sync manually after every moveUp / moveDown so we never
+    // need to re-read notebook.widgets mid-sort.
+    const currentOrder = [...originalOrder];
+    const posMap = new Map<string, number>();
+    for (let i = 0; i < currentOrder.length; i++) {
+      posMap.set(currentOrder[i], i);
+    }
+
+    for (let targetPos = 0; targetPos < newOrderIds.length; targetPos++) {
+      const targetId = newOrderIds[targetPos];
+      let pos = posMap.get(targetId);
+      if (pos === undefined || pos === targetPos) continue;
+
+      // Place the target cell at its desired position by moving it one step
+      // at a time.  NotebookActions.moveUp/moveDown operate on the active cell.
+      notebook.activeCellIndex = pos;
+
+      while (pos !== targetPos) {
+        if (pos > targetPos) {
+          // Move active cell one step toward the top
+          NotebookActions.moveUp(notebook);
+
+          // After moveUp: cell at pos ↔ cell at pos-1
+          const displaced = currentOrder[pos - 1];
+          currentOrder[pos - 1] = targetId;
+          currentOrder[pos]     = displaced;
+          posMap.set(targetId,   pos - 1);
+          posMap.set(displaced,  pos);
+          pos--;
+        } else {
+          // Move active cell one step toward the bottom
+          NotebookActions.moveDown(notebook);
+
+          // After moveDown: cell at pos ↔ cell at pos+1
+          const displaced = currentOrder[pos + 1];
+          currentOrder[pos + 1] = targetId;
+          currentOrder[pos]     = displaced;
+          posMap.set(targetId,   pos + 1);
+          posMap.set(displaced,  pos);
+          pos++;
+        }
+      }
+    }
+
+    return originalOrder;
+  }
+
   async applyOperations(
     operationId: string,
     steps: OperationStep[]
@@ -52,6 +145,19 @@ export class CellEditor {
     const originalContentsByNbIdx = new Map<number, string>();
     /** Keyed by step array index — returned to caller for diff view */
     const capturedOriginals = new Map<number, string>();
+
+    // --- Reorder (handled atomically — no further steps allowed in same plan) ---
+    const reorderStep = steps.find(s => s.type === 'reorder');
+    if (reorderStep) {
+      const originalOrder = await this.reorderCells(reorderStep.newOrder ?? []);
+      this.pendingOperations.set(operationId, {
+        operationId,
+        cellIndices: [],
+        originalContents: new Map(),
+        originalOrder,
+      });
+      return { stepIndexMap, capturedOriginals };
+    }
 
     // --- Modifications (no index shifting) ---
     for (let i = 0; i < steps.length; i++) {
@@ -346,10 +452,18 @@ export class CellEditor {
   /**
    * Reverses an operation: restores original content for modified cells,
    * deletes inserted cells, and clears highlighting.
+   * For reorder operations, restores the original cell sequence.
    */
   undoOperation(operationId: string): void {
     const op = this.pendingOperations.get(operationId);
     if (!op) {
+      return;
+    }
+
+    if (op.originalOrder) {
+      // Reorder undo: restore original cell sequence
+      void this.reorderCells(op.originalOrder);
+      this.pendingOperations.delete(operationId);
       return;
     }
 

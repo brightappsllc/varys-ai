@@ -20,6 +20,8 @@ export interface SidebarProps {
      * editor reflects the newly-written content rather than the cached version.
      */
     reloadFile?: (path: string) => void;
+    /** Open (or focus) the Notebook Dependency Graph panel. */
+    onOpenGraph?: () => void;
 }
 export interface ExternalMessage {
     /** Text to inject into the chat input (or auto-send). */

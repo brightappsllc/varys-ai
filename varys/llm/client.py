@@ -78,6 +78,12 @@ Example header: `#7  CODE  [id:a3f7b2c1]`
 - "modify": Update existing cell content at cellIndex (no index shift)
 - "delete": Remove cell at cellIndex
 - "run_cell": Execute an existing cell at cellIndex without changing its content
+- "reorder": Rearrange existing cells into a new sequence. Use `newOrder: ["cellId1", "cellId2", ...]`
+  listing every cell's short ID (the `[id:XXXXXXXX]` tag) in the desired final order.
+  This is the **only correct operation for cell reorganisation** — never simulate a move with
+  insert+delete pairs, which risks content loss due to index drift.
+  A reorder plan must contain exactly ONE step of type "reorder" (no other steps).
+  Always set `requiresApproval: true` for reorder plans.
 
 ## Positioning Rules
 - cellIndex 0 = beginning of notebook
@@ -121,6 +127,16 @@ When a SELECTED TEXT block is present and the user says things like
    every emoji, the Quick Info table. Do not invent a different format.
 6. When SELECTED TEXT is present, always prefer operating on the selection
    rather than the whole cell unless the user explicitly says otherwise
+7. **When a skill is active, follow its cell-organisation rules exactly and completely.**
+   If the skill provides a numbered list or table of required cells, produce ALL of them —
+   do not truncate, merge, or skip any row. Count the rows; your plan step count must match.
+   — — —
+   When NO skill is driving the request and the user says "clean up", "tidy", "polish",
+   "fix style", "add labels", or similar: identify the existing cells matching the description
+   and use `modify` steps only. Do NOT add new cells for vague cleanup requests.
+   When the request names a specific section (e.g. "visualization section"), restrict changes
+   to cells whose source CONTAINS that section's code (e.g. `plt.` / `sns.` calls).
+   Do NOT touch import-only or data-loading cells for section cleanup unless explicitly asked.
 
 ## Streaming Feedback — MANDATORY
 ALWAYS write 1–3 sentences BEFORE calling create_operation_plan.
@@ -310,18 +326,26 @@ OPERATION_PLAN_TOOL = {
                     "properties": {
                         "type": {
                             "type": "string",
-                            "enum": ["insert", "modify", "delete", "run_cell"],
+                            "enum": ["insert", "modify", "delete", "run_cell", "reorder"],
                             "description": (
                                 "Operation type. Use 'run_cell' to execute an existing "
-                                "cell without changing its content."
+                                "cell without changing its content. Use 'reorder' to "
+                                "rearrange cells — provide newOrder instead of cellIndex."
                             )
                         },
                         "cellIndex": {
                             "type": "integer",
                             "description": (
-                                "Zero-based cell index. Cell 0 = first cell, "
-                                "Cell 1 = second cell, etc. Use the exact number "
-                                "the user specified."
+                                "Zero-based cell index. Required for insert/modify/delete/run_cell. "
+                                "Not used for 'reorder' (use newOrder instead)."
+                            )
+                        },
+                        "newOrder": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": (
+                                "For 'reorder' only: list of cell short IDs (the [id:XXXXXXXX] "
+                                "tag value) in the desired final order. Include every cell."
                             )
                         },
                         "cellType": {
@@ -342,12 +366,16 @@ OPERATION_PLAN_TOOL = {
                             "description": "Human-readable description of this step"
                         }
                     },
-                    "required": ["type", "cellIndex"]
+                    "required": ["type"]
                 }
             },
             "requiresApproval": {
                 "type": "boolean",
-                "description": "True if any step requires explicit user approval before executing"
+                "description": (
+                    "True if any step requires explicit user approval before executing. "
+                    "Set to false when ALL steps are safe read/display/analysis operations "
+                    "(plots, df.info(), imports, etc.). Always true for reorder plans."
+                )
             },
             "clarificationNeeded": {
                 "type": "string",

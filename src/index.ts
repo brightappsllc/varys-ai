@@ -16,6 +16,7 @@ import { NotebookActions, INotebookTracker, NotebookPanel } from '@jupyterlab/no
 import { ISettingRegistry } from '@jupyterlab/settingregistry';
 import { Menu } from '@lumino/widgets';
 import { DSAssistantSidebar, dispatchNonNotebookFocus, dispatchNotebookActivated } from './sidebar/SidebarWidget';
+import { GraphPanelWidget } from './graph/GraphPanel';
 import { NotebookReader } from './context/NotebookReader';
 import { CellEditor } from './editor/CellEditor';
 import { APIClient } from './api/client';
@@ -55,6 +56,23 @@ const plugin: JupyterFrontEndPlugin<void> = {
     const notebookReader = new NotebookReader(notebookTracker);
     const cellEditor = new CellEditor(notebookTracker);
 
+    // ── Graph panel — created once, shown on demand ──────────────────────────
+    const graphPanel = new GraphPanelWidget(
+      notebookTracker,
+      (cellIndex: number) => {
+        const panel = notebookTracker.currentWidget;
+        if (!panel) return;
+        void app.commands.execute('notebook:scroll-to-cell', { index: cellIndex });
+      },
+    );
+
+    const openGraphPanel = () => {
+      if (!graphPanel.isAttached) {
+        app.shell.add(graphPanel, 'main', { mode: 'split-right' });
+      }
+      app.shell.activateById(graphPanel.id);
+    };
+
     const sidebar = new DSAssistantSidebar({
       apiClient,
       notebookReader,
@@ -72,6 +90,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
         // the agent ran), so docmanager:reload is sufficient.
         try { await app.commands.execute('docmanager:reload'); } catch { /* no-op if not reloadable */ }
       },
+      onOpenGraph: openGraphPanel,
     });
 
     sidebar.id = 'varys-sidebar';
@@ -153,9 +172,16 @@ const plugin: JupyterFrontEndPlugin<void> = {
       }
     });
 
+    const commandGraph = 'varys:open-graph';
+    app.commands.addCommand(commandGraph, {
+      label: 'Varys: Open Dependency Graph',
+      execute: openGraphPanel,
+    });
+
     if (palette) {
       palette.addItem({ command: commandOpen,    category: 'Varys' });
       palette.addItem({ command: commandAnalyze, category: 'Varys' });
+      palette.addItem({ command: commandGraph,   category: 'Varys' });
     }
 
     // ── AI cell actions — context menu + palette ─────────────────────────────
@@ -537,15 +563,14 @@ const plugin: JupyterFrontEndPlugin<void> = {
       try {
         const ctx = notebookReader.getFullContext();
         if (ctx && ctx.cells.length) {
-          const executedIndex = cell
-            ? panel.content.widgets.findIndex(w => w.model === cell.model)
-            : ctx.cells.length - 1;
-          const cellsToAnalyze = executedIndex >= 0
-            ? ctx.cells.filter(c => c.index <= executedIndex)
-            : ctx.cells;
+          // Always send ALL cells so notebook-level rules (especially
+          // execution_order_violation) see the complete execution count
+          // sequence.  Filtering to "cells up to the executed index" caused
+          // false-clean results: when cell #1 (index 0) ran, only that one
+          // cell was sent, so the order check never had enough data.
           apiClient.analyzeReproducibility({
             notebookPath: ctx.notebookPath ?? '',
-            cells: cellsToAnalyze,
+            cells: ctx.cells,
           }).then(result => reproStore.emit(result.issues)).catch(() => { /* non-fatal */ });
         }
       } catch {

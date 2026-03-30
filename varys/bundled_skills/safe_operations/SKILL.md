@@ -19,3 +19,8 @@ name: safe-operations
 - requests.post, requests.put (API write calls)
 - os.remove, shutil.rmtree (file deletion)
 - subprocess calls
+
+## Plan-level requiresApproval rules (MANDATORY):
+- Set `requiresApproval: false` when **every** step in the plan is in the "auto-execute" list above
+- Set `requiresApproval: true` when **any** step is in the "requires approval" list above
+- Cell restructuring / reorder operations always set `requiresApproval: true`
