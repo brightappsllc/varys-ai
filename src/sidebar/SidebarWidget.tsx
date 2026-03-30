@@ -4849,6 +4849,23 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   const [showCmdPopup, setShowCmdPopup] = useState(false);
   const [activeCommand, setActiveCommand] = useState<SlashCommand | null>(null);
 
+  // ── Version update check ──────────────────────────────────────────────────
+  const [updateVersion, setUpdateVersion] = useState<string | null>(null);
+  const [updateUrl,     setUpdateUrl]     = useState('');
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r = await fetch('/varys/version-check');
+        if (!r.ok) return;
+        const d = await r.json() as { update_available: boolean; latest: string; release_url: string };
+        if (d.update_available) {
+          setUpdateVersion(d.latest);
+          setUpdateUrl(d.release_url || '');
+        }
+      } catch { /* network error — silent */ }
+    })();
+  }, []);
+
   // Agent session state (for /file_agent)
   const [agentBadgeVisible, setAgentBadgeVisible] = useState(false);
   const [agentFileChanges, setAgentFileChanges] = useState<FileChangeEvent[]>([]);
@@ -6636,7 +6653,21 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
     <div className={`ds-assistant-sidebar ds-chat-${chatTheme}`}>
       {/* Header */}
       <div className="ds-assistant-header">
-        <span className="ds-assistant-title"><span className="ds-varys-spider">🕷️</span> Varys <span className="ds-varys-version">v0.7.0</span></span>
+        <span className="ds-assistant-title">
+          <span className="ds-varys-spider">🕷️</span>{' '}Varys{' '}
+          <span className="ds-varys-version">v0.7.0</span>
+          {updateVersion && (
+            <a
+              className="ds-varys-update-pill"
+              href={updateUrl || '#'}
+              target="_blank"
+              rel="noreferrer"
+              title={`v${updateVersion} is available — click to view release notes`}
+            >
+              ↑ v{updateVersion}
+            </a>
+          )}
+        </span>
         <button
           className="ds-tags-panel-btn"
           onClick={() => setShowTags(true)}

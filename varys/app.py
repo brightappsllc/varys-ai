@@ -41,6 +41,7 @@ from .handlers.notebook_opened import NotebookOpenedHandler
 from .handlers.warnings import WarningsHandler
 from .handlers.usage import UsageHandler
 from .handlers.graph import GraphHandler
+from .handlers.version_check import VersionCheckHandler
 
 
 class DSAssistantExtension(ExtensionApp):
@@ -392,4 +393,6 @@ class DSAssistantExtension(ExtensionApp):
             (url_path_join(base, "usage"),                  UsageHandler),
             # Notebook Dependency Graph
             (url_path_join(base, "graph"),                  GraphHandler),
+            # Version update check (queries GitHub Releases, cached 1 h)
+            (url_path_join(base, "version-check"),          VersionCheckHandler),
         ])

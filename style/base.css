@@ -3220,6 +3220,29 @@
   line-height: 1;
 }
 
+/* Update-available pill — shown next to the version badge */
+.ds-varys-update-pill {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 1px 5px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border-radius: 8px;
+  text-decoration: none;
+  vertical-align: middle;
+  cursor: pointer;
+  line-height: 1.6;
+  background: #f59e0b;
+  color: #1a1400 !important;
+  transition: background 0.15s, transform 0.1s;
+}
+.ds-varys-update-pill:hover {
+  background: #d97706;
+  transform: scale(1.05);
+  text-decoration: none;
+}
+
 /* Loading / progress text */
 .ds-chat-day .ds-assistant-loading,
 .ds-chat-night .ds-assistant-loading {
