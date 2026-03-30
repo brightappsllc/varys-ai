@@ -201,17 +201,24 @@ function renderUserContent(text: string): string {
   for (const seg of segments) {
     const fenceMatch = seg.match(/^```([\w.-]*)\r?\n([\s\S]*?)```$/);
     if (fenceMatch) {
-      const lang    = fenceMatch[1] ? ` class="language-${_escHtml(fenceMatch[1])}"` : '';
-      const code    = _escHtml(fenceMatch[2]);
+      const lang = fenceMatch[1] ? ` class="language-${_escHtml(fenceMatch[1])}"` : '';
+      const code = _escHtml(fenceMatch[2]);
       html +=
         `<div class="ds-code-block-wrapper">` +
         `<button class="ds-copy-code-btn" aria-label="Copy code">Copy</button>` +
         `<pre><code${lang}>${code}</code></pre>` +
         `</div>`;
     } else if (seg) {
-      // Handle inline backticks, then wrap in a pre-wrap span
-      const withInline = _escHtml(seg).replace(/`([^`\r\n]+)`/g, '<code>$1</code>');
-      html += `<span class="ds-user-text">${withInline}</span>`;
+      // 1. HTML-escape
+      let part = _escHtml(seg);
+      // 2. cell #N → styled span (same highlight used in the input box)
+      part = part.replace(
+        /\b(cell\s*#\s*\d+)(?=[^\d]|$)/gi,
+        '<span class="ds-cell-ref-inline">$1</span>'
+      );
+      // 3. inline `backtick` → <code>
+      part = part.replace(/`([^`\r\n]+)`/g, '<code>$1</code>');
+      html += `<span class="ds-user-text">${part}</span>`;
     }
   }
   return DOMPurify.sanitize(html, {
@@ -7215,9 +7222,9 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                             setEditingText((msg.content ?? '').trim());
                           } : undefined}
                           dangerouslySetInnerHTML={{
-                            __html: msg.displayContent
-                              ? `<span class="ds-user-text">${_escHtml(msg.displayContent.trim())}</span>`
-                              : renderUserContent((msg.content ?? '').trim()),
+                            __html: renderUserContent(
+                              (msg.displayContent ?? msg.content ?? '').trim()
+                            ),
                           }}
                         />
                       ) : (
