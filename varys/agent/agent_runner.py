@@ -88,10 +88,10 @@ class AgentTaskResult:
     files_read: list[str]       # deduplicated, disk reads only
     bash_outputs: list[BashOutput]
     incomplete: bool
-    timed_out: bool = False     # True when the wall-clock timeout fired
     turn_count: int
     duration_seconds: float
     model: str
+    timed_out: bool = False     # True when the wall-clock timeout fired
     # Cumulative token usage across all turns in this run
     token_usage: dict = field(default_factory=lambda: {"input": 0, "output": 0})
     # Commands intercepted by bash_guard before execution
