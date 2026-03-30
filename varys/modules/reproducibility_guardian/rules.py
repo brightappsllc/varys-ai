@@ -393,6 +393,33 @@ def check_python_random_seed(cells: list) -> List[Issue]:
 
 
 # ---------------------------------------------------------------------------
+# IPython magic stripping — shared by every ast.parse call
+# ---------------------------------------------------------------------------
+
+# Line-magic pattern: any line whose first non-whitespace characters are % or !
+# Cell-magic header: %% at the very start of a line (must be removed entirely,
+# along with its argument line, because %%time / %%capture etc. are not Python).
+_MAGIC_LINE_RE = re.compile(r'^\s*[%!].*$', re.MULTILINE)
+
+
+def _strip_magics(source: str) -> str:
+    """Remove IPython line-magics (%, !) and cell-magic headers (%%) from *source*.
+
+    ``ast.parse`` raises SyntaxError on these constructs, causing the entire
+    cell's definitions to be silently dropped.  Stripping them lets us still
+    analyse the remaining Python code in the same cell.
+
+    Examples handled:
+        %matplotlib inline
+        !pip install pandas
+        %%time
+        %%capture
+        get_ipython().run_line_magic(...)  ← already-compiled form (no strip needed)
+    """
+    return _MAGIC_LINE_RE.sub('', source)
+
+
+# ---------------------------------------------------------------------------
 # AST helpers for RULE 8
 # ---------------------------------------------------------------------------
 
@@ -408,7 +435,7 @@ def _ast_definitions(source: str) -> Set[str]:
     new scopes — names assigned inside a function are not visible outside it.
     """
     try:
-        tree = ast.parse(source)
+        tree = ast.parse(_strip_magics(source))
     except SyntaxError:
         return set()
 
@@ -470,7 +497,7 @@ def _ast_top_level_loads(source: str) -> Set[str]:
     to reduce false positives (they run in their own scope).
     """
     try:
-        tree = ast.parse(source)
+        tree = ast.parse(_strip_magics(source))
     except SyntaxError:
         return set()
 
@@ -493,7 +520,7 @@ def _ast_comprehension_vars(source: str) -> Set[str]:
     Example: ``[item.age for item in df.itertuples()]`` → {item}
     """
     try:
-        tree = ast.parse(source)
+        tree = ast.parse(_strip_magics(source))
     except SyntaxError:
         return set()
     names: Set[str] = set()
@@ -514,7 +541,7 @@ def _has_wildcard_import(cells: list) -> bool:
         if cell.get('type') != 'code':
             continue
         try:
-            tree = ast.parse(cell.get('source', ''))
+            tree = ast.parse(_strip_magics(cell.get('source', '')))
         except SyntaxError:
             continue
         for node in ast.walk(tree):
@@ -791,7 +818,7 @@ def _self_ref_names_in_cell(source: str) -> Set[str]:
     intentionally excluded to keep the false-positive rate low.
     """
     try:
-        tree = ast.parse(source)
+        tree = ast.parse(_strip_magics(source))
     except SyntaxError:
         return set()
 
