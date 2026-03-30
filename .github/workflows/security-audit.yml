@@ -1,0 +1,81 @@
+name: Security Audit
+
+# Runs on every PR and weekly on the default branch so supply-chain compromises
+# (e.g. a patched PyPI release like the LiteLLM incident) are caught quickly.
+
+on:
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1"   # every Monday at 06:00 UTC
+  workflow_dispatch:       # allow manual trigger
+
+jobs:
+  pip-audit:
+    name: pip-audit (CVE scan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install varys core + all optional extras
+        run: pip install ".[all,rag-local,rag-pdf]" --quiet
+
+      - name: Run pip-audit
+        run: |
+          pip install pip-audit --quiet
+          # --strict: exit non-zero if any vuln found (fail the CI job)
+          # --output json: machine-readable for downstream tooling
+          pip-audit --strict --output json --file pip-audit-report.json || true
+          pip-audit --strict   # human-readable summary for the CI log
+
+      - name: Upload pip-audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit-report
+          path: pip-audit-report.json
+
+  sbom:
+    name: Generate SBOM (CycloneDX)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install varys core + all optional extras
+        run: pip install ".[all,rag-local,rag-pdf]" --quiet
+
+      - name: Generate CycloneDX SBOM
+        run: |
+          pip install cyclonedx-bom --quiet
+          cyclonedx-py environment \
+            --output-format json \
+            --output-file sbom.json \
+            --schema-version 1.5
+          echo "SBOM generated — $(jq '.components | length' sbom.json) components"
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom.json
+
+      # Cache the SBOM in a branch so it can be referenced by external tools
+      # (e.g. GitHub Dependency Review, Grype, Trivy).
+      - name: Summarise SBOM in job summary
+        run: |
+          echo "## SBOM Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Format | CycloneDX 1.5 JSON |" >> $GITHUB_STEP_SUMMARY
+          echo "| Components | $(jq '.components | length' sbom.json) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Generated | $(date -u +%Y-%m-%dT%H:%M:%SZ) |" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,26 @@
+{
+  "max_suggestions": 3,
+  "tags": [
+    {"value": "data-loading",      "topic": "ML Pipeline", "description": "Cells that load data from files, databases, or APIs."},
+    {"value": "preprocessing",     "topic": "ML Pipeline", "description": "Data cleaning, normalization, and transformation steps."},
+    {"value": "feature-engineering","topic": "ML Pipeline","description": "Feature creation, selection, and encoding."},
+    {"value": "training",          "topic": "ML Pipeline", "description": "Model training and fitting."},
+    {"value": "evaluation",        "topic": "ML Pipeline", "description": "Metrics, validation, and model assessment."},
+    {"value": "inference",         "topic": "ML Pipeline", "description": "Prediction or scoring on new data."},
+    {"value": "todo",              "topic": "Quality",     "description": "Cell needs attention or further work."},
+    {"value": "reviewed",          "topic": "Quality",     "description": "Cell has been reviewed and approved.", "llm_eligible": false},
+    {"value": "needs-refactor",    "topic": "Quality",     "description": "Works but the implementation should be improved."},
+    {"value": "slow",              "topic": "Quality",     "description": "Computationally slow — candidate for optimization."},
+    {"value": "broken",            "topic": "Quality",     "description": "Cell is broken or produces errors."},
+    {"value": "tested",            "topic": "Quality",     "description": "Cell has been verified to produce correct output.", "llm_eligible": false},
+    {"value": "report",            "topic": "Report",      "description": "Output to include in an exported report."},
+    {"value": "figure",            "topic": "Report",      "description": "Cell that generates a figure or chart."},
+    {"value": "table",             "topic": "Report",      "description": "Cell that generates a table."},
+    {"value": "key-finding",       "topic": "Report",      "description": "Contains an important result or insight."},
+    {"value": "report-exclude",    "topic": "Report",      "description": "Explicitly exclude from report output."},
+    {"value": "draft",             "topic": "Status",      "description": "Work in progress — not finalised."},
+    {"value": "stable",            "topic": "Status",      "description": "Unlikely to change; safe dependency for other cells.", "llm_eligible": false},
+    {"value": "deprecated",        "topic": "Status",      "description": "No longer needed; kept for reference.", "llm_eligible": false},
+    {"value": "sensitive",         "topic": "Status",      "description": "Contains sensitive data, credentials, or PII.", "llm_eligible": false}
+  ]
+}

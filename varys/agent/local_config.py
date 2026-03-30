@@ -61,8 +61,8 @@ def load_local_agent_config(notebook_path: str) -> dict[str, str]:
     if path is None or not path.exists():
         return {}
     try:
-        from dotenv import dotenv_values
-        return {k: v for k, v in dotenv_values(path).items() if v is not None}
+        from ..utils.dotenv import parse_dotenv
+        return {k: v for k, v in parse_dotenv(path).items() if v is not None}
     except Exception:
         return {}
 
@@ -107,8 +107,8 @@ def write_local_agent_config(notebook_path: str, updates: dict[str, str]) -> Pat
 
     if path.exists():
         try:
-            from dotenv import dotenv_values
-            on_disk = {k: v for k, v in dotenv_values(path).items() if v is not None}
+            from ..utils.dotenv import parse_dotenv
+            on_disk = {k: v for k, v in parse_dotenv(path).items() if v is not None}
             merged.update(on_disk)
         except Exception:
             pass

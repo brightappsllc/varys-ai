@@ -43,7 +43,13 @@ class RAGStore:
         """Lazy-initialise the ChromaDB client and collection."""
         if self._collection is not None:
             return
+        import os
         import chromadb  # optional dep — ImportError surfaces here if missing
+
+        # Disable chromadb's posthog analytics telemetry.  ChromaDB pulls in the
+        # posthog package and sends anonymous usage data by default; opt out here
+        # so Varys users are never surprised by unexpected outbound traffic.
+        os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
 
         self._chroma_dir.mkdir(parents=True, exist_ok=True)
         self._client = chromadb.PersistentClient(path=str(self._chroma_dir))

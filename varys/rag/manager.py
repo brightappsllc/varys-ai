@@ -447,24 +447,26 @@ class _OpenAIEmbedder:
 
 
 class _GoogleEmbedder:
-    """Call Google's text-embedding API via google-generativeai."""
+    """Call Google's text-embedding API via google-genai (the same SDK used for chat).
+
+    Uses client.models.embed_content() which supports batched input and returns
+    response.embeddings[i].values — consistent with google-genai >= 0.8.
+    """
 
     def __init__(self, api_key: str, model: str) -> None:
         self._api_key = api_key
         self._model   = model
 
     def encode(self, texts: List[str]) -> List[List[float]]:
-        import google.generativeai as genai  # type: ignore
-        genai.configure(api_key=self._api_key)
-        results = []
-        for text in texts:
-            result = genai.embed_content(
-                model=f"models/{self._model}",
-                content=text,
-                task_type="retrieval_document",
-            )
-            results.append(result["embedding"])
-        return results
+        from google import genai  # type: ignore  (google-genai package)
+        from google.genai import types as _gtypes  # type: ignore
+        client = genai.Client(api_key=self._api_key)
+        response = client.models.embed_content(
+            model=self._model,
+            contents=texts,
+            config=_gtypes.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT"),
+        )
+        return [e.values for e in response.embeddings]
 
 
 class _AzureEmbedder:

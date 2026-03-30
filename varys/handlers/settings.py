@@ -200,9 +200,9 @@ def _write_env(path: Path, updates: dict) -> None:
 def _reload_settings(handler: JupyterHandler, env_path: Path) -> None:
     """Re-read .env and update self.settings without restarting Jupyter."""
     try:
-        from dotenv import load_dotenv
-        load_dotenv(env_path, override=True)
-    except ImportError:
+        from ..utils.dotenv import load_dotenv as _load_dotenv
+        _load_dotenv(env_path, override=True)
+    except Exception:
         pass
 
     s = handler.settings
