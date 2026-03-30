@@ -1,6 +1,6 @@
 {
   "name": "varys",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Varys — your DS assistant for Jupyter Notebook",
   "keywords": [
     "jupyter",
