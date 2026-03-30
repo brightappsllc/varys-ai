@@ -192,7 +192,16 @@ def build_agent_provider(
         return OllamaAgentProvider(base_url=base_url, model=model)
 
     else:
-        raise AgentConfigError(
-            f"Unknown VARYS_AGENT_PROVIDER '{name}'. "
-            f"Valid values: anthropic, openai, azure, bedrock, ollama."
-        )
+        if explicit:
+            raise AgentConfigError(
+                f"Unknown VARYS_AGENT_PROVIDER '{name}'. "
+                f"Valid values: anthropic, openai, azure, bedrock, ollama."
+            )
+        else:
+            # Provider came from the chat-provider fallback (e.g. google, openrouter).
+            # These providers don't have a File Agent implementation — skip silently.
+            raise AgentConfigError(
+                f"Your chat provider '{name}' does not support the File Agent. "
+                f"To use /file_agent, set VARYS_AGENT_PROVIDER to one of: "
+                f"anthropic, openai, azure, bedrock, ollama."
+            )

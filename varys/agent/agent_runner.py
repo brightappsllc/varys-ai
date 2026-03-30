@@ -246,8 +246,8 @@ async def run(
         "total_count": 0,
     }
 
-    # Build the provider — raises AgentConfigError for missing credentials,
-    # ToolUseNotSupportedError for proactively detected incompatible models.
+    # Build the provider — raises AgentConfigError for missing credentials or
+    # unsupported provider, ToolUseNotSupportedError for incompatible models.
     try:
         provider = build_agent_provider(app_settings, local_cfg or {})
     except ToolUseNotSupportedError as e:
@@ -259,6 +259,14 @@ async def run(
             error=str(e), error_type="tool_use_not_supported",
             error_provider=e.provider, error_model=e.model,
             error_suggestion=e.suggestion,
+        )
+    except AgentConfigError as e:
+        return AgentTaskResult(
+            file_changes=[], files_read=[], bash_outputs=[],
+            incomplete=True, turn_count=0,
+            duration_seconds=time.monotonic() - start_time,
+            model="",
+            error=str(e), error_type="agent_config_error",
         )
 
     messages = provider.make_initial_messages(task)
