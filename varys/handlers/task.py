@@ -745,14 +745,27 @@ class TaskHandler(JupyterHandler):
         # ── Auto-route non-notebook files in Agent mode ───────────────────
         # When a Python / Markdown / etc. file is in context (frontend set
         # _file_context) and the user chose Agent mode but typed no explicit
-        # slash command, treat the request as /file_agent — mirrors how
-        # notebook agent mode works so the user never has to type /file_agent.
+        # slash command, route to /file_agent (edit) or /file_agent_find
+        # (read-only) based on edit intent.  Pure Q&A questions use find-mode
+        # so they never consume the write-tool budget or hit the turn limit.
         if (
             not slash_command
             and notebook_context.get("_file_context")
             and user_cell_mode == "agent"
         ):
-            slash_command = "/file_agent"
+            _edit_keywords = {
+                "fix", "edit", "modify", "change", "update", "add", "remove",
+                "delete", "create", "write", "refactor", "rename", "replace",
+                "implement", "rewrite", "move", "insert", "append", "convert",
+                "format", "clean", "optimize", "improve", "extend", "extract",
+                "patch", "correct", "restructure", "reorganize", "migrate",
+            }
+            _msg_lower = message.lower()
+            _has_edit_intent = any(
+                _kw in _msg_lower.split() or f"{_kw} " in _msg_lower
+                for _kw in _edit_keywords
+            )
+            slash_command = "/file_agent" if _has_edit_intent else "/file_agent_find"
 
         # ── Varys File Agent routing ───────────────────────────────────────
         # Intercept /file_agent, /file_agent_find, /file_agent_save before
@@ -1968,6 +1981,35 @@ class TaskHandler(JupyterHandler):
                 self.set_header("Content-Type", "application/json")
                 del tool_err_event["type"]
                 self.finish(_json.dumps(tool_err_event))
+            else:
+                self.finish()
+            return
+
+        # ── Handle agent config error (unsupported provider, missing creds) ──
+        # Return the error as a readable chat message, NOT as incomplete=True
+        # (which would show the misleading "turn limit" banner).
+        if result.error_type == "agent_config_error":
+            done_event = {
+                "type":              "done",
+                "operationId":       operation_id,
+                "steps":             [],
+                "requiresApproval":  False,
+                "clarificationNeeded": None,
+                "cellInsertionMode": "chat",
+                "is_file_agent":     True,
+                "chatResponse":      f"⚠ {result.error or 'File Agent is not configured for the current provider.'}",
+                "summary":           "Agent config error",
+                "file_changes":      [],
+                "files_read":        [],
+                "incomplete":        False,
+                "bash_outputs":      [],
+                "blocked_commands":  [],
+            }
+            await _emit(done_event)
+            if not stream_requested:
+                self.set_header("Content-Type", "application/json")
+                del done_event["type"]
+                self.finish(_json.dumps(done_event))
             else:
                 self.finish()
             return
