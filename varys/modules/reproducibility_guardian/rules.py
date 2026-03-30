@@ -302,7 +302,7 @@ def check_execution_order(cells: list) -> List[Issue]:
                 cell_index=offending['index'],
                 title='Cells executed out of order',
                 message=(
-                    f"Cell at position {offending['index']} has execution "
+                    f"Cell at position {offending['index'] + 1} has execution "
                     f"count {offending['executionCount']} but a preceding cell "
                     f"has count {prev}."
                 ),
@@ -641,18 +641,18 @@ def check_undefined_before_definition(cells: list) -> List[Issue]:
                 cell_index=cell['index'],
                 title=f"'{first_name}' used before it is defined",
                 message=(
-                    f"'{first_name}' is referenced in cell {cell['index']} "
-                    f"but first assigned in cell {later_idx}."
+                    f"'{first_name}' is referenced in cell {cell['index'] + 1} "
+                    f"but first assigned in cell {later_idx + 1}."
                 ),
                 explanation=(
                     f"Running the notebook top-to-bottom (Restart & Run All) will "
-                    f"raise a NameError at cell {cell['index']} because "
+                    f"raise a NameError at cell {cell['index'] + 1} because "
                     f"'{first_name}' is not yet defined — it appears for the first "
-                    f"time in cell {later_idx}."
+                    f"time in cell {later_idx + 1}."
                 ),
                 suggestion=(
                     f"Move the definition of '{first_name}' to a cell before "
-                    f"cell {cell['index']}, or reorder the cells so imports and "
+                    f"cell {cell['index'] + 1}, or reorder the cells so imports and "
                     f"assignments come first."
                 ),
                 fix_code=None,
@@ -744,7 +744,7 @@ def check_used_but_never_imported(cells: list) -> List[Issue]:
                 cell_index=cell['index'],
                 title=f"'{name}' used but never imported or defined",
                 message=(
-                    f"'{name}' is referenced in cell {cell['index']} "
+                    f"'{name}' is referenced in cell {cell['index'] + 1} "
                     f"but has no import statement or assignment anywhere "
                     f"in the notebook."
                 ),
@@ -752,11 +752,11 @@ def check_used_but_never_imported(cells: list) -> List[Issue]:
                     f"This works interactively because '{name}' is already "
                     f"in the kernel namespace from a prior run or session.  "
                     f"A clean restart (Kernel \u2192 Restart \u2026 Run All) will "
-                    f"raise NameError at cell {cell['index']}."
+                    f"raise NameError at cell {cell['index'] + 1}."
                 ),
                 suggestion=(
                     f"Add the missing import or assignment for '{name}' to "
-                    f"a cell before cell {cell['index']}.  "
+                    f"a cell before cell {cell['index'] + 1}.  "
                     + (f"Suggested fix: ``{fix}``." if fix else
                        f"Check which package provides '{name}' and add the import.")
                 ),
@@ -854,7 +854,7 @@ def check_inplace_transform_chain(cells: list) -> List[Issue]:
         if len(cell_indices) < _CHAIN_THRESHOLD:
             continue
 
-        cell_list = ', '.join(str(i) for i in cell_indices)
+        cell_list = ', '.join(str(i + 1) for i in cell_indices)
         issues.append(Issue(
             rule_id=f'inplace_transform_chain_{name}',
             severity='info',
