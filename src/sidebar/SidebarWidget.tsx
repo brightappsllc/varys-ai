@@ -4215,6 +4215,9 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   const [activeStreamId, setActiveStreamId] = useState<string>('');
   const [editingMsgId,   setEditingMsgId]   = useState<string | null>(null);
   const [editingText,    setEditingText]     = useState<string>('');
+  // Refs for the contenteditable edit-bubble (mirrors the main input CE pattern)
+  const editCeRef     = useRef<HTMLDivElement>(null);
+  const editCeHtmlRef = useRef<string>('');
 
   // Cancel edit when the user clicks outside the editing bubble
   useEffect(() => {
@@ -4225,6 +4228,21 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
+  }, [editingMsgId]);
+
+  // When editing starts: seed the contenteditable with highlighted HTML and focus it.
+  // editingText is intentionally excluded from deps — we only need to initialise once
+  // per activation; onInput keeps editingText in sync thereafter.
+  useEffect(() => {
+    if (!editingMsgId) { editCeHtmlRef.current = ''; return; }
+    const el = editCeRef.current;
+    if (!el) return;
+    const html = buildHighlightHtml(editingText);
+    el.innerHTML = html;
+    editCeHtmlRef.current = html;
+    moveCECursorToEnd(el);
+    el.focus();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingMsgId]);
 
   // ── Chat thread state ──────────────────────────────────────────────────────
@@ -7117,20 +7135,25 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                     };
                     return (
                       <div className="ds-msg-edit-wrap">
-                        <textarea
-                          className="ds-msg-edit-textarea"
-                          value={editingText}
-                          autoFocus
-                          ref={el => {
-                            if (el) {
-                              el.style.height = 'auto';
-                              el.style.height = el.scrollHeight + 'px';
+                        <div
+                          role="textbox"
+                          aria-multiline="true"
+                          contentEditable
+                          suppressContentEditableWarning
+                          className="ds-msg-edit-textarea ds-msg-edit-ce"
+                          ref={editCeRef}
+                          onInput={() => {
+                            const el = editCeRef.current;
+                            if (!el) return;
+                            const val = el.innerText.replace(/\n$/, '');
+                            setEditingText(val);
+                            const newHtml = buildHighlightHtml(val);
+                            if (newHtml !== editCeHtmlRef.current) {
+                              const pos = getCursorCharOffset(el);
+                              el.innerHTML = newHtml;
+                              editCeHtmlRef.current = newHtml;
+                              setCursorCharOffset(el, pos);
                             }
-                          }}
-                          onChange={e => {
-                            setEditingText(e.target.value);
-                            e.target.style.height = 'auto';
-                            e.target.style.height = e.target.scrollHeight + 'px';
                           }}
                           onKeyDown={e => {
                             if (e.key === 'Enter' && !e.shiftKey) {

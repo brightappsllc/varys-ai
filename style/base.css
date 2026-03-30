@@ -574,6 +574,11 @@
   background: transparent;
   color: inherit;
 }
+/* contenteditable variant — let the div expand naturally; no JS height needed */
+.ds-msg-edit-ce {
+  overflow: visible;
+  word-break: break-word;
+}
 
 /* ── Equalizer-bar cursor shown at end of a streaming message ── */
 .ds-typing-cursor {
