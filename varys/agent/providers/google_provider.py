@@ -19,7 +19,6 @@ from ..provider_base import (
     TextDelta,
     ToolCall,
     TurnEnd,
-    ToolUseNotSupportedError,
 )
 from ..tool_definition import ToolDefinition
 
@@ -200,9 +199,16 @@ class GoogleAgentProvider(AgentProvider):
                         # which must be sent back verbatim in the next history turn.
                         raw_fc_parts.append(part)
                         raw_args = _deep_convert_args(getattr(fc, "args", {}))
+                        # Gemini may prefix function names with "default_api:" or
+                        # "default_api." in some SDK versions; strip to bare name.
+                        raw_name: str = fc.name
+                        if ":" in raw_name:
+                            raw_name = raw_name.split(":")[-1]
+                        elif "." in raw_name:
+                            raw_name = raw_name.rsplit(".", 1)[-1]
                         collected_tool_calls.append(ToolCall(
                             call_id=str(uuid4()),
-                            tool_name=fc.name,
+                            tool_name=raw_name,
                             tool_input=raw_args,
                         ))
                     elif part.text and not getattr(part, "thought", False):
@@ -229,16 +235,11 @@ class GoogleAgentProvider(AgentProvider):
                 yield tc
             yield TurnEnd(stop_reason="tool_use")
         else:
-            if require_tool_use:
-                raise ToolUseNotSupportedError(
-                    provider="google",
-                    model=self._model,
-                    reason="Model returned a plain-text response instead of a tool call.",
-                    suggestion=(
-                        "Try a different Gemini model. Models with function calling: "
-                        "gemini-2.0-flash, gemini-2.5-flash, gemini-1.5-pro, gemini-2.5-pro."
-                    ),
-                )
+            # Do NOT raise ToolUseNotSupportedError here — Gemini commonly
+            # produces a text-only summarisation turn AFTER the tool call
+            # ("I've added the function.").  Raising on that final turn would
+            # discard all staged file changes from earlier turns, matching
+            # the Anthropic provider which ignores require_tool_use entirely.
             yield TurnEnd(stop_reason="end_turn")
 
     def build_assistant_history_message(
