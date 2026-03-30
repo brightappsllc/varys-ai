@@ -191,17 +191,42 @@ def build_agent_provider(
         from .providers.ollama_provider import OllamaAgentProvider
         return OllamaAgentProvider(base_url=base_url, model=model)
 
+    elif name == "google":
+        api_key             = get_agent_env("GOOGLE_API_KEY",             local_cfg, "")
+        service_account_json = get_agent_env("GOOGLE_SERVICE_ACCOUNT_JSON", local_cfg, "")
+        # Fall back to app_settings so users who already have GOOGLE_API_KEY
+        # configured for chat don't need to duplicate it.
+        if not api_key and not service_account_json and app_settings:
+            api_key             = (app_settings or {}).get("ds_assistant_google_api_key", "")
+            service_account_json = (app_settings or {}).get("ds_assistant_google_service_account_json", "")
+        if not api_key and not service_account_json:
+            raise AgentConfigError(
+                "File Agent with provider 'google' requires GOOGLE_API_KEY "
+                "(or GOOGLE_SERVICE_ACCOUNT_JSON). Add it to your varys.env file."
+            )
+        model = (
+            get_agent_env("GOOGLE_CHAT_MODEL", local_cfg, "")
+            or (app_settings or {}).get("ds_assistant_google_chat_model", "")
+            or "gemini-2.0-flash"
+        )
+        from .providers.google_provider import GoogleAgentProvider
+        return GoogleAgentProvider(
+            api_key=api_key,
+            service_account_json=service_account_json,
+            model=model,
+        )
+
     else:
+        _valid = "anthropic, openai, azure, bedrock, ollama, google"
         if explicit:
             raise AgentConfigError(
                 f"Unknown VARYS_AGENT_PROVIDER '{name}'. "
-                f"Valid values: anthropic, openai, azure, bedrock, ollama."
+                f"Valid values: {_valid}."
             )
         else:
-            # Provider came from the chat-provider fallback (e.g. google, openrouter).
-            # These providers don't have a File Agent implementation — skip silently.
+            # Provider came from the chat-provider fallback (e.g. openrouter).
+            # These providers don't have a File Agent implementation.
             raise AgentConfigError(
                 f"Your chat provider '{name}' does not support the File Agent. "
-                f"To use /file_agent, set VARYS_AGENT_PROVIDER to one of: "
-                f"anthropic, openai, azure, bedrock, ollama."
+                f"To use /file_agent, set VARYS_AGENT_PROVIDER to one of: {_valid}."
             )
