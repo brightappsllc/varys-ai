@@ -65,12 +65,13 @@ def _fire_usage(provider, notebook_path: str, context: str) -> None:
 def _strip_null(text: str) -> str:
     """Remove trailing ' null' artefacts that some models emit.
 
-    Only trailing whitespace is stripped after the null removal so that
-    leading spaces — which LLM tokenisers encode as part of the *next* token
-    (e.g. " news", " function") — are preserved.  Stripping both sides was
-    the cause of missing inter-word spaces ("Greatnews", "thisfunction").
+    The regex already eats any surrounding whitespace via \s*…\s*$, so no
+    extra strip() call is needed.  Calling rstrip() here was previously shown
+    to collapse inter-word spaces when the tokeniser encodes the space as the
+    *trailing* character of a token — e.g. Anthropic emits "all " then "26",
+    and rstrip() turned that into "all26".
     """
-    return _re.sub(r'(\s*\bnull\b)+\s*$', '', text).rstrip()
+    return _re.sub(r'(\s*\bnull\b)+\s*$', '', text)
 
 
 # ---------------------------------------------------------------------------
