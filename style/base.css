@@ -3206,11 +3206,18 @@
 .ds-varys-version {
   font-size: 9px;
   font-weight: 400;
-  opacity: 0.45;
   letter-spacing: 0.03em;
   margin-left: 3px;
   align-self: flex-end;
   margin-bottom: 1px;
+  /* matches the Varys title text in each mode */
+  color: inherit;
+}
+.ds-chat-day .ds-varys-version {
+  color: var(--ds-text, #1a1a2e);
+}
+.ds-chat-night .ds-varys-version {
+  color: var(--ds-text, #c5c5cc);
 }
 
 .ds-varys-spider {
@@ -3223,9 +3230,10 @@
 /* Version badge — clickable to open changelog history */
 .ds-varys-version--clickable {
   cursor: pointer;
+  transition: opacity 0.12s;
 }
 .ds-varys-version--clickable:hover {
-  opacity: 0.75;
+  opacity: 0.65;
   text-decoration: underline dotted;
 }
 
