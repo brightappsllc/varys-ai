@@ -7862,7 +7862,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
               </select>
             )}
           </div>
-          {isLoading && (
+          {isLoading ? (
             /* Stop button — circle with a filled square inside */
             <button
               className="ds-assistant-send-btn ds-send-stop"
@@ -7876,7 +7876,22 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                 <rect x="8" y="8" width="8" height="8" rx="1" fill="currentColor"/>
               </svg>
             </button>
-          )}
+          ) : input.trim() ? (
+            /* Send button — filled circle with up arrow; appears when user has typed */
+            <button
+              className="ds-assistant-send-btn ds-send-arrow"
+              onClick={() => void handleSend()}
+              title="Send message (Enter)"
+              aria-label="Send message"
+            >
+              <svg viewBox="0 0 24 24" width="10" height="10" fill="none"
+                   xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 19V5M5 12l7-7 7 7"
+                      stroke="currentColor" strokeWidth="2.5"
+                      strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          ) : null}
         </div>
       </div>
     </div>

@@ -1583,6 +1583,21 @@
   color: #c0392b;
 }
 
+/* Send (↑) button — appears when the user has typed something */
+.ds-assistant-send-btn.ds-send-arrow {
+  background: var(--jp-brand-color1, #1976d2);
+  color: #fff;
+  animation: ds-send-arrow-in 0.12s ease;
+}
+.ds-assistant-send-btn.ds-send-arrow:hover {
+  background: var(--jp-brand-color0, #1565c0);
+  color: #fff;
+}
+@keyframes ds-send-arrow-in {
+  from { opacity: 0; transform: scale(0.65); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
 /* Night-mode adjustments */
 .ds-chat-night .ds-assistant-send-btn {
   background: #2d2d2d;
@@ -1601,6 +1616,14 @@
 .ds-chat-night .ds-assistant-send-btn.ds-send-stop:hover {
   background: #3b1f1f;
   color: #ef9a9a;
+}
+
+.ds-chat-night .ds-assistant-send-btn.ds-send-arrow {
+  background: #1976d2;
+  color: #fff;
+}
+.ds-chat-night .ds-assistant-send-btn.ds-send-arrow:hover {
+  background: #1565c0;
 }
 
 /* ----------------------------------------------------------
