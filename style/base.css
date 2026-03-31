@@ -1621,14 +1621,14 @@
   color: #c0392b;
 }
 
-/* Send (↑) button — appears when the user has typed something */
+/* Send (↑) button — dark charcoal circle, white arrow */
 .ds-assistant-send-btn.ds-send-arrow {
-  background: var(--jp-brand-color1, #1976d2);
+  background: #2e2e2e;
   color: #fff;
   animation: ds-send-arrow-in 0.12s ease;
 }
 .ds-assistant-send-btn.ds-send-arrow:hover {
-  background: var(--jp-brand-color0, #1565c0);
+  background: #444;
   color: #fff;
 }
 @keyframes ds-send-arrow-in {
@@ -1657,11 +1657,11 @@
 }
 
 .ds-chat-night .ds-assistant-send-btn.ds-send-arrow {
-  background: #1976d2;
+  background: #2e2e2e;
   color: #fff;
 }
 .ds-chat-night .ds-assistant-send-btn.ds-send-arrow:hover {
-  background: #1565c0;
+  background: #444;
 }
 
 /* ----------------------------------------------------------
