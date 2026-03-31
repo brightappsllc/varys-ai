@@ -7649,6 +7649,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                 title={`"${ref}" referenced in your query`}
                 aria-label={ref}
               >
+                <span className="ds-nb-ctx-sign">📎</span>
                 {ref}
               </span>
             ))}
