@@ -6865,10 +6865,17 @@
   padding: 2px 6px;
   background: var(--ds-surface, #f0f0f0);
   border-bottom: 1px solid var(--jp-border-color3, #eee);
-  pointer-events: none;       /* don't interfere with cell selection */
+  pointer-events: auto;       /* capture mouse events so JupyterLab hover doesn't bleed */
   min-height: 18px;
+  cursor: default;
 }
-/* Pills opt back into pointer events individually (set in JS) */
+/* SVGs inside overlay buttons must not intercept clicks — the <button> element
+   handles the full bounding-box hit area, so stroked-only paths are no longer
+   the only clickable region. */
+.ds-overlay-autotag-btn svg,
+.ds-overlay-add-btn svg {
+  pointer-events: none;
+}
 
 /* Wrapper that keeps tag pills together on the left */
 .ds-overlay-tags {
