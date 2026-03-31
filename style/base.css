@@ -1969,7 +1969,7 @@
 }
 /* ×/+ sign inside the chip */
 .ds-nb-ctx-sign {
-  font-size: 12px;
+  font-size: 9px;
   line-height: 1;
   transition: opacity 0.15s, filter 0.15s;
 }
