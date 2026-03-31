@@ -4329,16 +4329,30 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
     // can complete AFTER the DELETE API call, silently re-creating the thread.
     if (!threadsRef.current.some(t => t.id === threadId)) return;
     const saved = msgs
-      .filter(m => m.role === 'user' || m.role === 'assistant')
+      .filter(m =>
+        m.role === 'user' ||
+        m.role === 'assistant' ||
+        m.role === 'warning' ||
+        // Persist system messages that are errors or have a special subtype so
+        // they survive page refreshes.  Transient info messages (e.g. "Skill
+        // activated", "@var resolved") are intentionally not persisted.
+        (m.role === 'system' && (
+          m.subtype != null ||
+          /^[❌⛔]|^Error:/i.test(m.content)
+        ))
+      )
       .map(m => ({
         id: m.id,
-        role: m.role as 'user' | 'assistant',
+        role: m.role as 'user' | 'assistant' | 'system' | 'warning',
         content: m.content,
         timestamp: m.timestamp.toISOString(),
         ...(m.thoughts        ? { thoughts: m.thoughts }               : {}),
         ...(m.operationId     ? { operationId: m.operationId }         : {}),
         ...(m.diffs && m.diffs.length > 0 ? { diffs: m.diffs }        : {}),
         ...(m.diffResolved    ? { diffResolved: m.diffResolved }       : {}),
+        ...(m.subtype         ? { subtype: m.subtype }                 : {}),
+        ...(m.errorProvider   ? { errorProvider: m.errorProvider }     : {}),
+        ...(m.errorHasImages !== undefined ? { errorHasImages: m.errorHasImages } : {}),
       }));
     const now = new Date().toISOString();
     const existing = threadsRef.current.find(t => t.id === threadId);
@@ -4489,6 +4503,9 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
             ...(m.operationId   ? { operationId: m.operationId }     : {}),
             ...(m.diffs && m.diffs.length > 0 ? { diffs: m.diffs as DiffInfo[] } : {}),
             ...(m.diffResolved  ? { diffResolved: m.diffResolved }   : {}),
+            ...(m.subtype       ? { subtype: m.subtype }             : {}),
+            ...(m.errorProvider ? { errorProvider: m.errorProvider } : {}),
+            ...(m.errorHasImages !== undefined ? { errorHasImages: m.errorHasImages } : {}),
           }))
         : [];
     setMessages(_restoredMsgs);
@@ -4632,6 +4649,9 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                   ...(m.operationId   ? { operationId: m.operationId }   : {}),
                   ...(m.diffs && m.diffs.length > 0 ? { diffs: m.diffs as DiffInfo[] } : {}),
                   ...(m.diffResolved  ? { diffResolved: m.diffResolved } : {}),
+                  ...(m.subtype       ? { subtype: m.subtype }           : {}),
+                  ...(m.errorProvider ? { errorProvider: m.errorProvider } : {}),
+                  ...(m.errorHasImages !== undefined ? { errorHasImages: m.errorHasImages } : {}),
                 }))
               : [];
           setMessages(_diskMsgs);
@@ -4790,6 +4810,9 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                   ...(m.operationId   ? { operationId: m.operationId }   : {}),
                   ...(m.diffs && m.diffs.length > 0 ? { diffs: m.diffs as DiffInfo[] } : {}),
                   ...(m.diffResolved  ? { diffResolved: m.diffResolved } : {}),
+                  ...(m.subtype       ? { subtype: m.subtype }           : {}),
+                  ...(m.errorProvider ? { errorProvider: m.errorProvider } : {}),
+                  ...(m.errorHasImages !== undefined ? { errorHasImages: m.errorHasImages } : {}),
                 }))
               : [];
           setMessages(_fileMsgs);
@@ -6314,6 +6337,9 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
           ...(m.operationId   ? { operationId: m.operationId }   : {}),
           ...(m.diffs && m.diffs.length > 0 ? { diffs: m.diffs as DiffInfo[] } : {}),
           ...(m.diffResolved  ? { diffResolved: m.diffResolved } : {}),
+          ...(m.subtype       ? { subtype: m.subtype }           : {}),
+          ...(m.errorProvider ? { errorProvider: m.errorProvider } : {}),
+          ...(m.errorHasImages !== undefined ? { errorHasImages: m.errorHasImages } : {}),
         }))
       : [{
           id: `welcome-${threadId}`,
@@ -6378,6 +6404,9 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
           ...(m.operationId   ? { operationId: m.operationId }   : {}),
           ...(m.diffs && m.diffs.length > 0 ? { diffs: m.diffs as DiffInfo[] } : {}),
           ...(m.diffResolved  ? { diffResolved: m.diffResolved } : {}),
+          ...(m.subtype       ? { subtype: m.subtype }           : {}),
+          ...(m.errorProvider ? { errorProvider: m.errorProvider } : {}),
+          ...(m.errorHasImages !== undefined ? { errorHasImages: m.errorHasImages } : {}),
         }))
       : [{
           id: `welcome-${copy.id}`,
