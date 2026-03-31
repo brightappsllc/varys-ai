@@ -3684,15 +3684,14 @@ const ThreadBar: React.FC<ThreadBarProps> = ({
             )}
           </div>
         ))}
+        {/* [+] — add new thread, sits right after the last pill */}
+        <button
+          className="ds-thread-add-btn"
+          onClick={onNew}
+          title="New thread"
+          aria-label="New thread"
+        >+</button>
       </div>
-
-      {/* [+] — add new thread directly */}
-      <button
-        className="ds-thread-add-btn"
-        onClick={onNew}
-        title="New thread"
-        aria-label="New thread"
-      >+</button>
 
       {rightSlot && (
         <>
