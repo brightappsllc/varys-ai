@@ -1943,6 +1943,7 @@
 .ds-reasoning-dropdown {
   position: relative;
   display: inline-flex;
+  margin-left: 8px;
 }
 .ds-reasoning-chevron {
   font-size: 8px;
