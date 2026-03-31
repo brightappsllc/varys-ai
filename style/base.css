@@ -1798,16 +1798,14 @@
 
 /* Individual named tab pill */
 .ds-thread-pill {
-  position: relative;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 2px;
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
   cursor: default;
-  padding: 0 10px;
-  min-width: 56px;
+  padding: 0 6px 0 8px;
   height: 28px;
   font-size: 11px;
   font-family: var(--jp-ui-font-family);
@@ -1822,42 +1820,37 @@
   border-bottom-color: var(--jp-brand-color1, #1976d2);
 }
 
-/* Thread name — visible by default, fades out on hover */
+/* Thread name — always visible; clicking it switches the thread */
 .ds-thread-pill-name {
   font-size: 11px;
   color: var(--jp-ui-font-color2, #777);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 80px;
+  max-width: 72px;
   cursor: pointer;
   user-select: none;
-  transition: opacity 0.13s;
   line-height: 1.4;
 }
 .ds-thread-pill--active .ds-thread-pill-name {
   color: var(--jp-ui-font-color0, #1a1a2e);
   font-weight: 600;
 }
-.ds-thread-pill:hover .ds-thread-pill-name {
-  opacity: 0;
-  pointer-events: none;
-}
 
-/* Action icons — hidden by default, fade in on hover */
+/* Action icons — hidden by default, slide in to the right of the name on hover */
 .ds-thread-pill-actions {
-  position: absolute;
-  inset: 0;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 5px;
+  gap: 1px;
   opacity: 0;
+  max-width: 0;
+  overflow: hidden;
   pointer-events: none;
-  transition: opacity 0.13s;
+  transition: opacity 0.15s, max-width 0.15s;
 }
 .ds-thread-pill:hover .ds-thread-pill-actions {
   opacity: 1;
+  max-width: 56px;   /* enough for 3 × 11px icons + gaps */
   pointer-events: auto;
 }
 
