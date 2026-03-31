@@ -1406,7 +1406,8 @@
   border: 1px solid var(--jp-border-color2);
   border-radius: 6px;
   background: var(--jp-layout-color1);
-  overflow: hidden;
+  /* overflow: hidden intentionally omitted — it would clip the absolutely-
+     positioned reasoning / @-mention dropdown menus that overflow the frame */
 }
 
 /* Focus ring on the frame when the textarea inside is focused */
