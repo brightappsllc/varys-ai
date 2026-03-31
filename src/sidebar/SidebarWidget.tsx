@@ -7617,7 +7617,6 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
             can be pinned to the top-left corner of the input box */}
         <div className="ds-input-body">
           <div className="ds-nb-ctx-row">
-            <span className="ds-nb-ctx-label" title="Context">📎</span>
             {currentFilePath ? (
               <span
                 className="ds-nb-ctx-chip ds-nb-ctx-chip--on ds-nb-ctx-chip--file"
@@ -7625,7 +7624,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                 aria-label={`File context: ${currentFilePath}`}
                 title={currentFilePath}
               >
-                <span className="ds-nb-ctx-sign">×</span>
+                <span className="ds-nb-ctx-sign">📎</span>
                 {currentFilePath.split('/').pop()}
               </span>
             ) : (
@@ -7638,7 +7637,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                 aria-label={notebookAware ? 'Notebook included' : 'Notebook excluded'}
                 title={currentNotebookPath}
               >
-                <span className="ds-nb-ctx-sign">{notebookAware ? '×' : '+'}</span>
+                <span className="ds-nb-ctx-sign">📎</span>
                 {currentNotebookPath ? currentNotebookPath.split('/').pop() : 'notebook'}
               </button>
             )}

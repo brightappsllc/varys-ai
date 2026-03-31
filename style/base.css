@@ -1970,8 +1970,18 @@
 /* ×/+ sign inside the chip */
 .ds-nb-ctx-sign {
   font-size: 12px;
-  font-weight: 600;
   line-height: 1;
+  transition: opacity 0.15s, filter 0.15s;
+}
+/* Bright paperclip when context is included */
+.ds-nb-ctx-chip--on .ds-nb-ctx-sign {
+  opacity: 1;
+  filter: none;
+}
+/* Greyed-out paperclip when context is excluded */
+.ds-nb-ctx-chip--off .ds-nb-ctx-sign {
+  opacity: 0.35;
+  filter: grayscale(1);
 }
 /* Active: blue-tinted background, blue text */
 .ds-nb-ctx-chip--on {
