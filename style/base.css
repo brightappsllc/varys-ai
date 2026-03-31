@@ -6500,7 +6500,7 @@
 
 /* ── Buttons ────────────────────────────────────────────────────────────── */
 .ds-repro-btn {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   padding: 4px 10px;
   border-radius: 6px;
@@ -6512,6 +6512,11 @@
   line-height: 1.4;
 }
 .ds-repro-btn:disabled { opacity: 0.45; cursor: default; }
+.ds-repro-btn-icon {
+  font-size: 14px;
+  line-height: 1;
+  vertical-align: middle;
+}
 
 .ds-repro-btn--analyze {
   border-color: #d1d5db;

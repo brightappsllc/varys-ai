@@ -223,7 +223,7 @@ export const ReproPanel: React.FC<ReproPanelProps> = ({
           onClick={handleAnalyze}
           disabled={loading}
         >
-          {loading ? '⏳ Analyzing…' : '⌕ Analyze'}
+          {loading ? <><span className="ds-repro-btn-icon">⏳</span> Analyzing…</> : <><span className="ds-repro-btn-icon">🔍</span> Analyze</>}
         </button>
       </div>
 
