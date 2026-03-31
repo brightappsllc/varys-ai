@@ -115,6 +115,31 @@ function extractCellRefs(text: string): string[] {
   return result;
 }
 
+/**
+ * Returns all @varName tokens in `text` whose name exists in `symbols`.
+ * Matches anywhere in the text; a confirmed mention is one followed by a
+ * non-word character or end of string.
+ */
+function extractAtMentions(
+  text: string,
+  symbols: { name: string; vtype: string }[],
+): { name: string; vtype: string }[] {
+  if (!symbols.length) return [];
+  const symbolMap = new Map(symbols.map(s => [s.name, s]));
+  const seen  = new Set<string>();
+  const result: { name: string; vtype: string }[] = [];
+  const re = /@([A-Za-z_]\w*)(?=\W|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text + ' ')) !== null) {   // append space so end-of-input matches
+    const name = m[1];
+    if (!seen.has(name) && symbolMap.has(name)) {
+      seen.add(name);
+      result.push(symbolMap.get(name)!);
+    }
+  }
+  return result;
+}
+
 // ── Contenteditable rich-text input helpers ───────────────────────────────
 
 /**
@@ -4269,6 +4294,17 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentNotebookPath]);
 
+  // Proactively load kernel symbols when the notebook changes so that
+  // @-mention context chips can resolve variable names even before the
+  // user types "@".
+  useEffect(() => {
+    if (!currentNotebookPath) return;
+    apiClient.fetchSymbols(currentNotebookPath, [])
+      .then(syms => { if (syms.length > 0) setAtSymbols(syms); })
+      .catch(() => { /* ignore */ });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentNotebookPath]);
+
   // ── Thread persistence helpers ─────────────────────────────────────────────
 
   const _saveThread = async (
@@ -7651,6 +7687,18 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
               >
                 <span className="ds-nb-ctx-sign">📎</span>
                 {ref}
+              </span>
+            ))}
+            {/* @-mention chips — one per valid kernel symbol referenced with @ */}
+            {extractAtMentions(input, atSymbols).map(sym => (
+              <span
+                key={sym.name}
+                className="ds-nb-ctx-chip ds-nb-ctx-chip--on ds-at-ref-ctx-chip"
+                title={`@${sym.name}${sym.vtype ? ` (${sym.vtype})` : ''} — kernel variable in context`}
+                aria-label={`@${sym.name}`}
+              >
+                <span className="ds-nb-ctx-sign">📎</span>
+                @{sym.name}
               </span>
             ))}
             <div className="ds-reasoning-dropdown" ref={reasoningDropdownRef}>

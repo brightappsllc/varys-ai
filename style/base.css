@@ -1534,6 +1534,13 @@
   letter-spacing: 0.01em;
 }
 
+/* @variable mention chips — same as cell-ref chips, monospace for the name */
+.ds-at-ref-ctx-chip {
+  font-family: var(--jp-code-font-family, monospace);
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
 /* ── Contenteditable input div ─────────────────────────────────────────────
    Replaces the <textarea> so individual tokens can be styled inline.
    Must visually match the textarea's metrics exactly.
