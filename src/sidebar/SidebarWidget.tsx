@@ -7713,7 +7713,6 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                 title={`@${sym.name}${sym.vtype ? ` (${sym.vtype})` : ''} — kernel variable in context`}
                 aria-label={`@${sym.name}`}
               >
-                <span className="ds-nb-ctx-sign">📎</span>
                 @{sym.name}
               </span>
             ))}
