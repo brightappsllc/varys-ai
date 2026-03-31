@@ -7627,6 +7627,8 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
             >✕</button>
           </div>
         )}
+        {/* Unified bordered frame: text input on top, controls bar on bottom */}
+        <div className="ds-input-frame">
         {/* @notebook chip + textarea share a relative wrapper so the chip
             can be pinned to the top-left corner of the input box */}
         <div className="ds-input-body">
@@ -7816,7 +7818,28 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
             </div>
           )}
         </div>
-        <div className="ds-assistant-input-bottom">
+          <div className="ds-assistant-input-bottom">
+          {/* Left: cell-mode selector then model switcher */}
+          {(notebookAware || !!currentFilePath) && (
+            <select
+              className="ds-cell-mode-select"
+              value={cellMode}
+              title={CELL_MODE_TITLE[cellMode]}
+              onChange={e => {
+                const next = e.target.value as CellMode;
+                setCellMode(next);
+                cellModeRef.current = next;
+                threadModeMapRef.current.set(currentThreadIdRef.current, next);
+                try { localStorage.setItem('ds-assistant-cell-mode', next); } catch { /* ignore */ }
+                const tid   = currentThreadIdRef.current;
+                const tName = threadsRef.current.find(t => t.id === tid)?.name ?? 'Thread';
+                void _saveThread(tid, tName, messagesRef.current);
+              }}
+            >
+              <option value="chat">💬 Chat</option>
+              <option value="agent">✨ Agent</option>
+            </select>
+          )}
           <ModelSwitcher
             provider={chatProvider}
             model={chatModel}
@@ -7824,6 +7847,8 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
             saving={modelSwitching}
             onSelect={m => void handleModelSelect(m)}
           />
+          {/* Spacer — pushes token counter and send/stop to the far right */}
+          <span className="ds-input-bottom-spacer" />
           {(() => {
             const usage = threads.find(t => t.id === currentThreadId)?.tokenUsage;
             const hasUsage = usage && (usage.input > 0 || usage.output > 0);
@@ -7838,32 +7863,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
               </span>
             );
           })()}
-          <div className="ds-input-controls">
-            {(notebookAware || !!currentFilePath) && (
-              <select
-                className="ds-cell-mode-select"
-                value={cellMode}
-                title={CELL_MODE_TITLE[cellMode]}
-                onChange={e => {
-                  const next = e.target.value as CellMode;
-                  setCellMode(next);
-                  cellModeRef.current = next;
-                  threadModeMapRef.current.set(currentThreadIdRef.current, next);
-                  try { localStorage.setItem('ds-assistant-cell-mode', next); } catch { /* ignore */ }
-                  // Persist immediately so a refresh before the next message
-                  // does not lose the selection.
-                  const tid   = currentThreadIdRef.current;
-                  const tName = threadsRef.current.find(t => t.id === tid)?.name ?? 'Thread';
-                  void _saveThread(tid, tName, messagesRef.current);
-                }}
-              >
-                <option value="chat">💬 Chat</option>
-                <option value="agent">✨ Agent</option>
-              </select>
-            )}
-          </div>
           {isLoading ? (
-            /* Stop button — circle with a filled square inside */
             <button
               className="ds-assistant-send-btn ds-send-stop"
               onClick={handleStop}
@@ -7877,7 +7877,6 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
               </svg>
             </button>
           ) : input.trim() ? (
-            /* Send button — filled circle with up arrow; appears when user has typed */
             <button
               className="ds-assistant-send-btn ds-send-arrow"
               onClick={() => void handleSend()}
@@ -7892,7 +7891,8 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
               </svg>
             </button>
           ) : null}
-        </div>
+          </div>{/* end ds-assistant-input-bottom */}
+        </div>{/* end ds-input-frame */}
       </div>
     </div>
   );

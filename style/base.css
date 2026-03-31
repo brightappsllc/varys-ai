@@ -1396,10 +1396,49 @@
 }
 
 /* Bottom row: model switcher (left) + send button (right) */
+/* ── Unified bordered input frame ──────────────────────────────────────────
+   Single outer box that wraps the text area and the controls bottom bar.
+   The inner textarea is rendered without its own border (see below).
+   ────────────────────────────────────────────────────────────────────────── */
+.ds-input-frame {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 6px;
+  background: var(--jp-layout-color1);
+  overflow: hidden;
+}
+
+/* Focus ring on the frame when the textarea inside is focused */
+.ds-input-frame:focus-within {
+  border-color: var(--jp-brand-color1, #1976d2);
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.15);
+}
+
+/* Remove individual border from the textarea — the frame provides it */
+.ds-input-frame .ds-assistant-input {
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
 .ds-assistant-input-bottom {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  padding: 4px 8px;
+  border-top: 1px solid var(--jp-border-color3, rgba(0,0,0,0.08));
+}
+
+/* Spacer: pushes token counter + send/stop to the far right */
+.ds-input-bottom-spacer {
+  flex: 1;
+}
+
+/* model switcher should not expand in the bottom bar (spacer does that) */
+.ds-assistant-input-bottom .ds-model-switcher {
+  flex: 0 0 auto;
 }
 
 /* Controls row: +nb context  |  send to cell: [dropdown] */
@@ -1407,7 +1446,6 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-left: auto;
   flex-shrink: 0;
 }
 .ds-controls-sep {
@@ -3086,14 +3124,43 @@
 
 /* ── END Themed scrollbars ───────────────────────────────────────────────── */
 
-.ds-chat-day .ds-assistant-input,
-.ds-chat-night .ds-assistant-input {
+/* Themed input frame */
+.ds-chat-day .ds-input-frame,
+.ds-chat-night .ds-input-frame {
   background: var(--ds-input-bg) !important;
-  color:      var(--ds-text) !important;
-  border:     1px solid var(--ds-border) !important;
+  border-color: var(--ds-border) !important;
 }
 
-/* H-5: Night-mode input focus ring */
+.ds-chat-day .ds-input-frame:focus-within,
+.ds-chat-night .ds-input-frame:focus-within {
+  border-color: var(--jp-brand-color1, #1976d2) !important;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.15) !important;
+}
+
+.ds-chat-night .ds-input-frame:focus-within {
+  box-shadow: 0 0 0 2px rgba(126, 200, 227, 0.25) !important;
+}
+
+/* Textarea inside themed frame: no own border, transparent background */
+.ds-chat-day .ds-input-frame .ds-assistant-input,
+.ds-chat-night .ds-input-frame .ds-assistant-input {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: var(--ds-text) !important;
+}
+
+/* Bottom bar separator in dark mode */
+.ds-chat-night .ds-assistant-input-bottom {
+  border-top-color: var(--ds-border, rgba(255,255,255,0.10));
+}
+
+.ds-chat-day .ds-assistant-input,
+.ds-chat-night .ds-assistant-input {
+  color: var(--ds-text) !important;
+}
+
+/* H-5: Night-mode input focus ring (kept for standalone use outside frame) */
 .ds-chat-night .ds-assistant-input:focus {
   box-shadow: 0 0 0 2px rgba(126, 200, 227, 0.25) !important;
 }
