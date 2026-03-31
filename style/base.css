@@ -1875,10 +1875,9 @@
 
 /* "context:" static label */
 .ds-nb-ctx-label {
-  font-size: 10px;
-  font-family: var(--jp-ui-font-family);
-  color: var(--ds-text-dim, #5a5f72);
-  opacity: 0.7;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.75;
   user-select: none;
   white-space: nowrap;
 }

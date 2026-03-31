@@ -7674,7 +7674,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
             can be pinned to the top-left corner of the input box */}
         <div className="ds-input-body">
           <div className="ds-nb-ctx-row">
-            <span className="ds-nb-ctx-label">context:</span>
+            <span className="ds-nb-ctx-label" title="Context">📎</span>
             {currentFilePath ? (
               <span
                 className="ds-nb-ctx-chip ds-nb-ctx-chip--on ds-nb-ctx-chip--file"
