@@ -6693,6 +6693,47 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
         return;
       }
     }
+    if (e.key === 'Enter' && e.shiftKey) {
+      // Insert a literal newline at the cursor position.
+      // We must handle this ourselves because the onInput handler strips one
+      // trailing \n (to remove the phantom <br> browsers add), which means
+      // a browser-inserted newline from Shift+Enter gets silently discarded.
+      e.preventDefault();
+      const el = textareaRef.current;
+      if (!el) return;
+
+      const offset   = getCursorCharOffset(el);
+      const newInput = input.slice(0, offset) + '\n' + input.slice(offset);
+
+      // A lone trailing <br> is invisible in a contenteditable; add a second
+      // one so the cursor has a visible blank line to rest on.
+      let newHtml = buildHighlightHtml(newInput);
+      if (newHtml.endsWith('<br>')) newHtml += '<br>';
+
+      el.innerHTML          = newHtml;
+      ceHtmlRef.current     = newHtml;
+      lastCEText.current    = newInput;
+      setInput(newInput);
+
+      // Place cursor right after the newly inserted newline.
+      if (offset >= input.length) {
+        // Inserted at end: sit between the two trailing <br>s.
+        const brs = Array.from(el.querySelectorAll('br'));
+        const targetBr = brs[brs.length - 2];
+        if (targetBr) {
+          const range = document.createRange();
+          range.setStartAfter(targetBr);
+          range.collapse(true);
+          const sel = window.getSelection();
+          sel?.removeAllRanges();
+          sel?.addRange(range);
+        }
+      } else {
+        setCursorCharOffset(el, offset + 1);
+      }
+      return;
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       void handleSend();
