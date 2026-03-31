@@ -3578,8 +3578,6 @@ function translateCellRefs(
 // ThreadBar component
 // ---------------------------------------------------------------------------
 
-/** Max thread pills shown directly in the bar before overflow into ··· menu */
-const MAX_VISIBLE_THREADS = 4;
 
 interface ThreadBarProps {
   threads: ChatThread[];
@@ -3594,162 +3592,108 @@ interface ThreadBarProps {
 }
 
 const ThreadBar: React.FC<ThreadBarProps> = ({
-  threads, currentId, notebookName, onSwitch, onNew, onRename, onDuplicate, onDelete, rightSlot,
+  threads, currentId, notebookName: _notebookName, onSwitch, onNew, onRename, onDuplicate, onDelete, rightSlot,
 }) => {
-  const [open, setOpen]           = useState(false);
   const [editingId, setEditingId] = useState('');
   const [editValue, setEditValue] = useState('');
   const [renameError, setRenameError] = useState('');
-  const popupRef = useRef<HTMLDivElement>(null);
 
   const tryRename = (id: string, name: string): boolean => {
     const trimmed = name.trim();
     if (!trimmed) return false;
     const collision = threads.some(t => t.id !== id && t.name === trimmed);
-    if (collision) {
-      setRenameError(`"${trimmed}" already exists`);
-      return false;
-    }
+    if (collision) { setRenameError(`"${trimmed}" already exists`); return false; }
     onRename(id, trimmed);
     setRenameError('');
     return true;
   };
 
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setEditingId('');
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
-
-  const visibleThreads = threads.slice(0, MAX_VISIBLE_THREADS);
-  const hiddenCount    = Math.max(0, threads.length - MAX_VISIBLE_THREADS);
-
   return (
-    <div className="ds-thread-bar" ref={popupRef}>
-      {/* Named thread pills — one-click switching, up to MAX_VISIBLE_THREADS */}
+    <div className="ds-thread-bar">
+      {/* All thread pills — scrollable strip; hover reveals actions */}
       <div className="ds-thread-pills">
-        {visibleThreads.map(t => (
-          <button
+        {threads.map(t => (
+          <div
             key={t.id}
-            className={`ds-thread-pill${t.id === currentId ? ' ds-thread-pill--active' : ''}`}
-            onClick={() => onSwitch(t.id)}
-            title={t.name}
+            className={`ds-thread-pill${t.id === currentId ? ' ds-thread-pill--active' : ''}${editingId === t.id ? ' ds-thread-pill--editing' : ''}`}
           >
-            {t.name}
-          </button>
+            {editingId === t.id ? (
+              /* Inline rename input */
+              <div className="ds-thread-rename-wrap">
+                <input
+                  className={`ds-thread-rename-input${renameError ? ' ds-thread-rename-error' : ''}`}
+                  value={editValue}
+                  autoFocus
+                  onChange={e => { setEditValue(e.target.value); setRenameError(''); }}
+                  onBlur={() => { tryRename(t.id, editValue); setEditingId(''); }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') { if (tryRename(t.id, editValue)) setEditingId(''); }
+                    if (e.key === 'Escape') { setEditingId(''); setRenameError(''); }
+                  }}
+                />
+                {renameError && <span className="ds-thread-rename-msg">{renameError}</span>}
+              </div>
+            ) : (
+              <>
+                {/* Name — fades out on hover */}
+                <span
+                  className="ds-thread-pill-name"
+                  onClick={() => onSwitch(t.id)}
+                  title={t.name}
+                >
+                  {t.name}
+                </span>
+                {/* Action icons — slide in on hover */}
+                <span className="ds-thread-pill-actions">
+                  {/* Rename / pen */}
+                  <span
+                    className="ds-thread-pill-btn"
+                    onClick={e => { e.stopPropagation(); setEditingId(t.id); setEditValue(t.name); }}
+                    title="Rename"
+                  >
+                    <svg viewBox="0 0 14 14" width="11" height="11" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M9.5 1.5l3 3L4 13H1v-3L9.5 1.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+                    </svg>
+                  </span>
+                  {/* Duplicate */}
+                  <span
+                    className="ds-thread-pill-btn"
+                    onClick={e => { e.stopPropagation(); onDuplicate(t.id); }}
+                    title="Duplicate"
+                  >
+                    <svg viewBox="0 0 14 14" width="11" height="11" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <rect x="4" y="4" width="8" height="9" rx="1.2" stroke="currentColor" strokeWidth="1.4"/>
+                      <path d="M2 10V2a1 1 0 011-1h7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                    </svg>
+                  </span>
+                  {/* Delete — only when more than one thread exists */}
+                  {threads.length > 1 && (
+                    <span
+                      className="ds-thread-pill-btn ds-thread-pill-btn--delete"
+                      onClick={e => { e.stopPropagation(); onDelete(t.id); }}
+                      title="Delete"
+                    >
+                      <svg viewBox="0 0 14 14" width="11" height="11" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M2 4h10M5 4V2.5a.5.5 0 01.5-.5h3a.5.5 0 01.5.5V4M6 7v3.5M8 7v3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                        <path d="M3 4l.8 7.2a1 1 0 001 .8h4.4a1 1 0 001-.8L11 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                      </svg>
+                    </span>
+                  )}
+                </span>
+              </>
+            )}
+          </div>
         ))}
       </div>
 
-      {/* ··· / +N  — manage all threads, access hidden ones, create new */}
-      <div className="ds-thread-overflow-wrap">
-        <button
-          className={`ds-thread-overflow-btn${open ? ' ds-thread-overflow-btn--open' : ''}`}
-          onClick={() => setOpen(o => !o)}
-          title={open ? 'Close thread menu' : 'Manage threads'}
-          aria-label="Thread menu"
-        >
-          {hiddenCount > 0 ? `+${hiddenCount}` : '···'}
-        </button>
+      {/* [+] — add new thread directly */}
+      <button
+        className="ds-thread-add-btn"
+        onClick={onNew}
+        title="New thread"
+        aria-label="New thread"
+      >+</button>
 
-      {/* Management popup — anchored to the ··· button, not the full bar */}
-      {open && (
-        <div className="ds-thread-popup">
-          {/* Notebook context header */}
-          {notebookName && (
-            <div className="ds-thread-popup-notebook">
-              <span className="ds-thread-popup-nb-icon">📓</span>
-              <span className="ds-thread-popup-nb-name" title={notebookName}>{notebookName}</span>
-            </div>
-          )}
-          {threads.map(t => (
-            <div
-              key={t.id}
-              className={`ds-thread-item${t.id === currentId ? ' ds-thread-item-active' : ''}`}
-            >
-              {editingId === t.id ? (
-                <div className="ds-thread-rename-wrap">
-                  <input
-                    className={`ds-thread-rename-input${renameError ? ' ds-thread-rename-error' : ''}`}
-                    value={editValue}
-                    autoFocus
-                    onChange={e => { setEditValue(e.target.value); setRenameError(''); }}
-                    onBlur={() => {
-                      if (!tryRename(t.id, editValue)) {
-                        if (!renameError) setEditingId('');
-                      } else {
-                        setEditingId('');
-                      }
-                    }}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter') {
-                        if (tryRename(t.id, editValue)) setEditingId('');
-                      }
-                      if (e.key === 'Escape') { setEditingId(''); setRenameError(''); }
-                    }}
-                  />
-                  {renameError && (
-                    <span className="ds-thread-rename-msg">{renameError}</span>
-                  )}
-                </div>
-              ) : (
-                <span
-                  className="ds-thread-item-name"
-                  onClick={() => { onSwitch(t.id); setOpen(false); }}
-                >
-                  {t.id === currentId && <span className="ds-thread-check">✓</span>}
-                  {t.name}
-                </span>
-              )}
-              <div className="ds-thread-actions">
-                {/* Rename */}
-                <span
-                  className="ds-thread-action-btn"
-                  onClick={e => { e.stopPropagation(); setEditingId(t.id); setEditValue(t.name); }}
-                  data-tip="Rename"
-                >
-                  <svg viewBox="0 0 14 14" width="11" height="11" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M9.5 1.5l3 3L4 13H1v-3L9.5 1.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
-                  </svg>
-                </span>
-                {/* Duplicate */}
-                <span
-                  className="ds-thread-action-btn"
-                  onClick={e => { e.stopPropagation(); onDuplicate(t.id); }}
-                  data-tip="Duplicate thread"
-                >
-                  <svg viewBox="0 0 14 14" width="11" height="11" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <rect x="4" y="4" width="8" height="9" rx="1.2" stroke="currentColor" strokeWidth="1.4"/>
-                    <path d="M2 10V2a1 1 0 011-1h7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                  </svg>
-                </span>
-                {/* Delete — only when more than one thread exists */}
-                {threads.length > 1 && (
-                  <span
-                    className="ds-thread-action-btn ds-thread-action-delete"
-                    onClick={e => { e.stopPropagation(); onDelete(t.id); }}
-                    data-tip="Delete thread"
-                  >
-                    <svg viewBox="0 0 14 14" width="11" height="11" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M2 4h10M5 4V2.5a.5.5 0 01.5-.5h3a.5.5 0 01.5.5V4M6 7v3.5M8 7v3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                      <path d="M3 4l.8 7.2a1 1 0 001 .8h4.4a1 1 0 001-.8L11 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                    </svg>
-                  </span>
-                )}
-              </div>
-            </div>
-          ))}
-          <div className="ds-thread-new-item" onClick={() => { onNew(); setOpen(false); }}>
-            + New thread
-          </div>
-        </div>
-      )}
-      </div>
       {rightSlot && (
         <>
           <span className="ds-thread-bar-sep">|</span>

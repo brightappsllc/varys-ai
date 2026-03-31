@@ -1788,51 +1788,121 @@
 .ds-thread-pills {
   display: flex;
   align-items: stretch;
-  flex: 0 1 auto;   /* size to content; shrink if needed, never grow to fill row */
+  flex: 1 1 0;
   min-width: 0;
-  overflow: hidden;
+  overflow-x: auto;
+  scrollbar-width: none;          /* Firefox */
   gap: 0;
 }
+.ds-thread-pills::-webkit-scrollbar { display: none; }  /* Chrome/Safari */
 
 /* Individual named tab pill */
 .ds-thread-pill {
+  position: relative;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
-  cursor: pointer;
-  padding: 4px 8px 3px;
+  cursor: default;
+  padding: 0 10px;
+  min-width: 56px;
+  height: 28px;
   font-size: 11px;
   font-family: var(--jp-ui-font-family);
+  border-radius: 3px 3px 0 0;
+  flex-shrink: 0;
+  transition: background 0.12s, border-bottom-color 0.12s;
+}
+.ds-thread-pill:hover {
+  background: var(--jp-layout-color2, rgba(0,0,0,0.05));
+}
+.ds-thread-pill--active {
+  border-bottom-color: var(--jp-brand-color1, #1976d2);
+}
+
+/* Thread name — visible by default, fades out on hover */
+.ds-thread-pill-name {
+  font-size: 11px;
   color: var(--jp-ui-font-color2, #777);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 82px;
-  border-radius: 3px 3px 0 0;
-  flex-shrink: 0;
-  transition: color 0.12s, background 0.12s, border-bottom-color 0.12s;
+  max-width: 80px;
+  cursor: pointer;
+  user-select: none;
+  transition: opacity 0.13s;
   line-height: 1.4;
 }
-.ds-thread-pill:hover {
-  color: var(--jp-ui-font-color0, #222);
-  background: var(--jp-layout-color2, rgba(0,0,0,0.05));
-}
-.ds-thread-pill--active {
+.ds-thread-pill--active .ds-thread-pill-name {
   color: var(--jp-ui-font-color0, #1a1a2e);
   font-weight: 600;
-  border-bottom-color: var(--jp-brand-color1, #1976d2);
+}
+.ds-thread-pill:hover .ds-thread-pill-name {
+  opacity: 0;
+  pointer-events: none;
 }
 
-/* Wrapper that establishes the positioning context for the popup */
-.ds-thread-overflow-wrap {
-  position: relative;
-  flex-shrink: 0;
+/* Action icons — hidden by default, fade in on hover */
+.ds-thread-pill-actions {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.13s;
+}
+.ds-thread-pill:hover .ds-thread-pill-actions {
+  opacity: 1;
+  pointer-events: auto;
 }
 
-/* ··· / +N  overflow + manage button */
-.ds-thread-overflow-btn {
+/* Individual icon button inside the pill */
+.ds-thread-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border-radius: 3px;
+  cursor: pointer;
+  color: var(--jp-ui-font-color2, #666);
+  transition: color 0.1s, background 0.1s;
+}
+.ds-thread-pill-btn:hover {
+  color: var(--jp-ui-font-color0, #222);
+  background: rgba(0,0,0,0.08);
+}
+.ds-thread-pill-btn--delete:hover {
+  color: #c0392b;
+  background: rgba(192,57,43,0.08);
+}
+
+/* Inline rename input inside a pill */
+.ds-thread-pill--editing {
+  min-width: 90px;
+}
+.ds-thread-pill--editing .ds-thread-rename-wrap {
+  width: 100%;
+  padding: 0 4px;
+}
+.ds-thread-pill--editing .ds-thread-rename-input {
+  width: 100%;
+  font-size: 11px;
+  font-family: var(--jp-ui-font-family);
+  border: 1px solid var(--jp-brand-color1, #1976d2);
+  border-radius: 3px;
+  padding: 1px 4px;
+  outline: none;
+  background: var(--jp-layout-color1, #fff);
+  color: var(--jp-ui-font-color1, #333);
+}
+
+/* [+] add-thread button */
+.ds-thread-add-btn {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -1840,17 +1910,16 @@
   background: none;
   border: none;
   cursor: pointer;
-  padding: 3px 7px;
+  width: 24px;
+  height: 24px;
   border-radius: 4px;
-  font-size: 11px;
-  font-family: var(--jp-ui-font-family);
+  font-size: 16px;
+  line-height: 1;
   color: var(--jp-ui-font-color3, #aaa);
-  letter-spacing: 0.06em;
-  min-width: 26px;
+  margin: 0 2px;
   transition: background 0.12s, color 0.12s;
 }
-.ds-thread-overflow-btn:hover,
-.ds-thread-overflow-btn--open {
+.ds-thread-add-btn:hover {
   background: var(--jp-layout-color2, rgba(0,0,0,0.07));
   color: var(--jp-ui-font-color1, #444);
 }
@@ -2326,24 +2395,40 @@
 .ds-chat-night .ds-thread-bar {
   border-color: var(--ds-border, rgba(255,255,255,0.1));
 }
-.ds-chat-night .ds-thread-pill {
-  color: var(--ds-text-dim, #8890a8);
-}
 .ds-chat-night .ds-thread-pill:hover {
-  color: var(--ds-text, #c5c5cc);
   background: var(--ds-surface2, rgba(255,255,255,0.06));
 }
 .ds-chat-night .ds-thread-pill--active {
-  color: var(--ds-text, #e0e0e0);
   border-bottom-color: #6272a4;
 }
-.ds-chat-night .ds-thread-overflow-btn {
+.ds-chat-night .ds-thread-pill-name {
+  color: var(--ds-text-dim, #8890a8);
+}
+.ds-chat-night .ds-thread-pill--active .ds-thread-pill-name {
+  color: var(--ds-text, #e0e0e0);
+}
+.ds-chat-night .ds-thread-pill-btn {
+  color: var(--ds-text-dim, #6b6f88);
+}
+.ds-chat-night .ds-thread-pill-btn:hover {
+  background: rgba(255,255,255,0.12);
+  color: var(--ds-text, #c5c5cc);
+}
+.ds-chat-night .ds-thread-pill-btn--delete:hover {
+  color: #ff6b6b;
+  background: rgba(229, 57, 53, 0.22);
+}
+.ds-chat-night .ds-thread-add-btn {
   color: var(--ds-text-dim, #55576a);
 }
-.ds-chat-night .ds-thread-overflow-btn:hover,
-.ds-chat-night .ds-thread-overflow-btn--open {
+.ds-chat-night .ds-thread-add-btn:hover {
   background: var(--ds-surface2, rgba(255,255,255,0.06));
   color: var(--ds-text, #c5c5cc);
+}
+.ds-chat-night .ds-thread-pill--editing .ds-thread-rename-input {
+  background: var(--ds-surface2, #2a2a2a);
+  border-color: #6272a4;
+  color: var(--ds-text, #e0e0e0);
 }
 /* Night mode: context chip */
 .ds-chat-night .ds-nb-ctx-label {
