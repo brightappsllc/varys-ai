@@ -144,20 +144,36 @@ function extractAtMentions(
 
 /**
  * Builds the innerHTML to set on the contenteditable input div.
- * "cell #N" tokens followed by a non-digit are wrapped in a styled span;
- * all other text is HTML-escaped.  Newlines become <br> so they render
- * correctly inside a div (unlike a textarea where they are native).
+ * • "cell #N" tokens (followed by a non-digit) → ds-cell-ref-inline (blue italic)
+ * • "@varName" tokens → ds-at-ref-inline (same blue italic, monospace)
+ * All other text is HTML-escaped; newlines become <br>.
+ *
+ * @param validSymbols  Optional set of kernel variable names.  When provided,
+ *                      only @names in the set are highlighted; otherwise ALL
+ *                      @identifier tokens are highlighted.
  */
-function buildHighlightHtml(text: string): string {
-  const re = /\b(cell\s*#\s*\d+)(?=\D)/gi;
+function buildHighlightHtml(text: string, validSymbols?: Set<string>): string {
+  // Combined pattern — group 1: cell ref, group 2: @mention
+  const re = /\b(cell\s*#\s*\d+)(?=\D)|(@[A-Za-z_]\w*)(?=\W|$)/g;
   const parts: string[] = [];
   let lastIdx = 0;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
+  // Append a space so end-of-string @mentions are matched by the lookahead
+  const src = text + ' ';
+  while ((m = re.exec(src)) !== null) {
+    if (m.index >= text.length) break;           // skip the appended space
+    const token = m[0];
+    const isCellRef = !!m[1];
+    const isAtMention = !!m[2];
+    // For @mentions, only highlight if it's a known symbol (or no filter given)
+    if (isAtMention && validSymbols && !validSymbols.has(token.slice(1))) {
+      continue;
+    }
     parts.push(_escHtml(text.slice(lastIdx, m.index)).replace(/\n/g, '<br>'));
-    parts.push(`<span class="ds-cell-ref-inline">${_escHtml(m[0])}</span>`);
-    lastIdx = m.index + m[0].length;
-    if (m[0].length === 0) re.lastIndex++;
+    const cls = isCellRef ? 'ds-cell-ref-inline' : 'ds-at-ref-inline';
+    parts.push(`<span class="${cls}">${_escHtml(token)}</span>`);
+    lastIdx = m.index + token.length;
+    if (token.length === 0) re.lastIndex++;
   }
   parts.push(_escHtml(text.slice(lastIdx)).replace(/\n/g, '<br>'));
   return parts.join('');
@@ -4164,7 +4180,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
     const el = textareaRef.current;
     if (!el) return;
     if (input === lastCEText.current) return; // user's own typing, already handled
-    const newHtml = buildHighlightHtml(input);
+    const newHtml = buildHighlightHtml(input, new Set(atSymbols.map(s => s.name)));
     el.innerHTML = newHtml;
     ceHtmlRef.current = newHtml;
     if (input) moveCECursorToEnd(el);
@@ -6686,7 +6702,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
 
       // A lone trailing <br> is invisible in a contenteditable; add a second
       // one so the cursor has a visible blank line to rest on.
-      let newHtml = buildHighlightHtml(newInput);
+      let newHtml = buildHighlightHtml(newInput, new Set(atSymbols.map(s => s.name)));
       if (newHtml.endsWith('<br>')) newHtml += '<br>';
 
       el.innerHTML          = newHtml;
@@ -7820,8 +7836,8 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
               } else {
                 setAtAnchorPos(-1);
               }
-              // Update inline cell-ref highlighting when the pattern changes
-              const newHtml = buildHighlightHtml(val);
+              // Update inline cell-ref / @-mention highlighting
+              const newHtml = buildHighlightHtml(val, new Set(atSymbols.map(s => s.name)));
               if (newHtml !== ceHtmlRef.current) {
                 const pos = getCursorCharOffset(el);
                 el.innerHTML = newHtml;

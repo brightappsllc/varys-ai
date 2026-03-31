@@ -1588,8 +1588,15 @@
   font-style: italic;
   font-weight: 500;
 }
+.ds-at-ref-inline {
+  color: var(--jp-brand-color1, #1976d2);
+  font-style: italic;
+  font-weight: 500;
+  font-family: var(--jp-code-font-family, monospace);
+}
 
-.ds-chat-night .ds-cell-ref-inline {
+.ds-chat-night .ds-cell-ref-inline,
+.ds-chat-night .ds-at-ref-inline {
   color: var(--jp-brand-color1, #7ec8e3);
 }
 
