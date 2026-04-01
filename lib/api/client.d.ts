@@ -264,15 +264,6 @@ export interface TaskResponse {
     compositePlan?: CompositeStep[];
     /** Display name of the triggered composite skill. */
     compositeName?: string;
-    /** RAG source citations — populated when /ask command was used. */
-    ragSources?: Array<{
-        text: string;
-        source: string;
-        type: string;
-        cell_idx?: number | null;
-        page?: number | null;
-        score?: number;
-    }>;
     /** Token usage for this response (input + output). */
     tokenUsage?: TokenUsage;
     /**
@@ -466,31 +457,6 @@ export declare class APIClient {
         tags?: string[];
     }): void;
     healthCheck(): Promise<Record<string, unknown>>;
-    /**
-     * Index a file or directory into the local knowledge base.
-     * Returns an EventSource-compatible response (SSE).
-     * Calls onProgress(msg) for each progress event, resolves with the
-     * final result object on "done".
-     */
-    ragLearn(path: string, onProgress: (msg: string) => void, force?: boolean, notebookPath?: string): Promise<{
-        total: number;
-        processed: number;
-        skipped: number;
-        errors: string[];
-    }>;
-    /** Return a summary of the current knowledge-base index. */
-    ragStatus(notebookPath?: string): Promise<{
-        available: boolean;
-        total_chunks: number;
-        indexed_files: number;
-        files: string[];
-        hint?: string;
-    }>;
-    /** Remove a specific file from the knowledge-base index. */
-    ragForget(path: string, notebookPath?: string): Promise<{
-        ok: boolean;
-        chunks_removed: number;
-    }>;
     getMCPStatus(): Promise<{
         servers: Record<string, {
             status: 'connected' | 'connecting' | 'disconnected' | 'error' | 'disabled';

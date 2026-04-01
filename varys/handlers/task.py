@@ -312,38 +312,6 @@ async def _run_mcp_tool_loop(
 
 
 # ---------------------------------------------------------------------------
-# RAG augmentation helper
-# ---------------------------------------------------------------------------
-
-async def _rag_augment(
-    settings: dict, query: str, notebook_path: str = "", top_k: int = 0
-) -> Tuple[str, List[dict]]:
-    """Retrieve relevant chunks from the knowledge base for *query*.
-
-    Returns (context_string, sources_list).  Both are empty if RAG is not
-    available or the index is empty.
-    """
-    try:
-        from ..rag.manager import RAGManager
-        from ..utils.paths import nb_base
-        root_dir = settings.get("ds_assistant_root_dir", ".")
-        base     = nb_base(root_dir, notebook_path)
-        key      = f"ds_assistant_rag_manager:{base}"
-        mgr      = settings.get(key)
-        if mgr is None:
-            mgr = RAGManager(base)
-        if not mgr.is_available():
-            return "", []
-        if top_k == 0:
-            top_k = _get_cfg().getint("retrieval", "top_k", 5)
-        loop   = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, lambda: mgr.ask(query, top_k=top_k))
-        return result.get("context", ""), result.get("chunks", [])
-    except Exception as exc:
-        log.debug("RAG augment skipped: %s", exc)
-        return "", []
-
-# ---------------------------------------------------------------------------
 # Advisory-question detector
 # ---------------------------------------------------------------------------
 # Words/phrases that strongly suggest the user wants a text answer, not a
@@ -1065,20 +1033,6 @@ class TaskHandler(JupyterHandler):
             # for ambiguous plain messages.  By the time the request reaches
             # the backend the user has explicitly chosen /chat or cell mode.
 
-            # /ask command: force chat mode + RAG augmentation.
-            # Retrieve relevant chunks from the local knowledge base and
-            # prepend them to the user message so the LLM has project-specific
-            # context beyond the current notebook.
-            rag_sources: list = []
-            if slash_command == "/ask":
-                cell_insertion_mode = "chat"
-                rag_context, rag_sources = await _rag_augment(self.settings, message)
-                if rag_context:
-                    message = (
-                        f"[Relevant knowledge-base context]\n{rag_context}\n\n"
-                        f"---\n[User question]\n{message}"
-                    )
-
             # For cell-creation tasks, send an immediate SSE progress event
             # so the UI reacts right away instead of appearing frozen.
             if stream_requested and cell_insertion_mode not in ("chat",):
@@ -1296,8 +1250,6 @@ class TaskHandler(JupyterHandler):
                     _fire_usage(provider, notebook_path, "chat")
                     if warnings:
                         done_event["warnings"] = warnings
-                    if rag_sources:
-                        done_event["ragSources"] = rag_sources
                     self.write(f"data: {json.dumps(done_event)}\n\n")
                     self.finish()
                     return
@@ -1343,8 +1295,6 @@ class TaskHandler(JupyterHandler):
                     "chatResponse":        chat_text,
                     "cellInsertionMode":   "chat",
                 }
-                if rag_sources:
-                    response["ragSources"] = rag_sources
 
             elif cell_insertion_mode == "manual":
                 # Manual mode: LLM returns a single JSON blob containing BOTH

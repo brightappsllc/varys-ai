@@ -19,8 +19,6 @@ What gets moved
 
 What stays behind (project-level, shared)
 ------------------------------------------
-- ``knowledge/``  RAG source documents — project-scoped, intentionally shared.
-- ``rag/``        ChromaDB vector store — built from ``knowledge/``.
 - ``config/``     ``agent.cfg`` etc.
 
 After the move the UUID cache is updated so the next Varys request against

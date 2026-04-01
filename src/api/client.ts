@@ -283,15 +283,6 @@ export interface TaskResponse {
   compositePlan?: CompositeStep[];
   /** Display name of the triggered composite skill. */
   compositeName?: string;
-  /** RAG source citations — populated when /ask command was used. */
-  ragSources?: Array<{
-    text: string;
-    source: string;
-    type: string;
-    cell_idx?: number | null;
-    page?: number | null;
-    score?: number;
-  }>;
   /** Token usage for this response (input + output). */
   tokenUsage?: TokenUsage;
   /**
@@ -862,93 +853,6 @@ export class APIClient {
     } catch {
       return { status: 'error' };
     }
-  }
-
-  // ── RAG knowledge-base ─────────────────────────────────────────────────
-
-  /**
-   * Index a file or directory into the local knowledge base.
-   * Returns an EventSource-compatible response (SSE).
-   * Calls onProgress(msg) for each progress event, resolves with the
-   * final result object on "done".
-   */
-  async ragLearn(
-    path: string,
-    onProgress: (msg: string) => void,
-    force = false,
-    notebookPath = '',
-  ): Promise<{ total: number; processed: number; skipped: number; errors: string[] }> {
-    const response = await fetch(`${this.baseUrl}/rag/learn`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-XSRFToken': this.getXSRFToken(),
-      },
-      body: JSON.stringify({ path, force, notebookPath }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`RAG learn failed: ${response.status}`);
-    }
-
-    const reader  = response.body!.getReader();
-    const decoder = new TextDecoder();
-    let buffer    = '';
-    let result: any = null;
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        try {
-          const evt = JSON.parse(line.slice(6));
-          if (evt.type === 'progress') {
-            onProgress(evt.text ?? '');
-          } else if (evt.type === 'done') {
-            result = evt.result;
-          } else if (evt.type === 'error') {
-            throw new Error(evt.text ?? 'RAG learn error');
-          }
-        } catch (e) {
-          if (e instanceof Error && e.message.startsWith('RAG')) throw e;
-        }
-      }
-    }
-    return result ?? { total: 0, processed: 0, skipped: 0, errors: [] };
-  }
-
-  /** Return a summary of the current knowledge-base index. */
-  async ragStatus(notebookPath = ''): Promise<{
-    available: boolean;
-    total_chunks: number;
-    indexed_files: number;
-    files: string[];
-    hint?: string;
-  }> {
-    const qs = notebookPath ? `?notebookPath=${encodeURIComponent(notebookPath)}` : '';
-    const response = await fetch(`${this.baseUrl}/rag/status${qs}`, {
-      headers: { 'X-XSRFToken': this.getXSRFToken() },
-    });
-    if (!response.ok) throw new Error(`RAG status failed: ${response.status}`);
-    return response.json();
-  }
-
-  /** Remove a specific file from the knowledge-base index. */
-  async ragForget(path: string, notebookPath = ''): Promise<{ ok: boolean; chunks_removed: number }> {
-    const response = await fetch(`${this.baseUrl}/rag/forget`, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-XSRFToken': this.getXSRFToken(),
-      },
-      body: JSON.stringify({ path, notebookPath }),
-    });
-    if (!response.ok) throw new Error(`RAG forget failed: ${response.status}`);
-    return response.json();
   }
 
   // ── MCP server management ──────────────────────────────────────────────

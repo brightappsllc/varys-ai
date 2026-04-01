@@ -13,8 +13,6 @@ sub-directory so that renaming or moving a notebook never orphans its data:
 **Project-level** data (shared across all notebooks in the same directory) stays
 at the flat `.jupyter-assistant/` level:
 
-  <nb_dir>/.jupyter-assistant/knowledge/   ← RAG source documents
-  <nb_dir>/.jupyter-assistant/rag/         ← ChromaDB vector store
   <nb_dir>/.jupyter-assistant/config/      ← agent.cfg etc.
 
 The per-notebook UUID is stored in ``notebook.metadata.varys_notebook_id``.  It

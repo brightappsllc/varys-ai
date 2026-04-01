@@ -942,90 +942,6 @@ const TAB_GROUPS: TabGroup[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// RAGStatusSection — live knowledge-base stats shown on the Knowledge tab
-// ---------------------------------------------------------------------------
-
-interface RAGStatusSectionProps {
-  apiClient: APIClient;
-  notebookPath?: string;
-}
-
-const RAGStatusSection: React.FC<RAGStatusSectionProps> = ({ apiClient, notebookPath = '' }) => {
-  const [status, setStatus] = useState<{
-    available: boolean;
-    total_chunks: number;
-    indexed_files: number;
-    files: string[];
-    hint?: string;
-  } | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  const refresh = async () => {
-    setLoading(true);
-    try {
-      const s = await apiClient.ragStatus(notebookPath);
-      setStatus(s);
-    } catch {
-      setStatus(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { void refresh(); }, []);
-
-  if (loading) {
-    return (
-      <div className="ds-rag-status">
-        <span className="ds-rag-status-loading">Checking index…</span>
-      </div>
-    );
-  }
-
-  if (!status) return null;
-
-  if (!status.available) {
-    return (
-      <div className="ds-rag-status ds-rag-status--unavailable">
-        <p>⚠️ RAG dependencies not installed.</p>
-        <code>{status.hint ?? 'pip install chromadb sentence-transformers'}</code>
-      </div>
-    );
-  }
-
-  return (
-    <div className="ds-rag-status">
-      <div className="ds-rag-status-header">
-        <span className="ds-rag-status-title">📚 Knowledge base</span>
-        <button className="ds-rag-status-refresh" onClick={() => void refresh()} title="Refresh">↻</button>
-      </div>
-      <div className="ds-rag-status-stats">
-        <span><strong>{status.total_chunks}</strong> chunks</span>
-        <span><strong>{status.indexed_files}</strong> files indexed</span>
-      </div>
-      {status.indexed_files > 0 && (
-        <div className="ds-rag-status-files">
-          {status.files.slice(0, 8).map((f: string) => (
-            <div key={f} className="ds-rag-status-file" title={f}>
-              {f.split('/').pop()}
-            </div>
-          ))}
-          {status.files.length > 8 && (
-            <div className="ds-rag-status-file ds-rag-status-file--more">
-              +{status.files.length - 8} more…
-            </div>
-          )}
-        </div>
-      )}
-      {status.indexed_files === 0 && status.available && (
-        <div className="ds-rag-status-empty">
-          No files indexed yet. Drop files in <code>.jupyter-assistant/knowledge/</code> then run <code>/index</code> in chat.
-        </div>
-      )}
-    </div>
-  );
-};
-
 // ---------------------------------------------------------------------------
 // MCPPanel — MCP server management shown on the MCP settings tab
 // ---------------------------------------------------------------------------
@@ -1492,15 +1408,6 @@ const SETTINGS_NAV_GROUPS: NavGroup[] = [
         ),
       },
       {
-        id: 'indexing',
-        label: 'Indexing & Docs',
-        icon: (
-          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.3">
-            <path d="M3 3h9M3 7h9M3 11h5"/>
-          </svg>
-        ),
-      },
-      {
         id: 'tags',
         label: 'Tags',
         icon: (
@@ -1551,7 +1458,6 @@ const SECTION_HEADING_MAP: Record<string, string> = {
   'mcp':             'MCP',
   'skills':          'Skills',
   'commands':        'Commands',
-  'indexing':        'Indexing & Docs',
   'tags':            'Tags',
   'memory':          'Long-term memory',
   'usage':           'Usage',
@@ -2497,69 +2403,6 @@ const CommandsPanel: React.FC<{ apiClient: APIClient }> = ({ apiClient }) => {
 };
 
 // ---------------------------------------------------------------------------
-// IndexingPanel — Indexing & Docs top-level tab
-// ---------------------------------------------------------------------------
-
-const IndexingPanel: React.FC<{ apiClient: APIClient; notebookPath: string }> = ({
-  apiClient, notebookPath,
-}) => {
-  const [embedProvider, setEmbedProvider] = useState('');
-  const [embedModel, setEmbedModel]       = useState('');
-
-  useEffect(() => {
-    apiClient.getSettings().then(raw => {
-      // Normalize: entries are {value, masked} objects
-      const s: Record<string, string> = {};
-      for (const [k, entry] of Object.entries(raw)) {
-        if (!k.startsWith('_')) s[k] = (entry as { value: string }).value ?? String(entry);
-      }
-      const p = (s['DS_EMBED_PROVIDER'] ?? '').toUpperCase();
-      setEmbedProvider(p);
-      setEmbedModel(p ? (s[`${p}_EMBED_MODEL`] ?? '') : '');
-    }).catch(() => { /* ignore */ });
-  }, []);
-
-  return (
-    <div className="ds-settings-tab-content ds-indexing-panel">
-      {/* Embed routing summary */}
-      <div className="ds-rag-routing-summary">
-        <div className="ds-rag-routing-row">
-          <span className="ds-rag-routing-label">Embedding provider</span>
-          <span className="ds-rag-routing-value">{embedProvider || '—'}</span>
-        </div>
-        <div className="ds-rag-routing-row">
-          <span className="ds-rag-routing-label">Embedding model</span>
-          <span className="ds-rag-routing-value">{embedModel || '— (use model zoo)'}</span>
-        </div>
-        <p className="ds-rag-routing-hint">
-          Configure the provider in <strong>Models → Routing → Embedding</strong> and
-          the model in the provider tab's <em>Embedding model</em> field.
-        </p>
-      </div>
-
-      {/* How-to */}
-      <div className="ds-rag-storage-hint">
-        <strong>How to add knowledge</strong>
-        <p>
-          Drop PDFs, notebooks, or markdown files into{' '}
-          <code>.jupyter-assistant/knowledge/</code>, then run{' '}
-          <code>/index</code> in the chat to index them.
-        </p>
-        <p>
-          Indexed content is stored as vectors in{' '}
-          <code>.jupyter-assistant/rag/chroma/</code> — original files are never
-          moved or copied. Only files inside the <code>knowledge/</code> folder
-          can be indexed.
-        </p>
-      </div>
-
-      {/* Live index status */}
-      <RAGStatusSection apiClient={apiClient} notebookPath={notebookPath} />
-    </div>
-  );
-};
-
-// ---------------------------------------------------------------------------
 // TagsSettingsPanel — tag library: definitions + create/delete custom tags
 // ---------------------------------------------------------------------------
 
@@ -3297,7 +3140,6 @@ const SettingsPanel: React.FC<{
       case 'mcp':      return 'mcp';
       case 'skills':   return 'skills';
       case 'commands': return 'commands';
-      case 'indexing': return 'indexing';
       case 'tags':     return 'tags';
       default:         return 'model-routing';
     }
@@ -3339,12 +3181,6 @@ const SettingsPanel: React.FC<{
         return (
           <div className="ds-settings-section-body">
             <CommandsPanel apiClient={apiClient} />
-          </div>
-        );
-      case 'indexing':
-        return (
-          <div className="ds-settings-section-body">
-            <IndexingPanel apiClient={apiClient} notebookPath={notebookPath} />
           </div>
         );
       case 'tags':
@@ -5309,26 +5145,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
         setActiveCommand(null);
         setShowCmdPopup(false);
 
-        // /index [path]: route to the RAG index flow (async).
-        // No path → index the whole knowledge folder (backend defaults to it).
-        if (parsed.command === '/index') {
-          await handleIndexCommand(parsed.rest?.trim() ?? '');
-          return;
-        }
-
-        // /rag: show knowledge-base status
-        if (parsed.command === '/rag') {
-          await handleRagStatus();
-          return;
-        }
-
-        // /ask <query>: fall through to the task flow with command='/ask'
-        // so the backend can do RAG retrieval.  /ask with NO args shows help.
-        if (parsed.command === '/ask' && parsed.rest) {
-          slashCommand = '/ask';
-          message      = parsed.rest.trim();
-          // Don't return early — fall through to the main task flow below.
-        } else if (parsed.command === '/chat' && parsed.rest) {
+        if (parsed.command === '/chat' && parsed.rest) {
           // /chat <message>: force advisory/chat mode for this single request.
           // The backend skips tool-use and streams a plain markdown answer.
           slashCommand = '/chat';
@@ -5985,18 +5802,6 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
         } else {
           addMessage('assistant', chatText);
         }
-        // Show RAG source citations if the response was augmented
-        if (response.ragSources && Array.isArray(response.ragSources) && response.ragSources.length > 0) {
-          const sources = (response.ragSources as any[])
-            .map((s: any, i: number) => {
-              const file  = s.source ? s.source.split('/').pop() : 'unknown';
-              const loc   = s.cell_idx != null ? `, cell ${s.cell_idx}` : s.page != null ? `, page ${s.page}` : '';
-              const score = typeof s.score === 'number' ? ` (score: ${s.score.toFixed(2)})` : '';
-              return `${i + 1}. **${file}**${loc}${score}`;
-            })
-            .join('\n');
-          addMessage('system', `📎 **Sources from knowledge base:**\n${sources}`);
-        }
         // When the user's "Chat Only" toggle prevented a skill from writing cells,
         // show a gentle advisory note so they know they can switch mode.
         if (response.skillWantedCells) {
@@ -6501,28 +6306,9 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
         );
         break;
 
-      case '/ask':
-        // With no args: show usage. With args, handleSend routes to RAG flow.
-        addMessage('system',
-          '### 📚 Knowledge Base Query\n\n' +
-          'Type `/ask <your question>` to search indexed documents and get an answer with citations.\n\n' +
-          'Run `/index <path>` first to index files into the knowledge base.'
-        );
-        break;
-
       case '/learn':
         // /learn is handled in handleSend when the full message is available
         addMessage('system', 'Type `/learn <your preference>` and press Enter to save it to memory.');
-        break;
-
-      case '/index':
-        // No args → index the whole knowledge folder immediately.
-        void handleIndexCommand('');
-        break;
-
-      case '/rag':
-        // Show RAG status — handled async in handleSend-style flow
-        void handleRagStatus();
         break;
 
       case '/no_figures':
@@ -6564,73 +6350,6 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   // -------------------------------------------------------------------------
   // RAG-specific handlers
   // -------------------------------------------------------------------------
-
-  const handleIndexCommand = async (path: string): Promise<void> => {
-    const displayPath = path || '.jupyter-assistant/knowledge';
-    setIsLoading(true);
-    const progressId = generateId();
-    setMessages(prev => [...prev, {
-      id: progressId,
-      role: 'system' as const,
-      content: `📂 Indexing **${displayPath}**…`,
-      timestamp: new Date()
-    }]);
-    try {
-      const result = await apiClient.ragLearn(path, (msg: string) => {
-        setMessages(prev => prev.map(m =>
-          m.id === progressId ? { ...m, content: msg } : m
-        ));
-      }, false, currentNotebookPathRef.current);
-      const summary =
-        `✅ **Indexing complete** — \`${displayPath}\`\n\n` +
-        `- Files found: **${result.total}**\n` +
-        `- Indexed: **${result.processed}**\n` +
-        `- Skipped (unchanged): **${result.skipped}**\n` +
-        (result.errors.length
-          ? `- Errors: ${result.errors.map((e: string) => `\n  - ${e}`).join('')}`
-          : '');
-      setMessages(prev => prev.map(m =>
-        m.id === progressId ? { ...m, content: summary } : m
-      ));
-    } catch (err: any) {
-      setMessages(prev => prev.map(m =>
-        m.id === progressId
-          ? { ...m, content: `❌ Indexing failed: ${err.message}` }
-          : m
-      ));
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleRagStatus = async (): Promise<void> => {
-    setIsLoading(true);
-    try {
-      const status = await apiClient.ragStatus(currentNotebookPathRef.current);
-      if (!status.available) {
-        addMessage('system',
-          '⚠️ **RAG not available**\n\n' +
-          (status.hint || 'Install with: `pip install chromadb sentence-transformers`')
-        );
-        return;
-      }
-      const fileList = status.files.length
-        ? status.files.slice(0, 20).map((f: string) => `- \`${f.split('/').pop()}\``).join('\n') +
-          (status.files.length > 20 ? `\n- _...and ${status.files.length - 20} more_` : '')
-        : '_No files indexed yet_';
-      addMessage('assistant',
-        `### 📚 Knowledge Base Status\n\n` +
-        `- **Total chunks**: ${status.total_chunks}\n` +
-        `- **Indexed files**: ${status.indexed_files}\n\n` +
-        `**Files:**\n${fileList}\n\n` +
-        `Drop documents in \`.jupyter-assistant/knowledge/\` and run \`/index\` to index them.`
-      );
-    } catch (err: any) {
-      addMessage('system', `❌ Could not get RAG status: ${err.message}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   // Keep the ref pointing at the latest handleSend so the external-message
   // listener can invoke it without capturing a stale closure.

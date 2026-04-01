@@ -21,7 +21,6 @@ from .handlers.report import ReportHandler
 from .handlers.wiki import WikiHandler
 from .handlers.magic_task import MagicTaskHandler
 from .handlers.chat_history import ChatHistoryHandler
-from .handlers.rag import RAGLearnHandler, RAGStatusHandler, RAGForgetHandler, RAGAskHandler
 from .modules.reproducibility_guardian.handler import (
     ReproAnalyzeHandler,
     ReproDismissHandler,
@@ -367,11 +366,6 @@ class DSAssistantExtension(ExtensionApp):
             (url_path_join(base, "reproducibility", "analyze"), ReproAnalyzeHandler),
             (url_path_join(base, "reproducibility", "dismiss"), ReproDismissHandler),
             (url_path_join(base, "reproducibility"),            ReproIssuesHandler),
-            # RAG knowledge base
-            (url_path_join(base, "rag", "learn"),  RAGLearnHandler),
-            (url_path_join(base, "rag", "status"), RAGStatusHandler),
-            (url_path_join(base, "rag", "forget"), RAGForgetHandler),
-            (url_path_join(base, "rag", "ask"),    RAGAskHandler),
             # MCP server management
             (url_path_join(base, "mcp"),           MCPStatusHandler),
             (url_path_join(base, "mcp", "reload"), MCPReloadHandler),
