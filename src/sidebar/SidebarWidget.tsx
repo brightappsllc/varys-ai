@@ -4914,11 +4914,8 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   // ── Version update check ──────────────────────────────────────────────────
   const [updateVersion,  setUpdateVersion]  = useState<string | null>(null);
   const [updateUrl,      setUpdateUrl]      = useState('');
-  const [releaseNotes,   setReleaseNotes]   = useState('');
   const [currentVersion, setCurrentVersion] = useState('0.7.2');
   const [showChangelog,  setShowChangelog]  = useState(false);
-  // 'whats-new' = GitHub release notes for latest; 'history' = full local CHANGELOG.md
-  const [changelogMode,  setChangelogMode]  = useState<'whats-new' | 'history'>('whats-new');
   const [changelogBody,  setChangelogBody]  = useState('');
   const [changelogLoading, setChangelogLoading] = useState(false);
 
@@ -4935,31 +4932,12 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
         if (d.update_available) {
           setUpdateVersion(d.latest);
           setUpdateUrl(d.release_url || '');
-          setReleaseNotes(d.release_notes || '');
         }
       } catch { /* network error — silent */ }
     })();
   }, []);
 
-  const openWhatsNew = () => {
-    setChangelogMode('whats-new');
-    if (releaseNotes) {
-      setChangelogBody(releaseNotes);
-      setShowChangelog(true);
-      return;
-    }
-    // Fallback: load local changelog from current version (inclusive) so the
-    // current release's own changes are always visible in "What's New".
-    setChangelogLoading(true);
-    setShowChangelog(true);
-    void fetch(`/varys/changelog?from=${encodeURIComponent(currentVersion)}`)
-      .then(r => r.json())
-      .then((d: { content: string }) => { setChangelogBody(d.content || ''); setChangelogLoading(false); })
-      .catch(() => { setChangelogBody('_Could not load release notes._'); setChangelogLoading(false); });
-  };
-
-  const openHistory = () => {
-    setChangelogMode('history');
+  const openChangelog = () => {
     setChangelogLoading(true);
     setShowChangelog(true);
     void fetch('/varys/changelog')
@@ -6799,16 +6777,11 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   }
 
   if (showChangelog) {
-    const isWhatsNew = changelogMode === 'whats-new';
-    const title = isWhatsNew
-      ? `What's New${updateVersion ? ` in v${updateVersion}` : ''}`
-      : 'Changelog';
     return (
       <div className={`ds-assistant-sidebar ds-chat-${chatTheme}`}>
         <div className="ds-assistant-header">
           <span className="ds-assistant-title">
-            <span className="ds-varys-spider">🕷️</span>{' '}
-            {title}
+            <span className="ds-varys-spider">🕷️</span>{' '}Changelog
           </span>
           <button
             className="ds-settings-close-btn"
@@ -6817,50 +6790,40 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
           >✕</button>
         </div>
         <div className="ds-changelog-panel">
-          {/* Tab bar */}
-          <div className="ds-changelog-tabs">
-            <button
-              className={`ds-changelog-tab${isWhatsNew ? ' ds-changelog-tab--active' : ''}`}
-              onClick={openWhatsNew}
-            >
-              {updateVersion ? `↑ v${updateVersion}` : "What's New"}
-            </button>
-            <button
-              className={`ds-changelog-tab${!isWhatsNew ? ' ds-changelog-tab--active' : ''}`}
-              onClick={openHistory}
-            >
-              Full History
-            </button>
+          {/* Version banner */}
+          <div className="ds-changelog-version-bar">
+            <span className="ds-changelog-version-current">Installed: v{currentVersion}</span>
+            {updateVersion && (
+              <span className="ds-changelog-version-latest">Latest: v{updateVersion}</span>
+            )}
           </div>
 
-          {/* Body */}
+          {/* Update strip — only shown when a newer version is available */}
+          {updateVersion && (
+            <div className="ds-changelog-footer">
+              {updateUrl && (
+                <a href={updateUrl} target="_blank" rel="noreferrer"
+                   className="ds-changelog-github-link">
+                  View release on GitHub ↗
+                </a>
+              )}
+              <div className="ds-changelog-update-cmd">
+                <code>pip install --force-reinstall git+https://github.com/brightappsllc/varys-ai.git@main</code>
+              </div>
+            </div>
+          )}
+
+          {/* Full changelog body */}
           <div className="ds-changelog-body">
             {changelogLoading ? (
               <div className="ds-changelog-loading">Loading…</div>
             ) : changelogBody ? (
-              <>
-                <div
-                  className="ds-changelog-content ds-message-content"
-                  dangerouslySetInnerHTML={{ __html: renderMarkdown(changelogBody) }}
-                />
-                {isWhatsNew && updateUrl && (
-                  <div className="ds-changelog-footer">
-                    <a href={updateUrl} target="_blank" rel="noreferrer"
-                       className="ds-changelog-github-link">
-                      View on GitHub ↗
-                    </a>
-                    <div className="ds-changelog-update-cmd">
-                      <code>pip install --upgrade varys</code>
-                    </div>
-                  </div>
-                )}
-              </>
+              <div
+                className="ds-changelog-content ds-message-content"
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(changelogBody) }}
+              />
             ) : (
-              <div className="ds-changelog-empty">
-                {isWhatsNew
-                  ? 'You are on the latest version.'
-                  : 'Changelog not available.'}
-              </div>
+              <div className="ds-changelog-empty">Changelog not available.</div>
             )}
           </div>
         </div>
@@ -6876,13 +6839,13 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
           <span className="ds-varys-spider">🕷️</span>{' '}Varys{' '}
           <span
             className="ds-varys-version ds-varys-version--clickable"
-            onClick={openHistory}
+            onClick={openChangelog}
             title="View changelog"
           >v0.7.2</span>
           {updateVersion && (
             <button
               className="ds-varys-update-pill"
-              onClick={openWhatsNew}
+              onClick={openChangelog}
               title={`v${updateVersion} is available — click to see what's new`}
             >
               ↑ v{updateVersion}

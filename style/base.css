@@ -3464,32 +3464,21 @@
   overflow: hidden;
 }
 
-/* Tab strip */
-.ds-changelog-tabs {
+/* Version banner */
+.ds-changelog-version-bar {
   display: flex;
-  gap: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
   border-bottom: 1px solid var(--ds-border, rgba(128,128,128,0.2));
   flex-shrink: 0;
-  padding: 0 8px;
-}
-.ds-changelog-tab {
-  flex: 1;
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  padding: 7px 8px;
   font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
+}
+.ds-changelog-version-current {
   color: var(--ds-text-dim, rgba(128,128,128,0.7));
-  transition: color 0.15s, border-color 0.15s;
 }
-.ds-changelog-tab:hover {
-  color: var(--ds-text, inherit);
-}
-.ds-changelog-tab--active {
-  color: var(--ds-accent, #7c5cbf) !important;
-  border-bottom-color: var(--ds-accent, #7c5cbf);
+.ds-changelog-version-latest {
+  color: var(--jp-brand-color1, #5b8dd9);
   font-weight: 600;
 }
 
@@ -3569,15 +3558,16 @@
   font-weight: 600;
 }
 
-/* Footer with update command */
+/* Update strip (shown above body when a newer version exists) */
 .ds-changelog-footer {
-  margin-top: 18px;
-  padding-top: 12px;
-  border-top: 1px solid var(--ds-border, rgba(128,128,128,0.15));
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--ds-border, rgba(128,128,128,0.15));
+  background: rgba(91,141,217,0.06);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   align-items: flex-start;
+  flex-shrink: 0;
 }
 .ds-changelog-github-link {
   font-size: 11px;
