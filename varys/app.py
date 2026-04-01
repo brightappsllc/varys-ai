@@ -150,14 +150,10 @@ class DSAssistantExtension(ExtensionApp):
             "ds_assistant_openrouter_site_name":    os.environ.get("OPENROUTER_SITE_NAME", "Varys"),
         })
 
-        # Embedding provider routing
-        embed_provider = os.environ.get("DS_EMBED_PROVIDER", "").upper()
-        settings_patch["ds_assistant_embed_provider"] = embed_provider.lower()
-
         # Collect {PROVIDER}_{TASK}_MODEL for every provider and task type
         all_providers = {"ANTHROPIC", "OLLAMA", "OPENAI", "GOOGLE", "BEDROCK", "AZURE", "OPENROUTER"}
         for provider in all_providers:
-            for task in ("chat", "completion", "embed", "simple_tasks"):
+            for task in ("chat", "completion", "simple_tasks"):
                 env_key  = f"{provider}_{task.upper()}_MODEL"
                 sett_key = f"ds_assistant_{provider.lower()}_{task}_model"
                 settings_patch[sett_key] = os.environ.get(env_key, "")
@@ -219,8 +215,7 @@ class DSAssistantExtension(ExtensionApp):
         self.log.info(
             f"Varys: "
             f"chat={chat_provider or '(not set)'}  "
-            f"completion={completion_provider or '(not set)'}  "
-            f"embed={embed_provider or '(not set)'}"
+            f"completion={completion_provider or '(not set)'}"
         )
 
         # ----------------------------------------------------------------

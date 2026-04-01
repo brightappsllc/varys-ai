@@ -804,7 +804,6 @@ const TAB_GROUPS: TabGroup[] = [
     fields: [
       { key: 'DS_CHAT_PROVIDER',           label: 'Chat',         type: 'select' },
       { key: 'DS_COMPLETION_PROVIDER',     label: 'Completion',   type: 'select' },
-      { key: 'DS_EMBED_PROVIDER',          label: 'Embedding',    type: 'select' },
       { key: 'DS_SIMPLE_TASKS_PROVIDER',   label: 'Simple tasks', type: 'select' },
     ]
   },
@@ -820,7 +819,6 @@ const TAB_GROUPS: TabGroup[] = [
         description: 'Cache prompt context between turns — cuts cost ~70% on long sessions. Supported on claude-3+ models.' },
       { key: 'ANTHROPIC_COMPLETION_MODEL',     label: 'Completion model',       type: 'model-select' },
       { key: 'ANTHROPIC_SIMPLE_TASKS_MODEL',   label: 'Simple tasks model',     type: 'model-select' },
-      { key: 'ANTHROPIC_EMBED_MODEL',          label: 'Embedding model',        type: 'model-select' },
       { key: 'ANTHROPIC_EXTENDED_THINKING',    label: 'Extended thinking',      type: 'toggle',
         description: 'Enable Anthropic native extended thinking (claude-3-7+ / claude-4+). The LLM reasons internally before answering — visible in the 🧠 panel. Higher token cost.' },
     ]
@@ -837,7 +835,6 @@ const TAB_GROUPS: TabGroup[] = [
         description: 'OpenAI automatically caches repeated input prefixes for gpt-4o and newer. Enable to structure prompts for maximum cache reuse.' },
       { key: 'OPENAI_COMPLETION_MODEL',      label: 'Completion model',   type: 'model-select' },
       { key: 'OPENAI_SIMPLE_TASKS_MODEL',    label: 'Simple tasks model', type: 'model-select' },
-      { key: 'OPENAI_EMBED_MODEL',           label: 'Embedding model',    type: 'model-select' },
     ]
   },
   {
@@ -861,7 +858,6 @@ const TAB_GROUPS: TabGroup[] = [
         description: 'Context caching for Gemini 1.5+ models. Reduces cost when the same large context is reused across turns.' },
       { key: 'GOOGLE_COMPLETION_MODEL',      label: 'Completion model',   type: 'model-select' },
       { key: 'GOOGLE_SIMPLE_TASKS_MODEL',    label: 'Simple tasks model', type: 'model-select' },
-      { key: 'GOOGLE_EMBED_MODEL',           label: 'Embedding model',    type: 'model-select' },
     ]
   },
   {
@@ -881,7 +877,6 @@ const TAB_GROUPS: TabGroup[] = [
         description: 'Prompt caching for Anthropic Claude models on Bedrock. Reduces cost on long multi-turn sessions.' },
       { key: 'BEDROCK_COMPLETION_MODEL',      label: 'Completion model',      type: 'model-select' },
       { key: 'BEDROCK_SIMPLE_TASKS_MODEL',    label: 'Simple tasks model',    type: 'model-select' },
-      { key: 'BEDROCK_EMBED_MODEL',           label: 'Embedding model',       type: 'model-select' },
       { key: 'BEDROCK_ENABLE_THINKING',       label: 'Extended thinking',     type: 'toggle',
         description: 'Enable extended thinking for Anthropic Claude Sonnet and Opus models. Improves reasoning on complex tasks at the cost of higher latency and token usage.' },
       { key: 'BEDROCK_THINKING_BUDGET',       label: 'Thinking token budget', type: 'text',
@@ -904,7 +899,6 @@ const TAB_GROUPS: TabGroup[] = [
         description: 'Enable prompt prefix caching for deployments that support it.' },
       { key: 'AZURE_COMPLETION_MODEL',        label: 'Completion deployment',      type: 'model-select' },
       { key: 'AZURE_SIMPLE_TASKS_MODEL',      label: 'Simple tasks deployment',    type: 'model-select' },
-      { key: 'AZURE_EMBED_MODEL',             label: 'Embedding deployment',       type: 'model-select' },
     ]
   },
   {
@@ -921,7 +915,6 @@ const TAB_GROUPS: TabGroup[] = [
         description: 'Pass caching hints to providers that support it (e.g., Anthropic models via OpenRouter).' },
       { key: 'OPENROUTER_COMPLETION_MODEL',    label: 'Completion model',     type: 'model-select' },
       { key: 'OPENROUTER_SIMPLE_TASKS_MODEL',  label: 'Simple tasks model',   type: 'model-select' },
-      { key: 'OPENROUTER_EMBED_MODEL',         label: 'Embedding model',      type: 'model-select' },
     ]
   },
   {
@@ -936,7 +929,6 @@ const TAB_GROUPS: TabGroup[] = [
         description: 'Ollama caches KV context natively. Enable to keep the system prompt resident between requests.' },
       { key: 'OLLAMA_COMPLETION_MODEL',        label: 'Completion model',   type: 'model-select' },
       { key: 'OLLAMA_SIMPLE_TASKS_MODEL',      label: 'Simple tasks model', type: 'model-select' },
-      { key: 'OLLAMA_EMBED_MODEL',             label: 'Embedding model',    type: 'model-select' },
     ]
   },
 ];
@@ -1555,7 +1547,6 @@ const SectionHeading: React.FC<{ section: string; subSection: string | null }> =
 const ROUTING_KEYS = [
   'DS_CHAT_PROVIDER',
   'DS_COMPLETION_PROVIDER',
-  'DS_EMBED_PROVIDER',
   'DS_SIMPLE_TASKS_PROVIDER',
 ] as const;
 
@@ -1784,7 +1775,6 @@ const ModelsPanel: React.FC<{
   const TASK_LABELS: Record<string, string> = {
     DS_CHAT_PROVIDER:           'Chat',
     DS_COMPLETION_PROVIDER:     'Completion',
-    DS_EMBED_PROVIDER:          'Embedding',
     DS_SIMPLE_TASKS_PROVIDER:   'Simple tasks',
   };
 
