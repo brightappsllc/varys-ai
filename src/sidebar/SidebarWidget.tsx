@@ -792,7 +792,7 @@ interface TabGroup {
   label: string;
   providerKey: string | null;
   zooKey: string | null;
-  fields: { key: string; label: string; type: string; placeholder?: string; description?: string }[];
+  fields: { key: string; label: string; type: string; placeholder?: string; description?: string; sectionHeader?: string; disabledWhen?: string }[];
 }
 
 const TAB_GROUPS: TabGroup[] = [
@@ -813,12 +813,12 @@ const TAB_GROUPS: TabGroup[] = [
     providerKey: 'ANTHROPIC',
     zooKey: 'ANTHROPIC_MODELS',
     fields: [
-      { key: 'ANTHROPIC_API_KEY',              label: 'API key',                type: 'password' },
-      { key: 'ANTHROPIC_CHAT_MODEL',           label: 'Chat & Agent model',     type: 'model-select' },
-      { key: 'VARYS_AGENT_PROMPT_CACHING',     label: 'Prompt caching',         type: 'toggle',
+      { key: 'ANTHROPIC_API_KEY',              label: 'API key',                type: 'password',     sectionHeader: 'Credentials' },
+      { key: 'ANTHROPIC_CHAT_MODEL',           label: 'Chat & Agent model',     type: 'model-select', sectionHeader: 'Models' },
+      { key: 'VARYS_AGENT_PROMPT_CACHING',     label: 'Prompt caching',         type: 'toggle',       sectionHeader: 'Features',
         description: 'Cache prompt context between turns — cuts cost ~70% on long sessions. Supported on claude-3+ models.' },
       { key: 'ANTHROPIC_COMPLETION_MODEL',     label: 'Completion model',       type: 'model-select' },
-      { key: 'ANTHROPIC_BG_TASK_MODEL',   label: 'Background model',     type: 'model-select' },
+      { key: 'ANTHROPIC_BG_TASK_MODEL',        label: 'Background model',       type: 'model-select' },
       { key: 'ANTHROPIC_EXTENDED_THINKING',    label: 'Extended thinking',      type: 'toggle',
         description: 'Enable Anthropic native extended thinking (claude-3-7+ / claude-4+). The LLM reasons internally before answering — visible in the 🧠 panel. Higher token cost.' },
     ]
@@ -829,12 +829,12 @@ const TAB_GROUPS: TabGroup[] = [
     providerKey: 'OPENAI',
     zooKey: 'OPENAI_MODELS',
     fields: [
-      { key: 'OPENAI_API_KEY',               label: 'API key',            type: 'password' },
-      { key: 'OPENAI_CHAT_MODEL',            label: 'Chat & Agent model', type: 'model-select' },
-      { key: 'OPENAI_PROMPT_CACHING',        label: 'Prompt caching',     type: 'toggle',
+      { key: 'OPENAI_API_KEY',               label: 'API key',            type: 'password',     sectionHeader: 'Credentials' },
+      { key: 'OPENAI_CHAT_MODEL',            label: 'Chat & Agent model', type: 'model-select', sectionHeader: 'Models' },
+      { key: 'OPENAI_PROMPT_CACHING',        label: 'Prompt caching',     type: 'toggle',       sectionHeader: 'Features',
         description: 'OpenAI automatically caches repeated input prefixes for gpt-4o and newer. Enable to structure prompts for maximum cache reuse.' },
       { key: 'OPENAI_COMPLETION_MODEL',      label: 'Completion model',   type: 'model-select' },
-      { key: 'OPENAI_BG_TASK_MODEL',    label: 'Background model', type: 'model-select' },
+      { key: 'OPENAI_BG_TASK_MODEL',         label: 'Background model',   type: 'model-select' },
     ]
   },
   {
@@ -843,21 +843,21 @@ const TAB_GROUPS: TabGroup[] = [
     providerKey: 'GOOGLE',
     zooKey: 'GOOGLE_MODELS',
     fields: [
-      { key: 'GOOGLE_API_KEY',               label: 'API key',            type: 'password',
+      { key: 'GOOGLE_API_KEY',               label: 'API key',            type: 'password',     sectionHeader: 'Credentials',
         description: 'For individual developers using the Gemini API directly.' },
       { key: 'GOOGLE_SERVICE_ACCOUNT_JSON',  label: 'Service account JSON', type: 'text',
         placeholder: '/path/to/service_account.json',
         description: 'Path to a GCP service-account JSON file (project_id, private_key, client_email…). When set, takes precedence over the API key.' },
-      { key: 'GOOGLE_CHAT_MODEL',            label: 'Chat & Agent model', type: 'model-select' },
-      { key: 'GOOGLE_ENABLE_THINKING',       label: 'Enable thinking',    type: 'toggle',
+      { key: 'GOOGLE_CHAT_MODEL',            label: 'Chat & Agent model', type: 'model-select', sectionHeader: 'Models' },
+      { key: 'GOOGLE_ENABLE_THINKING',       label: 'Enable thinking',    type: 'toggle',       sectionHeader: 'Features',
         description: 'Allow Gemini 2.5+ models to use extended reasoning (thinkingBudget). The reasoning trace appears as a collapsible thinking bubble in chat.' },
-      { key: 'GOOGLE_THINKING_BUDGET',       label: 'Thinking token budget', type: 'text',
+      { key: 'GOOGLE_THINKING_BUDGET',       label: 'Thinking token budget', type: 'text',      disabledWhen: 'GOOGLE_ENABLE_THINKING',
         placeholder: '8192  (use -1 for dynamic)',
         description: 'Max tokens the model may use for internal reasoning. Set to -1 to let the model decide. Only effective when Enable thinking is on and a Gemini 2.5+ model is selected.' },
       { key: 'GOOGLE_PROMPT_CACHING',        label: 'Prompt caching',     type: 'toggle',
         description: 'Context caching for Gemini 1.5+ models. Reduces cost when the same large context is reused across turns.' },
       { key: 'GOOGLE_COMPLETION_MODEL',      label: 'Completion model',   type: 'model-select' },
-      { key: 'GOOGLE_BG_TASK_MODEL',    label: 'Background model', type: 'model-select' },
+      { key: 'GOOGLE_BG_TASK_MODEL',         label: 'Background model',   type: 'model-select' },
     ]
   },
   {
@@ -866,21 +866,21 @@ const TAB_GROUPS: TabGroup[] = [
     providerKey: 'BEDROCK',
     zooKey: 'BEDROCK_MODELS',
     fields: [
-      { key: 'AWS_PROFILE',                   label: 'AWS profile',           type: 'text', placeholder: 'e.g. default, np  (leave blank for explicit keys)' },
-      { key: 'AWS_AUTH_REFRESH',              label: 'Auth refresh command',  type: 'text', placeholder: 'e.g. aws-azure-login --profile ITOSS --no-prompt  (runs only when token is expired)' },
+      { key: 'AWS_PROFILE',                   label: 'AWS profile',           type: 'text',     sectionHeader: 'Authentication', placeholder: 'e.g. default, np  (leave blank for explicit keys)' },
+      { key: 'AWS_AUTH_REFRESH',              label: 'Auth refresh command',  type: 'text',     placeholder: 'e.g. aws-azure-login --profile ITOSS --no-prompt  (runs only when token is expired)' },
       { key: 'AWS_ACCESS_KEY_ID',             label: 'Access key ID',         type: 'password', placeholder: '(leave blank when using AWS_PROFILE)' },
       { key: 'AWS_SECRET_ACCESS_KEY',         label: 'Secret access key',     type: 'password', placeholder: '(leave blank when using AWS_PROFILE)' },
       { key: 'AWS_SESSION_TOKEN',             label: 'Session token',         type: 'password', placeholder: '(optional)' },
-      { key: 'AWS_REGION',                    label: 'Region',                type: 'text', placeholder: 'us-east-1' },
-      { key: 'BEDROCK_CHAT_MODEL',            label: 'Chat & Agent model',    type: 'model-select' },
-      { key: 'BEDROCK_PROMPT_CACHING',        label: 'Prompt caching',        type: 'toggle',
+      { key: 'AWS_REGION',                    label: 'Region',                type: 'text',     placeholder: 'us-east-1' },
+      { key: 'BEDROCK_CHAT_MODEL',            label: 'Chat & Agent model',    type: 'model-select', sectionHeader: 'Models' },
+      { key: 'BEDROCK_PROMPT_CACHING',        label: 'Prompt caching',        type: 'toggle',       sectionHeader: 'Features',
         description: 'Prompt caching for Anthropic Claude models on Bedrock. Reduces cost on long multi-turn sessions.' },
       { key: 'BEDROCK_COMPLETION_MODEL',      label: 'Completion model',      type: 'model-select' },
-      { key: 'BEDROCK_BG_TASK_MODEL',    label: 'Background model',    type: 'model-select' },
+      { key: 'BEDROCK_BG_TASK_MODEL',         label: 'Background model',      type: 'model-select' },
       { key: 'BEDROCK_ENABLE_THINKING',       label: 'Extended thinking',     type: 'toggle',
         description: 'Enable extended thinking for Anthropic Claude Sonnet and Opus models. Improves reasoning on complex tasks at the cost of higher latency and token usage.' },
-      { key: 'BEDROCK_THINKING_BUDGET',       label: 'Thinking token budget', type: 'text',
-        placeholder: '8000  (min 1024, used only when extended thinking is on)' },
+      { key: 'BEDROCK_THINKING_BUDGET',       label: 'Thinking token budget', type: 'text',     disabledWhen: 'BEDROCK_ENABLE_THINKING',
+        placeholder: '8000  (min 1024)' },
       { key: 'BEDROCK_MAX_TOKENS',            label: 'Max output tokens',     type: 'text',
         placeholder: 'leave blank for auto (4096 Haiku 4.5 · 8192 others)' },
     ]
@@ -891,14 +891,14 @@ const TAB_GROUPS: TabGroup[] = [
     providerKey: 'AZURE',
     zooKey: 'AZURE_MODELS',
     fields: [
-      { key: 'AZURE_OPENAI_API_KEY',          label: 'API key',                    type: 'password' },
-      { key: 'AZURE_OPENAI_ENDPOINT',         label: 'Endpoint URL',               type: 'text', placeholder: 'https://YOUR-RESOURCE.openai.azure.com/' },
-      { key: 'AZURE_OPENAI_API_VERSION',      label: 'API version',                type: 'text', placeholder: '2024-02-01' },
-      { key: 'AZURE_CHAT_MODEL',              label: 'Chat & Agent deployment',    type: 'model-select' },
-      { key: 'AZURE_PROMPT_CACHING',          label: 'Prompt caching',             type: 'toggle',
+      { key: 'AZURE_OPENAI_API_KEY',          label: 'API key',                    type: 'password',     sectionHeader: 'Credentials' },
+      { key: 'AZURE_OPENAI_ENDPOINT',         label: 'Endpoint URL',               type: 'text',         placeholder: 'https://YOUR-RESOURCE.openai.azure.com/' },
+      { key: 'AZURE_OPENAI_API_VERSION',      label: 'API version',                type: 'text',         placeholder: '2024-02-01' },
+      { key: 'AZURE_CHAT_MODEL',              label: 'Chat & Agent deployment',    type: 'model-select', sectionHeader: 'Models' },
+      { key: 'AZURE_PROMPT_CACHING',          label: 'Prompt caching',             type: 'toggle',       sectionHeader: 'Features',
         description: 'Enable prompt prefix caching for deployments that support it.' },
       { key: 'AZURE_COMPLETION_MODEL',        label: 'Completion deployment',      type: 'model-select' },
-      { key: 'AZURE_BG_TASK_MODEL',      label: 'Background model',    type: 'model-select' },
+      { key: 'AZURE_BG_TASK_MODEL',           label: 'Background model',           type: 'model-select' },
     ]
   },
   {
@@ -907,14 +907,14 @@ const TAB_GROUPS: TabGroup[] = [
     providerKey: 'OPENROUTER',
     zooKey: 'OPENROUTER_MODELS',
     fields: [
-      { key: 'OPENROUTER_API_KEY',             label: 'API key',              type: 'password' },
-      { key: 'OPENROUTER_SITE_URL',            label: 'Site URL (optional)',  type: 'text', placeholder: 'https://your-app.com' },
-      { key: 'OPENROUTER_SITE_NAME',           label: 'Site name (optional)', type: 'text', placeholder: 'Varys' },
-      { key: 'OPENROUTER_CHAT_MODEL',          label: 'Chat & Agent model',   type: 'model-select' },
-      { key: 'OPENROUTER_PROMPT_CACHING',      label: 'Prompt caching',       type: 'toggle',
+      { key: 'OPENROUTER_API_KEY',             label: 'API key',              type: 'password',     sectionHeader: 'Credentials' },
+      { key: 'OPENROUTER_SITE_URL',            label: 'Site URL (optional)',  type: 'text',         placeholder: 'https://your-app.com' },
+      { key: 'OPENROUTER_SITE_NAME',           label: 'Site name (optional)', type: 'text',         placeholder: 'Varys' },
+      { key: 'OPENROUTER_CHAT_MODEL',          label: 'Chat & Agent model',   type: 'model-select', sectionHeader: 'Models' },
+      { key: 'OPENROUTER_PROMPT_CACHING',      label: 'Prompt caching',       type: 'toggle',       sectionHeader: 'Features',
         description: 'Pass caching hints to providers that support it (e.g., Anthropic models via OpenRouter).' },
       { key: 'OPENROUTER_COMPLETION_MODEL',    label: 'Completion model',     type: 'model-select' },
-      { key: 'OPENROUTER_BG_TASK_MODEL',  label: 'Background model',   type: 'model-select' },
+      { key: 'OPENROUTER_BG_TASK_MODEL',       label: 'Background model',     type: 'model-select' },
     ]
   },
   {
@@ -923,12 +923,12 @@ const TAB_GROUPS: TabGroup[] = [
     providerKey: 'OLLAMA',
     zooKey: 'OLLAMA_MODELS',
     fields: [
-      { key: 'OLLAMA_URL',                     label: 'Server URL',         type: 'text', placeholder: 'http://localhost:11434' },
-      { key: 'OLLAMA_CHAT_MODEL',              label: 'Chat & Agent model', type: 'model-select' },
-      { key: 'OLLAMA_PROMPT_CACHING',          label: 'Prompt caching',     type: 'toggle',
+      { key: 'OLLAMA_URL',                     label: 'Server URL',         type: 'text',         sectionHeader: 'Connection', placeholder: 'http://localhost:11434' },
+      { key: 'OLLAMA_CHAT_MODEL',              label: 'Chat & Agent model', type: 'model-select', sectionHeader: 'Models' },
+      { key: 'OLLAMA_PROMPT_CACHING',          label: 'Prompt caching',     type: 'toggle',       sectionHeader: 'Features',
         description: 'Ollama caches KV context natively. Enable to keep the system prompt resident between requests.' },
       { key: 'OLLAMA_COMPLETION_MODEL',        label: 'Completion model',   type: 'model-select' },
-      { key: 'OLLAMA_BG_TASK_MODEL',      label: 'Background model', type: 'model-select' },
+      { key: 'OLLAMA_BG_TASK_MODEL',           label: 'Background model',   type: 'model-select' },
     ]
   },
 ];
@@ -1579,6 +1579,7 @@ const ModelsPanel: React.FC<{
   const [status, setStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [toolSupport, setToolSupport]               = useState<{ supported: boolean; reason: string | null } | null>(null);
   const [checkingToolSupport, setCheckingToolSupport] = useState(false);
+  const [saveTried, setSaveTried] = useState(false);
 
   useEffect(() => {
     apiClient
@@ -1716,6 +1717,7 @@ const ModelsPanel: React.FC<{
   };
 
   const handleSave = async () => {
+    setSaveTried(true);
     setStatus(null);
     const validationError = _validateBeforeSave();
     if (validationError) {
@@ -1840,21 +1842,29 @@ const ModelsPanel: React.FC<{
         ) : (
           <>
             {currentGroup.fields.map(field => {
+              const sectionHeaderEl = field.sectionHeader ? (
+                <div key={`sh-${field.key}`} className="ds-settings-form-section-header">
+                  {field.sectionHeader}
+                </div>
+              ) : null;
+
               if (field.type === 'model-select') {
                 const zoo = currentGroup.zooKey ? getZooModels(currentGroup.zooKey, values) : [];
                 const cur = values[field.key] ?? '';
                 const options = cur && !zoo.includes(cur) ? [cur, ...zoo] : zoo;
                 const isEmpty = !cur;
+                const showValidation = saveTried && isEmpty;
                 const isChatModel = field.key === chatModelKey;
                 return (
                   <React.Fragment key={field.key}>
+                    {sectionHeaderEl}
                     <div className="ds-settings-row">
                       <label className="ds-settings-label">
                         {field.label}
-                        {isEmpty && <span className="ds-settings-required" title="Required"> *</span>}
+                        {showValidation && <span className="ds-settings-required" title="Required"> *</span>}
                       </label>
                       <select
-                        className={`ds-settings-select${isEmpty ? ' ds-settings-select--empty' : ''}`}
+                        className={`ds-settings-select${showValidation ? ' ds-settings-select--empty' : ''}`}
                         value={cur}
                         onChange={e => handleChange(field.key, e.target.value)}
                       >
@@ -1869,12 +1879,12 @@ const ModelsPanel: React.FC<{
                     {isChatModel && cur && (
                       <div className="ds-settings-tool-indicator">
                         {checkingToolSupport ? (
-                          <span className="ds-agent-prov-tool-checking">Checking tool support…</span>
+                          <span className="ds-agent-prov-tool-checking">Checking…</span>
                         ) : toolSupport === null ? null : toolSupport.supported ? (
                           <span className="ds-agent-prov-tool-ok">✓ Tool calling supported</span>
                         ) : (
                           <span className="ds-agent-prov-tool-warn">
-                            ⚠ Tool calling not supported{toolSupport.reason ? ` — ${toolSupport.reason}` : ''}
+                            ⚠ Not supported{toolSupport.reason ? ` — ${toolSupport.reason}` : ''}
                           </span>
                         )}
                       </div>
@@ -1885,36 +1895,46 @@ const ModelsPanel: React.FC<{
               if (field.type === 'toggle') {
                 const isOn = (values[field.key] ?? 'true') !== 'false';
                 return (
-                  <div key={field.key} className="ds-settings-row ds-settings-row--toggle">
-                    <div className="ds-settings-toggle-label-group">
-                      <span className="ds-settings-label">{field.label}</span>
-                      {field.description && (
-                        <span className="ds-settings-toggle-desc">{field.description}</span>
-                      )}
+                  <React.Fragment key={field.key}>
+                    {sectionHeaderEl}
+                    <div className="ds-settings-row ds-settings-row--toggle">
+                      <div className="ds-settings-toggle-label-group">
+                        <span className="ds-settings-label">{field.label}</span>
+                        {field.description && (
+                          <span className="ds-settings-toggle-desc">{field.description}</span>
+                        )}
+                      </div>
+                      <label className="ds-settings-toggle-switch" title={isOn ? 'Click to disable' : 'Click to enable'}>
+                        <input
+                          type="checkbox"
+                          checked={isOn}
+                          onChange={e => handleChange(field.key, e.target.checked ? 'true' : 'false')}
+                        />
+                        <span className="ds-settings-toggle-slider" />
+                      </label>
                     </div>
-                    <label className="ds-settings-toggle-switch" title={isOn ? 'Click to disable' : 'Click to enable'}>
-                      <input
-                        type="checkbox"
-                        checked={isOn}
-                        onChange={e => handleChange(field.key, e.target.checked ? 'true' : 'false')}
-                      />
-                      <span className="ds-settings-toggle-slider" />
-                    </label>
-                  </div>
+                  </React.Fragment>
                 );
               }
+              const isDisabled = field.disabledWhen
+                ? (values[field.disabledWhen] ?? 'true') === 'false'
+                : false;
               return (
-                <div key={field.key} className="ds-settings-row">
-                  <label className="ds-settings-label">{field.label}</label>
-                  <input
-                    className="ds-settings-input"
-                    type={field.type === 'password' && masked[field.key] ? 'password' : 'text'}
-                    value={values[field.key] ?? ''}
-                    onChange={e => handleChange(field.key, e.target.value)}
-                    placeholder={field.type === 'password' ? '(unchanged)' : (field.placeholder ?? '')}
-                    autoComplete="off"
-                  />
-                </div>
+                <React.Fragment key={field.key}>
+                  {sectionHeaderEl}
+                  <div className="ds-settings-row">
+                    <label className="ds-settings-label">{field.label}</label>
+                    <input
+                      className={`ds-settings-input${isDisabled ? ' ds-settings-input--disabled' : ''}`}
+                      type={field.type === 'password' && masked[field.key] ? 'password' : 'text'}
+                      value={values[field.key] ?? ''}
+                      onChange={e => handleChange(field.key, e.target.value)}
+                      placeholder={field.type === 'password' ? '(unchanged)' : (field.placeholder ?? '')}
+                      autoComplete="off"
+                      disabled={isDisabled}
+                    />
+                  </div>
+                </React.Fragment>
               );
             })}
 
@@ -1959,6 +1979,7 @@ const ModelsPanel: React.FC<{
               className={`ds-settings-path-text${envPathIsCustom ? ' ds-settings-path-custom' : ''}`}
               title={envExists ? envPath : `Will be created: ${envPath}`}
             >
+              <span className="ds-settings-path-label">Config file:</span>
               {envExists ? envPath : `Will create: ${envPath}`}
               <button
                 className="ds-settings-path-edit-btn"
