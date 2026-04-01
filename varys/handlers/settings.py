@@ -24,18 +24,18 @@ _ENV_KEYS = [
     "DS_CHAT_PROVIDER",
     "DS_COMPLETION_PROVIDER",
     "COMPLETION_MAX_TOKENS",
-    "DS_SIMPLE_TASKS_PROVIDER",
+    "DS_BG_TASK_PROVIDER",
     # ── Anthropic ────────────────────────────────────────────────────────
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_CHAT_MODEL",
     "ANTHROPIC_COMPLETION_MODEL",
-    "ANTHROPIC_SIMPLE_TASKS_MODEL",
+    "ANTHROPIC_BG_TASK_MODEL",
     "ANTHROPIC_EXTENDED_THINKING",
     # ── OpenAI ───────────────────────────────────────────────────────────
     "OPENAI_API_KEY",
     "OPENAI_CHAT_MODEL",
     "OPENAI_COMPLETION_MODEL",
-    "OPENAI_SIMPLE_TASKS_MODEL",
+    "OPENAI_BG_TASK_MODEL",
     # ── Google ───────────────────────────────────────────────────────────
     "GOOGLE_API_KEY",
     "GOOGLE_SERVICE_ACCOUNT_JSON",
@@ -43,7 +43,7 @@ _ENV_KEYS = [
     "GOOGLE_THINKING_BUDGET",
     "GOOGLE_CHAT_MODEL",
     "GOOGLE_COMPLETION_MODEL",
-    "GOOGLE_SIMPLE_TASKS_MODEL",
+    "GOOGLE_BG_TASK_MODEL",
     # ── AWS Bedrock ──────────────────────────────────────────────────────
     "AWS_PROFILE",
     "AWS_AUTH_REFRESH",
@@ -53,7 +53,7 @@ _ENV_KEYS = [
     "AWS_REGION",
     "BEDROCK_CHAT_MODEL",
     "BEDROCK_COMPLETION_MODEL",
-    "BEDROCK_SIMPLE_TASKS_MODEL",
+    "BEDROCK_BG_TASK_MODEL",
     "BEDROCK_ENABLE_THINKING",
     "BEDROCK_THINKING_BUDGET",
     "BEDROCK_MAX_TOKENS",
@@ -63,19 +63,19 @@ _ENV_KEYS = [
     "AZURE_OPENAI_API_VERSION",
     "AZURE_CHAT_MODEL",
     "AZURE_COMPLETION_MODEL",
-    "AZURE_SIMPLE_TASKS_MODEL",
+    "AZURE_BG_TASK_MODEL",
     # ── Ollama ───────────────────────────────────────────────────────────
     "OLLAMA_URL",
     "OLLAMA_CHAT_MODEL",
     "OLLAMA_COMPLETION_MODEL",
-    "OLLAMA_SIMPLE_TASKS_MODEL",
+    "OLLAMA_BG_TASK_MODEL",
     # ── OpenRouter ───────────────────────────────────────────────────────
     "OPENROUTER_API_KEY",
     "OPENROUTER_SITE_URL",
     "OPENROUTER_SITE_NAME",
     "OPENROUTER_CHAT_MODEL",
     "OPENROUTER_COMPLETION_MODEL",
-    "OPENROUTER_SIMPLE_TASKS_MODEL",
+    "OPENROUTER_BG_TASK_MODEL",
     # ── Model zoos (comma-separated lists, one per provider) ─────────────
     "ANTHROPIC_MODELS",
     "OPENAI_MODELS",
@@ -202,7 +202,7 @@ def _reload_settings(handler: JupyterHandler, env_path: Path) -> None:
     s["ds_assistant_chat_provider"]           = os.environ.get("DS_CHAT_PROVIDER", "").lower()
     s["ds_assistant_completion_provider"]     = os.environ.get("DS_COMPLETION_PROVIDER", "").lower()
     s["ds_assistant_completion_max_tokens"]   = int(os.environ.get("COMPLETION_MAX_TOKENS", "") or "128")
-    s["ds_assistant_simple_tasks_provider"]   = os.environ.get("DS_SIMPLE_TASKS_PROVIDER", "").lower()
+    s["ds_assistant_bg_task_provider"]   = (os.environ.get("DS_BG_TASK_PROVIDER") or os.environ.get("DS_SIMPLE_TASKS_PROVIDER", "")).lower()
 
     # Anthropic feature flags (default true — "false" string turns them off)
     s["ds_assistant_anthropic_extended_thinking"] = (
@@ -235,7 +235,7 @@ def _reload_settings(handler: JupyterHandler, env_path: Path) -> None:
     s["ds_assistant_openrouter_site_name"]       = os.environ.get("OPENROUTER_SITE_NAME", "Varys")
 
     for provider in ("ANTHROPIC", "OPENAI", "GOOGLE", "BEDROCK", "AZURE", "OPENROUTER", "OLLAMA"):
-        for task in ("chat", "completion", "simple_tasks"):
+        for task in ("chat", "completion", "bg_task"):
             s[f"ds_assistant_{provider.lower()}_{task}_model"] = os.environ.get(
                 f"{provider}_{task.upper()}_MODEL", ""
             )

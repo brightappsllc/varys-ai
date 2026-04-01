@@ -235,18 +235,18 @@ See `varys/bundled_config/agent.cfg` for the full reference and `documentation/v
 - Pattern detection runs automatically every 10 new cell versions (configurable)
 - **Priority 1 — symbol value consistency**: flags variables set to the same value in ≥ 3 independent cells (e.g. `random_state=42`)
 - **Priority 2 — import frequency**: flags library aliases that appear in ≥ 3 distinct import cells (e.g. `import pandas as pd`)
-- Detected patterns converted to human-readable preference entries via the Simple Tasks model (or a deterministic template fallback)
+- Detected patterns converted to human-readable preference entries via the Background Task model (or a deterministic template fallback)
 
 #### Long-Term Memory — Injection Pipeline
 - `select_preferences()` selects relevant preferences at query time using keyword matching
-- When the candidate list exceeds 10 entries and a Simple Tasks model is configured, an LLM re-ranks the candidates before injection
+- When the candidate list exceeds 10 entries and a Background Task model is configured, an LLM re-ranks the candidates before injection
 - Formatted memory block (§7.5) replaces the flat `preferences.md` injection in the system prompt
 - **Zero-downtime migration**: existing `preferences.md` continues to be injected as a fallback until the new YAML store is populated, then archived to `preferences.md.bak`
 
 #### Explicit preference detection
 - Regex-based scanner detects preference statements in user chat messages ("always use X", "remember to Y", "I prefer Z") and stores them immediately in the preference store without any LLM call
 
-#### Simple Tasks Model (`DS_SIMPLE_TASKS_MODEL`)
+#### Background Model (`DS_BG_TASK_MODEL`)
 - New optional model name setting in **Settings → Routing** (alongside Chat and Completion)
 - Uses the same provider as the chat model but a lighter/cheaper model for preference selection, generation, and legacy migration
 - Leave blank to use keyword-only matching (no extra API calls)
@@ -269,7 +269,7 @@ See `varys/bundled_config/agent.cfg` for the full reference and `documentation/v
 ### Developer / Ops
 
 - `pyyaml>=6.0` added as a core dependency (was already present transitively via JupyterLab)
-- `create_simple_task_provider()` added to `varys/llm/factory.py` — uses the chat provider type with a model-name override
+- `create_bg_task_provider()` (formerly `create_simple_task_provider()`) added to `varys/llm/factory.py` — uses the chat provider type with a model-name override
 
 ---
 

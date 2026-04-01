@@ -385,7 +385,7 @@ async def build_markdown_summary_async(
         _model = getattr(getattr(provider, "_chat_client", None), "model", "?")
         log.warning(
             "build_markdown_summary_async: LLM call failed (model=%s). "
-            "Check ANTHROPIC_SIMPLE_TASKS_MODEL / DS_SIMPLE_TASKS_PROVIDER in varys.env. "
+            "Check ANTHROPIC_BG_TASK_MODEL / DS_BG_TASK_PROVIDER in varys.env. "
             "Error: %s",
             _model,
             exc,

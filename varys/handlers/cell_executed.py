@@ -131,12 +131,12 @@ async def _summarize_and_store(
             build_markdown_summary_async,
             MARKDOWN_THRESHOLD,
         )
-        from ..llm.factory import create_simple_task_provider
+        from ..llm.factory import create_bg_task_provider
 
         # For large markdown cells, try the LLM prose-summary path first (it is
         # already async and yields the event loop between network calls).
         if cell_type == "markdown" and len(source) > MARKDOWN_THRESHOLD:
-            simple_provider = create_simple_task_provider(settings)
+            simple_provider = create_bg_task_provider(settings)
             if simple_provider:
                 summary = await build_markdown_summary_async(source, simple_provider, tags=tags)
             else:

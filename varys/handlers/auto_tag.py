@@ -147,10 +147,10 @@ class AutoTagHandler(JupyterHandler):
         # ── Build prompt ─────────────────────────────────────────────────────
         system, user = _build_prompt(cell_source, cell_output, library)
 
-        # ── Resolve provider: simple-tasks first, chat as fallback ───────────
-        from ..llm.factory import create_simple_task_provider, create_provider
+        # ── Resolve provider: background-task first, chat as fallback ───────────
+        from ..llm.factory import create_bg_task_provider, create_provider
 
-        provider = create_simple_task_provider(self.settings)
+        provider = create_bg_task_provider(self.settings)
         if provider is None:
             try:
                 provider = create_provider(self.settings, task="chat")

@@ -45,7 +45,7 @@ No Node.js required on the user's machine. No cloud account lock-in. Works with 
 | **Long-Term Memory** | Structured YAML preference store (global / project / notebook scopes); persists across sessions; preferences are inferred automatically from coding patterns and captured from explicit user statements mid-chat |
 | **Inference Pipeline** | Background pattern detection every 10 cell versions: symbol value consistency (e.g. always `random_state=42`) and import frequency (e.g. always `import pandas as pd`) auto-generate preferences |
 | **Injection Pipeline** | Relevant preferences are selected at query time via keyword matching (+ optional LLM re-rank); formatted memory block replaces flat `preferences.md` in the system prompt |
-| **Simple Tasks Model** | New `DS_SIMPLE_TASKS_MODEL` setting — a lighter model within your chat provider for background inference; leave blank to use keyword-only matching |
+| **Background Model** | New `DS_BG_TASK_MODEL` setting — a lighter model within your chat provider for background inference; leave blank to use keyword-only matching |
 | **Smart Cell Context** | Structured, versioned Summary Store replaces the hard 2 000-char truncation; per-cell summaries include symbols, types, live values and error flags; focal cell receives full-fidelity output |
 | **MCP support** | Connect any MCP-compatible server (filesystem, DBs, custom APIs) via Settings → MCP tab |
 | **Sequential Thinking** | Python-native reasoning loop — no Node.js; LLM thinks step-by-step before answering |
@@ -270,8 +270,8 @@ Settings are stored in `~/.jupyter/varys.env` and hot-reloaded on save — no se
 DS_CHAT_PROVIDER=ANTHROPIC
 DS_COMPLETION_PROVIDER=OLLAMA
 COMPLETION_MAX_TOKENS=128
-DS_SIMPLE_TASKS_PROVIDER=ANTHROPIC        # optional — provider for background inference tasks
-ANTHROPIC_SIMPLE_TASKS_MODEL=claude-haiku-4-5  # model within that provider (leave blank to use keyword-only matching)
+DS_BG_TASK_PROVIDER=ANTHROPIC        # optional — provider for background inference tasks
+ANTHROPIC_BG_TASK_MODEL=claude-haiku-4-5  # model within that provider (leave blank to use keyword-only matching)
 
 ANTHROPIC_API_KEY=sk-ant-...
 ANTHROPIC_CHAT_MODEL=claude-sonnet-4-6

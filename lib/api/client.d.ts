@@ -493,7 +493,7 @@ export declare class APIClient {
     }[]>;
     /**
      * Ask the backend to suggest tags for a single cell.
-     * Uses the simple-tasks LLM (or falls back to the chat provider).
+     * Uses the background-task LLM (or falls back to the chat provider).
      * Always resolves — returns { tags: [] } on any error.
      */
     autoTagCell(cellSource: string, cellOutput?: string | null): Promise<{

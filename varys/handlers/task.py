@@ -982,7 +982,7 @@ class TaskHandler(JupyterHandler):
 
             # Trigger background migration from legacy preferences.md if needed
             if pref_store.needs_migration():
-                simple_model = self.settings.get("ds_assistant_simple_tasks_provider", "")
+                simple_model = self.settings.get("ds_assistant_bg_task_provider", "")
                 if simple_model:
                     from ..memory.inference import migrate_preferences_llm as _migrate_llm
                     asyncio.create_task(_migrate_llm(pref_store, dict(self.settings)))

@@ -804,7 +804,7 @@ const TAB_GROUPS: TabGroup[] = [
     fields: [
       { key: 'DS_CHAT_PROVIDER',           label: 'Chat',         type: 'select' },
       { key: 'DS_COMPLETION_PROVIDER',     label: 'Completion',   type: 'select' },
-      { key: 'DS_SIMPLE_TASKS_PROVIDER',   label: 'Simple tasks', type: 'select' },
+      { key: 'DS_BG_TASK_PROVIDER',   label: 'Background Task', type: 'select' },
     ]
   },
   {
@@ -818,7 +818,7 @@ const TAB_GROUPS: TabGroup[] = [
       { key: 'VARYS_AGENT_PROMPT_CACHING',     label: 'Prompt caching',         type: 'toggle',
         description: 'Cache prompt context between turns — cuts cost ~70% on long sessions. Supported on claude-3+ models.' },
       { key: 'ANTHROPIC_COMPLETION_MODEL',     label: 'Completion model',       type: 'model-select' },
-      { key: 'ANTHROPIC_SIMPLE_TASKS_MODEL',   label: 'Simple tasks model',     type: 'model-select' },
+      { key: 'ANTHROPIC_BG_TASK_MODEL',   label: 'Background Model',     type: 'model-select' },
       { key: 'ANTHROPIC_EXTENDED_THINKING',    label: 'Extended thinking',      type: 'toggle',
         description: 'Enable Anthropic native extended thinking (claude-3-7+ / claude-4+). The LLM reasons internally before answering — visible in the 🧠 panel. Higher token cost.' },
     ]
@@ -834,7 +834,7 @@ const TAB_GROUPS: TabGroup[] = [
       { key: 'OPENAI_PROMPT_CACHING',        label: 'Prompt caching',     type: 'toggle',
         description: 'OpenAI automatically caches repeated input prefixes for gpt-4o and newer. Enable to structure prompts for maximum cache reuse.' },
       { key: 'OPENAI_COMPLETION_MODEL',      label: 'Completion model',   type: 'model-select' },
-      { key: 'OPENAI_SIMPLE_TASKS_MODEL',    label: 'Simple tasks model', type: 'model-select' },
+      { key: 'OPENAI_BG_TASK_MODEL',    label: 'Background Model', type: 'model-select' },
     ]
   },
   {
@@ -857,7 +857,7 @@ const TAB_GROUPS: TabGroup[] = [
       { key: 'GOOGLE_PROMPT_CACHING',        label: 'Prompt caching',     type: 'toggle',
         description: 'Context caching for Gemini 1.5+ models. Reduces cost when the same large context is reused across turns.' },
       { key: 'GOOGLE_COMPLETION_MODEL',      label: 'Completion model',   type: 'model-select' },
-      { key: 'GOOGLE_SIMPLE_TASKS_MODEL',    label: 'Simple tasks model', type: 'model-select' },
+      { key: 'GOOGLE_BG_TASK_MODEL',    label: 'Background Model', type: 'model-select' },
     ]
   },
   {
@@ -876,7 +876,7 @@ const TAB_GROUPS: TabGroup[] = [
       { key: 'BEDROCK_PROMPT_CACHING',        label: 'Prompt caching',        type: 'toggle',
         description: 'Prompt caching for Anthropic Claude models on Bedrock. Reduces cost on long multi-turn sessions.' },
       { key: 'BEDROCK_COMPLETION_MODEL',      label: 'Completion model',      type: 'model-select' },
-      { key: 'BEDROCK_SIMPLE_TASKS_MODEL',    label: 'Simple tasks model',    type: 'model-select' },
+      { key: 'BEDROCK_BG_TASK_MODEL',    label: 'Background Model',    type: 'model-select' },
       { key: 'BEDROCK_ENABLE_THINKING',       label: 'Extended thinking',     type: 'toggle',
         description: 'Enable extended thinking for Anthropic Claude Sonnet and Opus models. Improves reasoning on complex tasks at the cost of higher latency and token usage.' },
       { key: 'BEDROCK_THINKING_BUDGET',       label: 'Thinking token budget', type: 'text',
@@ -898,7 +898,7 @@ const TAB_GROUPS: TabGroup[] = [
       { key: 'AZURE_PROMPT_CACHING',          label: 'Prompt caching',             type: 'toggle',
         description: 'Enable prompt prefix caching for deployments that support it.' },
       { key: 'AZURE_COMPLETION_MODEL',        label: 'Completion deployment',      type: 'model-select' },
-      { key: 'AZURE_SIMPLE_TASKS_MODEL',      label: 'Simple tasks deployment',    type: 'model-select' },
+      { key: 'AZURE_BG_TASK_MODEL',      label: 'Background Model',    type: 'model-select' },
     ]
   },
   {
@@ -914,7 +914,7 @@ const TAB_GROUPS: TabGroup[] = [
       { key: 'OPENROUTER_PROMPT_CACHING',      label: 'Prompt caching',       type: 'toggle',
         description: 'Pass caching hints to providers that support it (e.g., Anthropic models via OpenRouter).' },
       { key: 'OPENROUTER_COMPLETION_MODEL',    label: 'Completion model',     type: 'model-select' },
-      { key: 'OPENROUTER_SIMPLE_TASKS_MODEL',  label: 'Simple tasks model',   type: 'model-select' },
+      { key: 'OPENROUTER_BG_TASK_MODEL',  label: 'Background Model',   type: 'model-select' },
     ]
   },
   {
@@ -928,7 +928,7 @@ const TAB_GROUPS: TabGroup[] = [
       { key: 'OLLAMA_PROMPT_CACHING',          label: 'Prompt caching',     type: 'toggle',
         description: 'Ollama caches KV context natively. Enable to keep the system prompt resident between requests.' },
       { key: 'OLLAMA_COMPLETION_MODEL',        label: 'Completion model',   type: 'model-select' },
-      { key: 'OLLAMA_SIMPLE_TASKS_MODEL',      label: 'Simple tasks model', type: 'model-select' },
+      { key: 'OLLAMA_BG_TASK_MODEL',      label: 'Background Model', type: 'model-select' },
     ]
   },
 ];
@@ -1547,7 +1547,7 @@ const SectionHeading: React.FC<{ section: string; subSection: string | null }> =
 const ROUTING_KEYS = [
   'DS_CHAT_PROVIDER',
   'DS_COMPLETION_PROVIDER',
-  'DS_SIMPLE_TASKS_PROVIDER',
+  'DS_BG_TASK_PROVIDER',
 ] as const;
 
 const ModelsPanel: React.FC<{
@@ -1775,7 +1775,7 @@ const ModelsPanel: React.FC<{
   const TASK_LABELS: Record<string, string> = {
     DS_CHAT_PROVIDER:           'Chat',
     DS_COMPLETION_PROVIDER:     'Completion',
-    DS_SIMPLE_TASKS_PROVIDER:   'Simple tasks',
+    DS_BG_TASK_PROVIDER:   'Background Task',
   };
 
   return (
@@ -1829,10 +1829,10 @@ const ModelsPanel: React.FC<{
                 </React.Fragment>
               ))}
             </div>
-            <p className="ds-settings-simple-tasks-note">
-              <strong>Simple tasks</strong> powers background work: long-term memory
+            <p className="ds-settings-bg-task-note">
+              <strong>Background Task</strong> powers background work: long-term memory
               inference, preference extraction, and LLM prose summarization of large
-              markdown cells (&gt;2 000 chars). Without a configured Simple Tasks model,
+              markdown cells (&gt;2 000 chars). Without a configured Background Model,
               large markdown cells are <em>truncated at a sentence boundary</em> rather
               than summarized.
             </p>

@@ -178,8 +178,8 @@ async def _generate_preference_entries(
 
     # Try LLM-enhanced generation
     try:
-        from ..llm.factory import create_simple_task_provider
-        provider = create_simple_task_provider(settings)
+        from ..llm.factory import create_bg_task_provider
+        provider = create_bg_task_provider(settings)
         if provider is None:
             raise ValueError("No Simple Tasks model configured")
 
@@ -246,8 +246,8 @@ async def migrate_preferences_llm(
             pref_store.clear_migration_sentinel()
             return
 
-        from ..llm.factory import create_simple_task_provider
-        provider = create_simple_task_provider(settings)
+        from ..llm.factory import create_bg_task_provider
+        provider = create_bg_task_provider(settings)
         if provider is None:
             # Fall back to sync wrap
             pref_store.migrate_sync()
