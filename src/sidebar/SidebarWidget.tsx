@@ -6053,25 +6053,6 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
         response.steps
       );
 
-      // Execute cells flagged for auto-run
-      if (!response.requiresApproval) {
-        for (let i = 0; i < response.steps.length; i++) {
-          const step = response.steps[i];
-          const shouldRun =
-            step.type === 'run_cell' ||
-            (step.autoExecute === true && step.type !== 'delete');
-          if (shouldRun) {
-            const notebookIndex = stepIndexMap.get(i) ?? step.cellIndex;
-            setProgressText(`Running cell ${notebookIndex}…`);
-            try {
-              await cellEditor.executeCell(notebookIndex);
-            } catch (err) {
-              console.warn(`[DSAssistant] auto-execution of cell ${notebookIndex} failed:`, err);
-            }
-          }
-        }
-      }
-
       const affectedIndices = Array.from(stepIndexMap.values());
       const stepSummary = response.steps
         .map(s => {
@@ -6110,7 +6091,10 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
           };
         });
 
-      // ── Preview mode (default) ────────────────────────────────────────
+      // ── Preview mode (default) — show diff block BEFORE executing cells ──
+      // The diff panel must be visible to the user before any "Running cell…"
+      // progress message appears, so they can see what changed regardless of
+      // how long execution takes.
       const op: PendingOp = {
         operationId: response.operationId,
         cellIndices: affectedIndices,
@@ -6129,6 +6113,25 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
         ? '\n\n⚠️ This operation requires approval before execution.'
         : '\n\nReview the highlighted cell(s) then Accept or Undo.';
       appendToStream(`\n\n${stepSummary}${reviewPrompt}`);
+
+      // Execute cells flagged for auto-run — after the diff block is already visible
+      if (!response.requiresApproval) {
+        for (let i = 0; i < response.steps.length; i++) {
+          const step = response.steps[i];
+          const shouldRun =
+            step.type === 'run_cell' ||
+            (step.autoExecute === true && step.type !== 'delete');
+          if (shouldRun) {
+            const notebookIndex = stepIndexMap.get(i) ?? step.cellIndex;
+            setProgressText(`Running cell ${notebookIndex}…`);
+            try {
+              await cellEditor.executeCell(notebookIndex);
+            } catch (err) {
+              console.warn(`[DSAssistant] auto-execution of cell ${notebookIndex} failed:`, err);
+            }
+          }
+        }
+      }
 
     } catch (error: unknown) {
       clearInterval(progressTimer);
