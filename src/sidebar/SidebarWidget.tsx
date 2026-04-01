@@ -4915,7 +4915,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   const [updateVersion,  setUpdateVersion]  = useState<string | null>(null);
   const [updateUrl,      setUpdateUrl]      = useState('');
   const [releaseNotes,   setReleaseNotes]   = useState('');
-  const [currentVersion, setCurrentVersion] = useState('0.7.1');
+  const [currentVersion, setCurrentVersion] = useState('0.7.2');
   const [showChangelog,  setShowChangelog]  = useState(false);
   // 'whats-new' = GitHub release notes for latest; 'history' = full local CHANGELOG.md
   const [changelogMode,  setChangelogMode]  = useState<'whats-new' | 'history'>('whats-new');
@@ -4931,7 +4931,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
           update_available: boolean; latest: string;
           release_url: string; release_notes: string; current: string;
         };
-        setCurrentVersion(d.current || '0.7.1');
+        setCurrentVersion(d.current || '0.7.2');
         if (d.update_available) {
           setUpdateVersion(d.latest);
           setUpdateUrl(d.release_url || '');
@@ -6877,7 +6877,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
             className="ds-varys-version ds-varys-version--clickable"
             onClick={openHistory}
             title="View changelog"
-          >v0.7.1</span>
+          >v0.7.2</span>
           {updateVersion && (
             <button
               className="ds-varys-update-pill"
