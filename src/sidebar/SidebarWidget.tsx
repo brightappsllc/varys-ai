@@ -1830,8 +1830,8 @@ const ModelsPanel: React.FC<{
               ))}
             </div>
             <p className="ds-settings-bg-task-note">
-              <strong>Background Task</strong> powers background work: long-term memory
-              inference, preference extraction, and LLM prose summarization of large
+              <strong>Background Task Model</strong> powers background work: long-term memory
+              inference, preference extraction, and LLM summarization of large
               markdown cells (&gt;2 000 chars). Without a configured Background Model,
               large markdown cells are <em>truncated at a sentence boundary</em> rather
               than summarized.
