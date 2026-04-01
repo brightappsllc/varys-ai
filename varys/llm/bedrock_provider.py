@@ -796,10 +796,12 @@ class BedrockProvider(BaseLLMProvider):
         }
         if tools:
             body["tools"] = tools
-            if force_tool_name:
-                # Force the model to call this specific tool (mirrors the Converse
-                # path's _TOOL_CONFIG toolChoice).  Without this the model may answer
-                # informational questions with plain text and skip the tool call entirely.
+            # Bedrock raises ValidationException if tool_choice forces a specific
+            # tool while extended thinking is also enabled in the same request.
+            # When thinking is active we fall back to "auto"; the caller's fallback
+            # path already handles text-only responses gracefully.
+            thinking_active = body.get("thinking", {}).get("type") == "enabled"
+            if force_tool_name and not thinking_active:
                 body["tool_choice"] = {"type": "tool", "name": force_tool_name}
             else:
                 body["tool_choice"] = {"type": "auto"}
