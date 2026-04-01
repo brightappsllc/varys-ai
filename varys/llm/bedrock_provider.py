@@ -513,6 +513,7 @@ class BedrockProvider(BaseLLMProvider):
                         on_text_chunk or _noop,
                         on_thought=_thought_proxy,
                         tools=[self._PLAN_TOOL_ANTHROPIC],
+                        force_tool_name="create_operation_plan",
                     )
                 )
             except Exception as e:
@@ -536,9 +537,18 @@ class BedrockProvider(BaseLLMProvider):
                     break
 
             if plan_data is None:
-                raise RuntimeError(
-                    "Bedrock stream_plan_task did not return a create_operation_plan tool call"
+                # Fallback: model responded with text only despite force_tool_name.
+                # Treat the text response as an informational answer with no steps.
+                log.warning(
+                    "Bedrock stream_plan_task: no create_operation_plan tool call "
+                    "returned; synthesising empty-step plan from text response."
                 )
+                plan_data = {
+                    "steps": [],
+                    "requiresApproval": False,
+                    "summary": _resp_text or "Done.",
+                    "clarificationNeeded": None,
+                }
 
             plan_data.setdefault("operationId", op_id)
             plan_data.setdefault("clarificationNeeded", None)
@@ -758,6 +768,7 @@ class BedrockProvider(BaseLLMProvider):
         on_chunk,
         on_thought=None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        force_tool_name: Optional[str] = None,
     ) -> tuple:
         """Stream via invoke_model_with_response_stream (Anthropic Messages API).
 
@@ -785,7 +796,13 @@ class BedrockProvider(BaseLLMProvider):
         }
         if tools:
             body["tools"] = tools
-            body["tool_choice"] = {"type": "auto"}
+            if force_tool_name:
+                # Force the model to call this specific tool (mirrors the Converse
+                # path's _TOOL_CONFIG toolChoice).  Without this the model may answer
+                # informational questions with plain text and skip the tool call entirely.
+                body["tool_choice"] = {"type": "tool", "name": force_tool_name}
+            else:
+                body["tool_choice"] = {"type": "auto"}
 
         def _run() -> None:
             seen_types: list = []
