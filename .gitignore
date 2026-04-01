@@ -47,7 +47,8 @@ node_modules/
 .eslintcache
 .stylelintcache
 
-# Testing
+# Testing (local only — not part of the repo)
+tests/
 .pytest_cache/
 .coverage
 htmlcov/
