@@ -64,7 +64,7 @@ const IssueCard: React.FC<IssueCardProps> = ({ issue, onFix, onDismiss }) => {
           {SEVERITY_LABEL[issue.severity]}
         </span>
         <span className="ds-repro-card-title">{issue.title}</span>
-        <span className="ds-repro-card-loc">Cell {issue.cell_index}</span>
+        <span className="ds-repro-card-loc">Cell {issue.cell_index + 1}</span>
       </div>
       <div className="ds-repro-card-message">{issue.message}</div>
       {issue.suggestion && (
@@ -223,7 +223,7 @@ export const ReproPanel: React.FC<ReproPanelProps> = ({
           onClick={handleAnalyze}
           disabled={loading}
         >
-          {loading ? '⏳ Analyzing…' : '⌕ Analyze'}
+          {loading ? <><span className="ds-repro-btn-icon">⏳</span> Analyzing…</> : <><span className="ds-repro-btn-icon">🔍</span> Analyze</>}
         </button>
       </div>
 

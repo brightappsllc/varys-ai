@@ -9,12 +9,57 @@ All errors are swallowed — usage tracking must never affect completion latency
 import json
 import logging
 import os
+import sys
+import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-import filelock
-
 log = logging.getLogger(__name__)
+
+
+@contextmanager
+def _file_lock(lock_path: str, timeout: float = 5.0):
+    """Minimal cross-platform advisory file lock using only stdlib.
+
+    Uses fcntl.flock on POSIX and msvcrt.locking on Windows.
+    Replaces the filelock third-party package.
+    """
+    lf = open(lock_path, "a+b")  # noqa: WPS515
+    try:
+        deadline = time.monotonic() + timeout
+        if sys.platform == "win32":
+            import msvcrt
+            while True:
+                try:
+                    msvcrt.locking(lf.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError:
+                    if time.monotonic() > deadline:
+                        raise TimeoutError(f"Could not acquire lock: {lock_path}")
+                    time.sleep(0.05)
+        else:
+            import fcntl
+            while True:
+                try:
+                    fcntl.flock(lf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() > deadline:
+                        raise TimeoutError(f"Could not acquire lock: {lock_path}")
+                    time.sleep(0.05)
+        yield
+    finally:
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+                msvcrt.locking(lf.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(lf, fcntl.LOCK_UN)
+        except Exception:
+            pass
+        lf.close()
 
 _JUPYTER_DIR = Path.home() / ".jupyter"
 _JSONL_PATH  = _JUPYTER_DIR / "usage.jsonl"
@@ -61,7 +106,7 @@ class UsageWriter:
             with _JSONL_PATH.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(row) + "\n")
 
-            with filelock.FileLock(str(_LOCK_PATH), timeout=5):
+            with _file_lock(str(_LOCK_PATH), timeout=5):
                 try:
                     cache = json.loads(_CACHE_PATH.read_text(encoding="utf-8"))
                     if "by_date" not in cache or "by_model" not in cache:

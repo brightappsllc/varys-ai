@@ -1,20 +1,35 @@
+# Informational only — authoritative deps live in pyproject.toml.
+#
 # Core (auto-installed with: pip install git+https://github.com/brightappsllc/varys-ai)
 jupyterlab>=4.0
 jupyter-server>=2.0
-python-dotenv>=1.0
 
 # Install the provider(s) you use:
 #
 #   pip install "varys[anthropic] @ git+https://github.com/brightappsllc/varys-ai"
 #   pip install "varys[openai]    @ git+https://github.com/brightappsllc/varys-ai"
 #   pip install "varys[ollama]    @ git+https://github.com/brightappsllc/varys-ai"
+#   pip install "varys[bedrock]   @ git+https://github.com/brightappsllc/varys-ai"
+#   pip install "varys[google]    @ git+https://github.com/brightappsllc/varys-ai"
 #   pip install "varys[rag]       @ git+https://github.com/brightappsllc/varys-ai"
 #
-# Or install everything at once:
+# For RAG with local embeddings (~1-2 GB — pulls torch):
+#   pip install "varys[rag,rag-local] @ git+https://github.com/brightappsllc/varys-ai"
+#
+# For RAG with PDF support (pymupdf >= 1.26.7):
+#   pip install "varys[rag,rag-pdf]   @ git+https://github.com/brightappsllc/varys-ai"
+#
+# Or install all LLM providers + RAG + MCP + images at once
+# (does NOT include rag-local/rag-pdf to avoid surprise torch install):
 #   pip install "varys[all] @ git+https://github.com/brightappsllc/varys-ai"
 
 # Uncomment what you need:
 # anthropic
 # openai
-# httpx       # for Ollama
-# chromadb    # for RAG
+# boto3         # for Bedrock
+# google-genai  # for Google Gemini (chat + RAG embeddings)
+# chromadb      # for RAG vector store
+# sentence-transformers  # for local embeddings (pulls torch ~1-2 GB)
+# pymupdf>=1.26.7        # for PDF chunking in RAG
+# mcp>=1.0               # for MCP tool server
+# Pillow>=10.0           # for image processing

@@ -1,30 +1,36 @@
-"""Preference Store — structured, versioned YAML registry of user preferences.
+"""Preference Store — structured, versioned JSON registry of user preferences.
 
 Three scope files, all rooted at ``~/.jupyter-assistant/memory/``:
 
-  global_memory.yaml
-  projects/{project_id}/project_memory.yaml
-  projects/{project_id}/notebooks/{stem}_memory.yaml
+  global_memory.json
+  projects/{project_id}/project_memory.json
+  projects/{project_id}/notebooks/{stem}_memory.json
 
 ``project_id`` is the first 8 hex digits of MD5(str(Path(root_dir).resolve())).
 
-Each file contains a YAML list of preference objects:
+Each file contains a JSON array of preference objects:
 
-  - id:              pref_a1b2           # 8-char hex UUID fragment
-    type:            coding_style        # coding_style | library | workflow | data_handling
-    content:         "Always sets random_state=42 on stochastic estimators"
-    keywords:
-      include:       [random_state, seed, stochastic]
-      exclude:       []
-    always_inject:   false
-    confidence:      0.91
-    evidence_count:  8
-    consistent_count: 7
-    source:          inferred            # explicit | inferred
-    overrides:       null
-    conflicts_with:  null
-    first_seen:      "2026-02-10T09:00:00"
-    last_reinforced: "2026-03-06T10:15:00"
+  [
+    {
+      "id":              "pref_a1b2",
+      "type":            "coding_style",
+      "content":         "Always sets random_state=42 on stochastic estimators",
+      "keywords":        {"include": ["random_state"], "exclude": []},
+      "always_inject":   false,
+      "confidence":      0.91,
+      "evidence_count":  8,
+      "consistent_count": 7,
+      "source":          "inferred",
+      "overrides":       null,
+      "conflicts_with":  null,
+      "first_seen":      "2026-02-10T09:00:00",
+      "last_reinforced": "2026-03-06T10:15:00"
+    }
+  ]
+
+Migration: if a legacy .yaml file exists for a given scope and the .json
+counterpart does not, the store automatically migrates on first access
+(requires pyyaml to be importable; silently skips if not installed).
 """
 from __future__ import annotations
 
@@ -35,10 +41,12 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import json
+
 log = logging.getLogger(__name__)
 
 # Module-level mtime cache: absolute path → (mtime, list[dict])
-_YAML_CACHE: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
+_JSON_CACHE: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
 
 _MEMORY_ROOT = Path.home() / ".jupyter-assistant" / "memory"
 _CONFIDENCE_THRESHOLD = 0.7   # minimum confidence to include in selection
@@ -51,17 +59,17 @@ def _project_id(root_dir: str) -> str:
 
 
 def _scope_paths(root_dir: str, notebook_path: str) -> Dict[str, Path]:
-    """Return the three YAML paths for the given root_dir / notebook_path pair."""
+    """Return the three JSON paths for the given root_dir / notebook_path pair."""
     pid = _project_id(root_dir)
     base = _MEMORY_ROOT
 
-    global_p = base / "global_memory.yaml"
-    project_p = base / "projects" / pid / "project_memory.yaml"
+    global_p = base / "global_memory.json"
+    project_p = base / "projects" / pid / "project_memory.json"
 
     if notebook_path:
         stem = Path(notebook_path).stem
         notebook_p: Optional[Path] = (
-            base / "projects" / pid / "notebooks" / f"{stem}_memory.yaml"
+            base / "projects" / pid / "notebooks" / f"{stem}_memory.json"
         )
     else:
         notebook_p = None
@@ -70,53 +78,76 @@ def _scope_paths(root_dir: str, notebook_path: str) -> Dict[str, Path]:
 
 
 # ---------------------------------------------------------------------------
-# Low-level YAML read / write with mtime cache
+# Low-level JSON read / write with mtime cache
 # ---------------------------------------------------------------------------
 
-def _load_yaml_file(path: Path) -> List[Dict[str, Any]]:
-    """Load a YAML preference list from *path* using an mtime cache.
+def _migrate_yaml_to_json(yaml_path: Path, json_path: Path) -> bool:
+    """One-time migration: read legacy YAML file and write JSON equivalent.
 
-    Returns an empty list when the file does not exist or cannot be parsed.
+    Returns True if migration succeeded.  Requires pyyaml; silently skips
+    if not installed.  The YAML file is renamed to .yaml.bak on success.
+    """
+    try:
+        import yaml as _yaml  # pyyaml — only needed for this one-time migration
+        raw = _yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+        entries: List[Dict[str, Any]] = raw if isinstance(raw, list) else []
+        json_path.parent.mkdir(parents=True, exist_ok=True)
+        json_path.write_text(
+            json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        # Archive the old YAML file
+        yaml_path.rename(yaml_path.with_suffix(".yaml.bak"))
+        log.info("PreferenceStore: migrated %s → %s", yaml_path, json_path)
+        return True
+    except ImportError:
+        log.debug(
+            "PreferenceStore: pyyaml not available for one-time YAML→JSON migration of %s",
+            yaml_path,
+        )
+    except Exception as exc:
+        log.warning("PreferenceStore: YAML migration failed for %s: %s", yaml_path, exc)
+    return False
+
+
+def _load_json_file(path: Path) -> List[Dict[str, Any]]:
+    """Load a JSON preference list from *path* using an mtime cache.
+
+    When *path* does not exist but a legacy .yaml sibling does, attempts a
+    one-time migration to JSON.  Returns an empty list on any failure.
     """
     if not path.exists():
-        return []
-
-    try:
-        import yaml as _yaml  # pyyaml
-    except ImportError:
-        log.warning("pyyaml not installed — PreferenceStore disabled. Run: pip install pyyaml")
-        return []
+        yaml_path = path.with_suffix(".yaml")
+        if yaml_path.exists():
+            if not _migrate_yaml_to_json(yaml_path, path):
+                return []
+        else:
+            return []
 
     key = str(path)
     try:
         mtime = path.stat().st_mtime
-        cached = _YAML_CACHE.get(key)
+        cached = _JSON_CACHE.get(key)
         if cached and cached[0] == mtime:
             return list(cached[1])
 
-        raw = _yaml.safe_load(path.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8"))
         entries: List[Dict[str, Any]] = raw if isinstance(raw, list) else []
-        _YAML_CACHE[key] = (mtime, entries)
+        _JSON_CACHE[key] = (mtime, entries)
         return list(entries)
     except Exception as exc:
         log.warning("PreferenceStore: could not read %s: %s", path, exc)
         return []
 
 
-def _save_yaml_file(path: Path, entries: List[Dict[str, Any]]) -> None:
-    """Write *entries* as a YAML list to *path*, creating parent dirs as needed."""
-    try:
-        import yaml as _yaml
-    except ImportError:
-        log.warning("pyyaml not installed — cannot save preferences")
-        return
-
+def _save_json_file(path: Path, entries: List[Dict[str, Any]]) -> None:
+    """Write *entries* as a JSON array to *path*, creating parent dirs as needed."""
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        text = _yaml.dump(entries, allow_unicode=True, default_flow_style=False, sort_keys=False)
-        path.write_text(text, encoding="utf-8")
+        path.write_text(
+            json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         # Invalidate cache
-        _YAML_CACHE.pop(str(path), None)
+        _JSON_CACHE.pop(str(path), None)
     except Exception as exc:
         log.warning("PreferenceStore: could not write %s: %s", path, exc)
 
@@ -248,7 +279,7 @@ class PreferenceStore:
             path = self._paths.get(scope)
             if path is None:
                 continue
-            for entry in _load_yaml_file(path):
+            for entry in _load_json_file(path):
                 if not isinstance(entry, dict):
                     continue
                 conf = float(entry.get("confidence", 0.0))
@@ -303,14 +334,14 @@ class PreferenceStore:
         if path is None:
             return False
 
-        entries = _load_yaml_file(path)
+        entries = _load_json_file(path)
         for entry in entries:
             if entry.get("id") == pref_id:
                 entry["evidence_count"] = int(entry.get("evidence_count", 1)) + 1
                 entry["consistent_count"] = int(entry.get("consistent_count", 1)) + 1
                 entry["last_reinforced"] = _now_iso()
                 entry["confidence"] = compute_confidence(entry)
-                _save_yaml_file(path, entries)
+                _save_json_file(path, entries)
                 return True
         return False
 
@@ -326,7 +357,7 @@ class PreferenceStore:
         if path is None:
             return False
 
-        entries = _load_yaml_file(path)
+        entries = _load_json_file(path)
         for entry in entries:
             if entry.get("id") == pref_id:
                 entry["evidence_count"] = int(entry.get("evidence_count", 1)) + 1
@@ -334,7 +365,7 @@ class PreferenceStore:
                 entry["conflicts_with"] = conflicts_with
                 entry["last_reinforced"] = _now_iso()
                 entry["confidence"] = compute_confidence(entry)
-                _save_yaml_file(path, entries)
+                _save_json_file(path, entries)
                 return True
         return False
 
@@ -344,11 +375,11 @@ class PreferenceStore:
         if path is None:
             return False
 
-        entries = _load_yaml_file(path)
+        entries = _load_json_file(path)
         new_entries = [e for e in entries if e.get("id") != pref_id]
         if len(new_entries) == len(entries):
             return False
-        _save_yaml_file(path, new_entries)
+        _save_json_file(path, new_entries)
         return True
 
     # ------------------------------------------------------------------
@@ -364,7 +395,7 @@ class PreferenceStore:
             log.debug("PreferenceStore: scope '%s' unavailable (no notebook path?)", scope)
             return
 
-        entries = _load_yaml_file(path)
+        entries = _load_json_file(path)
         eid = entry.get("id")
         replaced = False
         if eid:
@@ -380,7 +411,7 @@ class PreferenceStore:
         if "evidence_count" in entry:
             entry["confidence"] = compute_confidence(entry)
 
-        _save_yaml_file(path, entries)
+        _save_json_file(path, entries)
 
 
 # ---------------------------------------------------------------------------

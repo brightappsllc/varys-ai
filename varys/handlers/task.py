@@ -65,12 +65,13 @@ def _fire_usage(provider, notebook_path: str, context: str) -> None:
 def _strip_null(text: str) -> str:
     """Remove trailing ' null' artefacts that some models emit.
 
-    Only trailing whitespace is stripped after the null removal so that
-    leading spaces — which LLM tokenisers encode as part of the *next* token
-    (e.g. " news", " function") — are preserved.  Stripping both sides was
-    the cause of missing inter-word spaces ("Greatnews", "thisfunction").
+    The regex already eats any surrounding whitespace via \s*…\s*$, so no
+    extra strip() call is needed.  Calling rstrip() here was previously shown
+    to collapse inter-word spaces when the tokeniser encodes the space as the
+    *trailing* character of a token — e.g. Anthropic emits "all " then "26",
+    and rstrip() turned that into "all26".
     """
-    return _re.sub(r'(\s*\bnull\b)+\s*$', '', text).rstrip()
+    return _re.sub(r'(\s*\bnull\b)+\s*$', '', text)
 
 
 # ---------------------------------------------------------------------------
@@ -1781,8 +1782,9 @@ class TaskHandler(JupyterHandler):
                 self.finish(_json.dumps({"error": msg}))
             return
 
-        max_tokens = int(os.environ.get("VARYS_AGENT_MAX_TOKENS", "8192"))
-        max_turns  = int(get_agent_env("VARYS_AGENT_MAX_TURNS", local_cfg, "20") or "20")
+        max_tokens    = int(os.environ.get("VARYS_AGENT_MAX_TOKENS", "8192"))
+        max_turns     = int(get_agent_env("VARYS_AGENT_MAX_TURNS",   local_cfg, "50")  or "50")
+        timeout_secs  = float(get_agent_env("VARYS_AGENT_TIMEOUT_SECS", local_cfg, "120") or "120")
 
         # ── Load system prompt ────────────────────────────────────────────────
         # For custom skills with agent_mode: true, load the skill's own content
@@ -1940,6 +1942,7 @@ class TaskHandler(JupyterHandler):
                 system_prompt=system_prompt,
                 max_turns=max_turns,
                 max_tokens=max_tokens,
+                timeout_secs=timeout_secs,
                 operation_id=operation_id,
                 app_settings=self.settings,
                 callbacks=callbacks,
@@ -2116,6 +2119,7 @@ class TaskHandler(JupyterHandler):
             ],
             "files_read":    result.files_read,
             "incomplete":    result.incomplete,
+            "timed_out":     result.timed_out,
             "bash_outputs": [
                 {
                     "command":     b.command,

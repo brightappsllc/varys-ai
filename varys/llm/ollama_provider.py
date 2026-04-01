@@ -1,12 +1,15 @@
-"""Ollama provider — local model inference via the Ollama HTTP API."""
+"""Ollama provider — local model inference via the Ollama HTTP API.
+
+Uses Tornado's AsyncHTTPClient (already a dependency via jupyter-server) for
+all HTTP calls, eliminating the httpx dependency entirely.
+"""
+import asyncio
 import json
 import logging
 import os
 import re
 import uuid
 from typing import Any, Callable, Awaitable, Dict, List, Optional
-
-import httpx
 
 log = logging.getLogger(__name__)
 
@@ -125,7 +128,39 @@ class OllamaProvider(BaseLLMProvider):
         self.chat_model = chat_model
         self.completion_model = completion_model
         self._cache = CompletionCache()
-        self._http = httpx.AsyncClient(timeout=httpx.Timeout(TIMEOUT_CHAT))
+
+    # ------------------------------------------------------------------
+    # HTTP helpers (Tornado AsyncHTTPClient — no httpx dependency)
+    # ------------------------------------------------------------------
+
+    async def _post(self, path: str, payload: dict, timeout: int) -> dict:
+        """POST JSON to the Ollama server and return the parsed response dict."""
+        from tornado.httpclient import AsyncHTTPClient, HTTPRequest
+        client = AsyncHTTPClient()
+        body = json.dumps(payload).encode()
+        req = HTTPRequest(
+            f"{self.base_url}{path}",
+            method="POST",
+            body=body,
+            headers={"Content-Type": "application/json"},
+            request_timeout=timeout,
+            connect_timeout=10,
+        )
+        resp = await client.fetch(req)
+        return json.loads(resp.body)
+
+    async def _get(self, path: str, timeout: int = 10) -> dict:
+        """GET from the Ollama server and return the parsed response dict."""
+        from tornado.httpclient import AsyncHTTPClient, HTTPRequest
+        client = AsyncHTTPClient()
+        req = HTTPRequest(
+            f"{self.base_url}{path}",
+            method="GET",
+            request_timeout=timeout,
+            connect_timeout=5,
+        )
+        resp = await client.fetch(req)
+        return json.loads(resp.body)
 
     # ------------------------------------------------------------------
     # BaseLLMProvider interface
@@ -162,12 +197,7 @@ class OllamaProvider(BaseLLMProvider):
         }
 
         try:
-            resp = await self._http.post(
-                f"{self.base_url}/api/chat", json=payload,
-                timeout=TIMEOUT_CHAT,
-            )
-            resp.raise_for_status()
-            raw_plan = resp.json()
+            raw_plan = await self._post("/api/chat", payload, TIMEOUT_CHAT)
             content = raw_plan.get("message", {}).get("content", "")
             self._set_usage(
                 raw_plan.get("prompt_eval_count", 0),
@@ -175,12 +205,12 @@ class OllamaProvider(BaseLLMProvider):
             )
             return self._parse_plan(content, op_id)
 
-        except httpx.ConnectError:
+        except ConnectionRefusedError:
             raise RuntimeError(
                 "Cannot reach Ollama server. "
                 f"Is 'ollama serve' running at {self.base_url}?"
             )
-        except httpx.TimeoutException:
+        except TimeoutError:
             raise RuntimeError(
                 f"Ollama request timed out after {TIMEOUT_CHAT}s. "
                 "Try a smaller model or increase DS_OLLAMA_TIMEOUT."
@@ -232,12 +262,7 @@ class OllamaProvider(BaseLLMProvider):
 
         suggestion = ""
         try:
-            resp = await self._http.post(
-                f"{self.base_url}/api/generate", json=payload,
-                timeout=timeout,
-            )
-            resp.raise_for_status()
-            raw = resp.json()
+            raw = await self._post("/api/generate", payload, timeout)
             suggestion = raw.get("response", "").strip()
             log.info(
                 "Ollama complete ← model=%s  suggestion=%r  "
@@ -247,7 +272,7 @@ class OllamaProvider(BaseLLMProvider):
                 raw.get("eval_count", "?"),
                 round(raw.get("eval_duration", 0) / 1e6),
             )
-        except httpx.TimeoutException:
+        except TimeoutError:
             log.warning("Ollama complete TIMEOUT after %ss  model=%s", timeout, model)
         except Exception as exc:
             log.warning("Ollama complete ERROR: %s", exc)
@@ -291,12 +316,7 @@ class OllamaProvider(BaseLLMProvider):
             "keep_alive": _keep_alive(),
             "options": {"temperature": 0.3, "num_predict": 8192},
         }
-        resp = await self._http.post(
-            f"{self.base_url}/api/chat", json=payload,
-            timeout=TIMEOUT_CHAT,
-        )
-        resp.raise_for_status()
-        raw_chat = resp.json()
+        raw_chat = await self._post("/api/chat", payload, TIMEOUT_CHAT)
         self._set_usage(
             raw_chat.get("prompt_eval_count", 0),
             raw_chat.get("eval_count", 0),
@@ -311,7 +331,9 @@ class OllamaProvider(BaseLLMProvider):
         on_thought: Optional[Callable[[str], Awaitable[None]]] = None,
         chat_history: Optional[List[Dict[str, str]]] = None,
     ) -> None:
-        """Stream a chat response token by token."""
+        """Stream a chat response token by token via Tornado AsyncHTTPClient."""
+        from tornado.httpclient import AsyncHTTPClient, HTTPRequest
+
         payload = {
             "model": self.chat_model,
             "messages": self._build_ollama_messages(system, user, chat_history),
@@ -319,12 +341,41 @@ class OllamaProvider(BaseLLMProvider):
             "keep_alive": _keep_alive(),
             "options": {"temperature": 0.3, "num_predict": 8192},
         }
-        async with self._http.stream(
-            "POST", f"{self.base_url}/api/chat", json=payload,
-            timeout=TIMEOUT_CHAT,
-        ) as response:
-            response.raise_for_status()
-            async for line in response.aiter_lines():
+
+        loop = asyncio.get_event_loop()
+        line_queue: asyncio.Queue = asyncio.Queue()
+        _buf = bytearray()
+
+        def _streaming_callback(chunk: bytes) -> None:
+            _buf.extend(chunk)
+            while b"\n" in _buf:
+                idx = _buf.index(b"\n")
+                raw_line = bytes(_buf[:idx]).decode("utf-8", errors="replace")
+                del _buf[:idx + 1]
+                loop.call_soon_threadsafe(line_queue.put_nowait, raw_line)
+
+        client = AsyncHTTPClient()
+        req = HTTPRequest(
+            f"{self.base_url}/api/chat",
+            method="POST",
+            body=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            request_timeout=TIMEOUT_CHAT,
+            streaming_callback=_streaming_callback,
+        )
+
+        async def _fetch() -> None:
+            try:
+                await client.fetch(req, raise_error=False)
+            finally:
+                loop.call_soon_threadsafe(line_queue.put_nowait, None)  # sentinel
+
+        fetch_task = asyncio.create_task(_fetch())
+        try:
+            while True:
+                line = await line_queue.get()
+                if line is None:
+                    break
                 if not line.strip():
                     continue
                 try:
@@ -340,6 +391,8 @@ class OllamaProvider(BaseLLMProvider):
                         break
                 except json.JSONDecodeError:
                     continue
+        finally:
+            await fetch_task
 
     async def stream_plan_task(
         self,
@@ -382,8 +435,8 @@ class OllamaProvider(BaseLLMProvider):
 
     async def health_check(self) -> bool:
         try:
-            resp = await self._http.get(f"{self.base_url}/api/tags", timeout=5)
-            return resp.status_code == 200
+            await self._get("/api/tags", timeout=5)
+            return True
         except Exception:
             return False
 

@@ -574,6 +574,11 @@
   background: transparent;
   color: inherit;
 }
+/* contenteditable variant — let the div expand naturally; no JS height needed */
+.ds-msg-edit-ce {
+  overflow: visible;
+  word-break: break-word;
+}
 
 /* ── Equalizer-bar cursor shown at end of a streaming message ── */
 .ds-typing-cursor {
@@ -1391,10 +1396,50 @@
 }
 
 /* Bottom row: model switcher (left) + send button (right) */
+/* ── Unified bordered input frame ──────────────────────────────────────────
+   Single outer box that wraps the text area and the controls bottom bar.
+   The inner textarea is rendered without its own border (see below).
+   ────────────────────────────────────────────────────────────────────────── */
+.ds-input-frame {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 6px;
+  background: var(--jp-layout-color1);
+  /* overflow: hidden intentionally omitted — it would clip the absolutely-
+     positioned reasoning / @-mention dropdown menus that overflow the frame */
+}
+
+/* Focus ring on the frame when the textarea inside is focused */
+.ds-input-frame:focus-within {
+  border-color: var(--jp-brand-color1, #1976d2);
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.15);
+}
+
+/* Remove individual border from the textarea — the frame provides it */
+.ds-input-frame .ds-assistant-input {
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
 .ds-assistant-input-bottom {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  padding: 4px 8px;
+  border-top: 1px solid var(--jp-border-color3, rgba(0,0,0,0.08));
+}
+
+/* Spacer: pushes token counter + send/stop to the far right */
+.ds-input-bottom-spacer {
+  flex: 1;
+}
+
+/* model switcher should not expand in the bottom bar (spacer does that) */
+.ds-assistant-input-bottom .ds-model-switcher {
+  flex: 0 0 auto;
 }
 
 /* Controls row: +nb context  |  send to cell: [dropdown] */
@@ -1402,7 +1447,6 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-left: auto;
   flex-shrink: 0;
 }
 .ds-controls-sep {
@@ -1490,6 +1534,13 @@
   letter-spacing: 0.01em;
 }
 
+/* @variable mention chips — same as cell-ref chips, monospace for the name */
+.ds-at-ref-ctx-chip {
+  font-family: var(--jp-code-font-family, monospace);
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
 /* ── Contenteditable input div ─────────────────────────────────────────────
    Replaces the <textarea> so individual tokens can be styled inline.
    Must visually match the textarea's metrics exactly.
@@ -1537,8 +1588,14 @@
   font-style: italic;
   font-weight: 500;
 }
+.ds-at-ref-inline {
+  color: var(--jp-brand-color1, #1976d2);
+  font-style: italic;
+  font-weight: 500;
+}
 
-.ds-chat-night .ds-cell-ref-inline {
+.ds-chat-night .ds-cell-ref-inline,
+.ds-chat-night .ds-at-ref-inline {
   color: var(--jp-brand-color1, #7ec8e3);
 }
 
@@ -1578,6 +1635,21 @@
   color: #c0392b;
 }
 
+/* Send (↑) button — dark charcoal circle, white arrow */
+.ds-assistant-send-btn.ds-send-arrow {
+  background: #2e2e2e;
+  color: #fff;
+  animation: ds-send-arrow-in 0.12s ease;
+}
+.ds-assistant-send-btn.ds-send-arrow:hover {
+  background: #444;
+  color: #fff;
+}
+@keyframes ds-send-arrow-in {
+  from { opacity: 0; transform: scale(0.65); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
 /* Night-mode adjustments */
 .ds-chat-night .ds-assistant-send-btn {
   background: #2d2d2d;
@@ -1596,6 +1668,14 @@
 .ds-chat-night .ds-assistant-send-btn.ds-send-stop:hover {
   background: #3b1f1f;
   color: #ef9a9a;
+}
+
+.ds-chat-night .ds-assistant-send-btn.ds-send-arrow {
+  background: #2e2e2e;
+  color: #fff;
+}
+.ds-chat-night .ds-assistant-send-btn.ds-send-arrow:hover {
+  background: #444;
 }
 
 /* ----------------------------------------------------------
@@ -1721,51 +1801,114 @@
 .ds-thread-pills {
   display: flex;
   align-items: stretch;
-  flex: 0 1 auto;   /* size to content; shrink if needed, never grow to fill row */
+  flex: 1 1 0;
   min-width: 0;
-  overflow: hidden;
+  overflow-x: auto;
+  scrollbar-width: none;          /* Firefox */
   gap: 0;
 }
+.ds-thread-pills::-webkit-scrollbar { display: none; }  /* Chrome/Safari */
 
 /* Individual named tab pill */
 .ds-thread-pill {
   display: inline-flex;
   align-items: center;
+  gap: 2px;
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
-  cursor: pointer;
-  padding: 4px 8px 3px;
+  cursor: default;
+  padding: 0 6px 0 8px;
+  height: 28px;
   font-size: 11px;
   font-family: var(--jp-ui-font-family);
+  border-radius: 3px 3px 0 0;
+  flex-shrink: 0;
+  transition: background 0.12s, border-bottom-color 0.12s;
+}
+.ds-thread-pill:hover {
+  background: var(--jp-layout-color2, rgba(0,0,0,0.05));
+}
+.ds-thread-pill--active {
+  border-bottom-color: var(--jp-brand-color1, #1976d2);
+}
+
+/* Thread name — always visible; clicking it switches the thread */
+.ds-thread-pill-name {
+  font-size: 11px;
   color: var(--jp-ui-font-color2, #777);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 82px;
-  border-radius: 3px 3px 0 0;
-  flex-shrink: 0;
-  transition: color 0.12s, background 0.12s, border-bottom-color 0.12s;
+  max-width: 72px;
+  cursor: pointer;
+  user-select: none;
   line-height: 1.4;
 }
-.ds-thread-pill:hover {
-  color: var(--jp-ui-font-color0, #222);
-  background: var(--jp-layout-color2, rgba(0,0,0,0.05));
-}
-.ds-thread-pill--active {
+.ds-thread-pill--active .ds-thread-pill-name {
   color: var(--jp-ui-font-color0, #1a1a2e);
   font-weight: 600;
-  border-bottom-color: var(--jp-brand-color1, #1976d2);
 }
 
-/* Wrapper that establishes the positioning context for the popup */
-.ds-thread-overflow-wrap {
-  position: relative;
-  flex-shrink: 0;
+/* Action icons — hidden by default, slide in to the right of the name on hover */
+.ds-thread-pill-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  opacity: 0;
+  max-width: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition: opacity 0.15s, max-width 0.15s;
+}
+.ds-thread-pill:hover .ds-thread-pill-actions {
+  opacity: 1;
+  max-width: 56px;   /* enough for 3 × 11px icons + gaps */
+  pointer-events: auto;
 }
 
-/* ··· / +N  overflow + manage button */
-.ds-thread-overflow-btn {
+/* Individual icon button inside the pill */
+.ds-thread-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border-radius: 3px;
+  cursor: pointer;
+  color: var(--jp-ui-font-color2, #666);
+  transition: color 0.1s, background 0.1s;
+}
+.ds-thread-pill-btn:hover {
+  color: var(--jp-ui-font-color0, #222);
+  background: rgba(0,0,0,0.08);
+}
+.ds-thread-pill-btn--delete:hover {
+  color: #c0392b;
+  background: rgba(192,57,43,0.08);
+}
+
+/* Inline rename input inside a pill */
+.ds-thread-pill--editing {
+  min-width: 90px;
+}
+.ds-thread-pill--editing .ds-thread-rename-wrap {
+  width: 100%;
+  padding: 0 4px;
+}
+.ds-thread-pill--editing .ds-thread-rename-input {
+  width: 100%;
+  font-size: 11px;
+  font-family: var(--jp-ui-font-family);
+  border: 1px solid var(--jp-brand-color1, #1976d2);
+  border-radius: 3px;
+  padding: 1px 4px;
+  outline: none;
+  background: var(--jp-layout-color1, #fff);
+  color: var(--jp-ui-font-color1, #333);
+}
+
+/* [+] add-thread button */
+.ds-thread-add-btn {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -1773,17 +1916,16 @@
   background: none;
   border: none;
   cursor: pointer;
-  padding: 3px 7px;
+  width: 24px;
+  height: 24px;
   border-radius: 4px;
-  font-size: 11px;
-  font-family: var(--jp-ui-font-family);
+  font-size: 16px;
+  line-height: 1;
   color: var(--jp-ui-font-color3, #aaa);
-  letter-spacing: 0.06em;
-  min-width: 26px;
+  margin: 0 2px;
   transition: background 0.12s, color 0.12s;
 }
-.ds-thread-overflow-btn:hover,
-.ds-thread-overflow-btn--open {
+.ds-thread-add-btn:hover {
   background: var(--jp-layout-color2, rgba(0,0,0,0.07));
   color: var(--jp-ui-font-color1, #444);
 }
@@ -1808,10 +1950,9 @@
 
 /* "context:" static label */
 .ds-nb-ctx-label {
-  font-size: 10px;
-  font-family: var(--jp-ui-font-family);
-  color: var(--ds-text-dim, #5a5f72);
-  opacity: 0.7;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.75;
   user-select: none;
   white-space: nowrap;
 }
@@ -1841,9 +1982,19 @@
 }
 /* ×/+ sign inside the chip */
 .ds-nb-ctx-sign {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 9px;
   line-height: 1;
+  transition: opacity 0.15s, filter 0.15s;
+}
+/* Bright paperclip when context is included */
+.ds-nb-ctx-chip--on .ds-nb-ctx-sign {
+  opacity: 1;
+  filter: none;
+}
+/* Greyed-out paperclip when context is excluded */
+.ds-nb-ctx-chip--off .ds-nb-ctx-sign {
+  opacity: 0.35;
+  filter: grayscale(1);
 }
 /* Active: blue-tinted background, blue text */
 .ds-nb-ctx-chip--on {
@@ -1877,6 +2028,7 @@
 .ds-reasoning-dropdown {
   position: relative;
   display: inline-flex;
+  margin-left: 8px;
 }
 .ds-reasoning-chevron {
   font-size: 8px;
@@ -2259,24 +2411,40 @@
 .ds-chat-night .ds-thread-bar {
   border-color: var(--ds-border, rgba(255,255,255,0.1));
 }
-.ds-chat-night .ds-thread-pill {
-  color: var(--ds-text-dim, #8890a8);
-}
 .ds-chat-night .ds-thread-pill:hover {
-  color: var(--ds-text, #c5c5cc);
   background: var(--ds-surface2, rgba(255,255,255,0.06));
 }
 .ds-chat-night .ds-thread-pill--active {
-  color: var(--ds-text, #e0e0e0);
   border-bottom-color: #6272a4;
 }
-.ds-chat-night .ds-thread-overflow-btn {
+.ds-chat-night .ds-thread-pill-name {
+  color: var(--ds-text-dim, #8890a8);
+}
+.ds-chat-night .ds-thread-pill--active .ds-thread-pill-name {
+  color: var(--ds-text, #e0e0e0);
+}
+.ds-chat-night .ds-thread-pill-btn {
+  color: var(--ds-text-dim, #6b6f88);
+}
+.ds-chat-night .ds-thread-pill-btn:hover {
+  background: rgba(255,255,255,0.12);
+  color: var(--ds-text, #c5c5cc);
+}
+.ds-chat-night .ds-thread-pill-btn--delete:hover {
+  color: #ff6b6b;
+  background: rgba(229, 57, 53, 0.22);
+}
+.ds-chat-night .ds-thread-add-btn {
   color: var(--ds-text-dim, #55576a);
 }
-.ds-chat-night .ds-thread-overflow-btn:hover,
-.ds-chat-night .ds-thread-overflow-btn--open {
+.ds-chat-night .ds-thread-add-btn:hover {
   background: var(--ds-surface2, rgba(255,255,255,0.06));
   color: var(--ds-text, #c5c5cc);
+}
+.ds-chat-night .ds-thread-pill--editing .ds-thread-rename-input {
+  background: var(--ds-surface2, #2a2a2a);
+  border-color: #6272a4;
+  color: var(--ds-text, #e0e0e0);
 }
 /* Night mode: context chip */
 .ds-chat-night .ds-nb-ctx-label {
@@ -3058,14 +3226,43 @@
 
 /* ── END Themed scrollbars ───────────────────────────────────────────────── */
 
-.ds-chat-day .ds-assistant-input,
-.ds-chat-night .ds-assistant-input {
+/* Themed input frame */
+.ds-chat-day .ds-input-frame,
+.ds-chat-night .ds-input-frame {
   background: var(--ds-input-bg) !important;
-  color:      var(--ds-text) !important;
-  border:     1px solid var(--ds-border) !important;
+  border-color: var(--ds-border) !important;
 }
 
-/* H-5: Night-mode input focus ring */
+.ds-chat-day .ds-input-frame:focus-within,
+.ds-chat-night .ds-input-frame:focus-within {
+  border-color: var(--jp-brand-color1, #1976d2) !important;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.15) !important;
+}
+
+.ds-chat-night .ds-input-frame:focus-within {
+  box-shadow: 0 0 0 2px rgba(126, 200, 227, 0.25) !important;
+}
+
+/* Textarea inside themed frame: no own border, transparent background */
+.ds-chat-day .ds-input-frame .ds-assistant-input,
+.ds-chat-night .ds-input-frame .ds-assistant-input {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: var(--ds-text) !important;
+}
+
+/* Bottom bar separator in dark mode */
+.ds-chat-night .ds-assistant-input-bottom {
+  border-top-color: var(--ds-border, rgba(255,255,255,0.10));
+}
+
+.ds-chat-day .ds-assistant-input,
+.ds-chat-night .ds-assistant-input {
+  color: var(--ds-text) !important;
+}
+
+/* H-5: Night-mode input focus ring (kept for standalone use outside frame) */
 .ds-chat-night .ds-assistant-input:focus {
   box-shadow: 0 0 0 2px rgba(126, 200, 227, 0.25) !important;
 }
@@ -3206,11 +3403,18 @@
 .ds-varys-version {
   font-size: 9px;
   font-weight: 400;
-  opacity: 0.45;
   letter-spacing: 0.03em;
   margin-left: 3px;
   align-self: flex-end;
   margin-bottom: 1px;
+  /* matches the Varys title text in each mode */
+  color: inherit;
+}
+.ds-chat-day .ds-varys-version {
+  color: var(--ds-text, #1a1a2e);
+}
+.ds-chat-night .ds-varys-version {
+  color: var(--ds-text, #c5c5cc);
 }
 
 .ds-varys-spider {
@@ -3218,6 +3422,180 @@
   filter: sepia(1) saturate(5) hue-rotate(-10deg) brightness(0.95);
   display: inline-block;
   line-height: 1;
+}
+
+/* Version badge — clickable to open changelog history */
+.ds-varys-version--clickable {
+  cursor: pointer;
+  transition: opacity 0.12s;
+}
+.ds-varys-version--clickable:hover {
+  opacity: 0.65;
+  text-decoration: underline dotted;
+}
+
+/* Update-available pill — opens the What's New panel */
+.ds-varys-update-pill {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border-radius: 8px;
+  border: none;
+  vertical-align: middle;
+  cursor: pointer;
+  line-height: 1.6;
+  background: #f59e0b;
+  color: #1a1400 !important;
+  transition: background 0.15s, transform 0.1s;
+}
+.ds-varys-update-pill:hover {
+  background: #d97706;
+  transform: scale(1.05);
+}
+
+/* ── Changelog panel ────────────────────────────────────────────────────── */
+.ds-changelog-panel {
+  display: flex;
+  flex-direction: column;
+  height: calc(100% - 38px);   /* fill below the header */
+  overflow: hidden;
+}
+
+/* Tab strip */
+.ds-changelog-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--ds-border, rgba(128,128,128,0.2));
+  flex-shrink: 0;
+  padding: 0 8px;
+}
+.ds-changelog-tab {
+  flex: 1;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 7px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--ds-text-dim, rgba(128,128,128,0.7));
+  transition: color 0.15s, border-color 0.15s;
+}
+.ds-changelog-tab:hover {
+  color: var(--ds-text, inherit);
+}
+.ds-changelog-tab--active {
+  color: var(--ds-accent, #7c5cbf) !important;
+  border-bottom-color: var(--ds-accent, #7c5cbf);
+  font-weight: 600;
+}
+
+/* Scrollable body */
+.ds-changelog-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px 20px;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.ds-changelog-loading {
+  color: var(--ds-text-dim, rgba(128,128,128,0.6));
+  font-style: italic;
+  padding: 16px 0;
+  text-align: center;
+}
+.ds-changelog-empty {
+  color: var(--ds-text-dim, rgba(128,128,128,0.6));
+  font-style: italic;
+  padding: 24px 0;
+  text-align: center;
+}
+
+/* Markdown content reuses .ds-message-content rules; add sizing overrides */
+.ds-changelog-content h2 {
+  font-size: 13.5px;
+  margin: 18px 0 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--ds-border, rgba(128,128,128,0.15));
+}
+.ds-changelog-content h3 {
+  font-size: 12px;
+  margin: 12px 0 4px;
+}
+.ds-changelog-content h4 {
+  font-size: 11.5px;
+  margin: 8px 0 3px;
+}
+.ds-changelog-content ul,
+.ds-changelog-content ol {
+  padding-left: 18px;
+  margin: 4px 0;
+}
+.ds-changelog-content li {
+  margin: 2px 0;
+}
+.ds-changelog-content p {
+  margin: 4px 0;
+}
+.ds-changelog-content code {
+  font-size: 10.5px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--ds-surface-alt, rgba(128,128,128,0.12));
+}
+.ds-changelog-content hr {
+  margin: 14px 0;
+  border: none;
+  border-top: 1px solid var(--ds-border, rgba(128,128,128,0.2));
+}
+.ds-changelog-content table {
+  font-size: 11px;
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+}
+.ds-changelog-content th,
+.ds-changelog-content td {
+  border: 1px solid var(--ds-border, rgba(128,128,128,0.2));
+  padding: 3px 7px;
+  text-align: left;
+}
+.ds-changelog-content th {
+  background: var(--ds-surface-alt, rgba(128,128,128,0.08));
+  font-weight: 600;
+}
+
+/* Footer with update command */
+.ds-changelog-footer {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ds-border, rgba(128,128,128,0.15));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.ds-changelog-github-link {
+  font-size: 11px;
+  color: var(--ds-accent, #7c5cbf);
+  text-decoration: none;
+}
+.ds-changelog-github-link:hover {
+  text-decoration: underline;
+}
+.ds-changelog-update-cmd {
+  font-size: 11px;
+}
+.ds-changelog-update-cmd code {
+  background: var(--ds-surface-alt, rgba(128,128,128,0.12));
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  user-select: all;
 }
 
 /* Loading / progress text */
@@ -6122,7 +6500,7 @@
 
 /* ── Buttons ────────────────────────────────────────────────────────────── */
 .ds-repro-btn {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   padding: 4px 10px;
   border-radius: 6px;
@@ -6134,6 +6512,11 @@
   line-height: 1.4;
 }
 .ds-repro-btn:disabled { opacity: 0.45; cursor: default; }
+.ds-repro-btn-icon {
+  font-size: 14px;
+  line-height: 1;
+  vertical-align: middle;
+}
 
 .ds-repro-btn--analyze {
   border-color: #d1d5db;
@@ -6679,10 +7062,17 @@
   padding: 2px 6px;
   background: var(--ds-surface, #f0f0f0);
   border-bottom: 1px solid var(--jp-border-color3, #eee);
-  pointer-events: none;       /* don't interfere with cell selection */
+  pointer-events: auto;       /* capture mouse events so JupyterLab hover doesn't bleed */
   min-height: 18px;
+  cursor: default;
 }
-/* Pills opt back into pointer events individually (set in JS) */
+/* SVGs inside overlay buttons must not intercept clicks — the <button> element
+   handles the full bounding-box hit area, so stroked-only paths are no longer
+   the only clickable region. */
+.ds-overlay-autotag-btn svg,
+.ds-overlay-add-btn svg {
+  pointer-events: none;
+}
 
 /* Wrapper that keeps tag pills together on the left */
 .ds-overlay-tags {

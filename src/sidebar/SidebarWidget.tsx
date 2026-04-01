@@ -115,24 +115,65 @@ function extractCellRefs(text: string): string[] {
   return result;
 }
 
+/**
+ * Returns all @varName tokens in `text` whose name exists in `symbols`.
+ * Matches anywhere in the text; a confirmed mention is one followed by a
+ * non-word character or end of string.
+ */
+function extractAtMentions(
+  text: string,
+  symbols: { name: string; vtype: string }[],
+): { name: string; vtype: string }[] {
+  if (!symbols.length) return [];
+  const symbolMap = new Map(symbols.map(s => [s.name, s]));
+  const seen  = new Set<string>();
+  const result: { name: string; vtype: string }[] = [];
+  const re = /@([A-Za-z_]\w*)(?=\W|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text + ' ')) !== null) {   // append space so end-of-input matches
+    const name = m[1];
+    if (!seen.has(name) && symbolMap.has(name)) {
+      seen.add(name);
+      result.push(symbolMap.get(name)!);
+    }
+  }
+  return result;
+}
+
 // ── Contenteditable rich-text input helpers ───────────────────────────────
 
 /**
  * Builds the innerHTML to set on the contenteditable input div.
- * "cell #N" tokens followed by a non-digit are wrapped in a styled span;
- * all other text is HTML-escaped.  Newlines become <br> so they render
- * correctly inside a div (unlike a textarea where they are native).
+ * • "cell #N" tokens (followed by a non-digit) → ds-cell-ref-inline (blue italic)
+ * • "@varName" tokens → ds-at-ref-inline (same blue italic, monospace)
+ * All other text is HTML-escaped; newlines become <br>.
+ *
+ * @param validSymbols  Optional set of kernel variable names.  When provided,
+ *                      only @names in the set are highlighted; otherwise ALL
+ *                      @identifier tokens are highlighted.
  */
-function buildHighlightHtml(text: string): string {
-  const re = /\b(cell\s*#\s*\d+)(?=\D)/gi;
+function buildHighlightHtml(text: string, validSymbols?: Set<string>): string {
+  // Combined pattern — group 1: cell ref, group 2: @mention
+  const re = /\b(cell\s*#\s*\d+)(?=\D)|(@[A-Za-z_]\w*)(?=\W|$)/g;
   const parts: string[] = [];
   let lastIdx = 0;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
+  // Append a space so end-of-string @mentions are matched by the lookahead
+  const src = text + ' ';
+  while ((m = re.exec(src)) !== null) {
+    if (m.index >= text.length) break;           // skip the appended space
+    const token = m[0];
+    const isCellRef = !!m[1];
+    const isAtMention = !!m[2];
+    // For @mentions, only highlight if it's a known symbol (or no filter given)
+    if (isAtMention && validSymbols && !validSymbols.has(token.slice(1))) {
+      continue;
+    }
     parts.push(_escHtml(text.slice(lastIdx, m.index)).replace(/\n/g, '<br>'));
-    parts.push(`<span class="ds-cell-ref-inline">${_escHtml(m[0])}</span>`);
-    lastIdx = m.index + m[0].length;
-    if (m[0].length === 0) re.lastIndex++;
+    const cls = isCellRef ? 'ds-cell-ref-inline' : 'ds-at-ref-inline';
+    parts.push(`<span class="${cls}">${_escHtml(token)}</span>`);
+    lastIdx = m.index + token.length;
+    if (token.length === 0) re.lastIndex++;
   }
   parts.push(_escHtml(text.slice(lastIdx)).replace(/\n/g, '<br>'));
   return parts.join('');
@@ -195,23 +236,49 @@ function moveCECursorToEnd(el: HTMLElement): void {
  */
 function renderUserContent(text: string): string {
   if (!text) return '';
-  // Split on fenced code blocks; capture the fence so we can inspect it
-  const segments = text.split(/(```[\w.-]*\r?\n[\s\S]*?```)/g);
+  // Split on triple-backtick blocks.  The lazy [\s\S]*? matches the shortest
+  // possible run, so adjacent code blocks are split correctly.  We do NOT
+  // require a newline after the opening fence here — that lets us handle
+  // "```code on same line as fence```" as well as the standard
+  // "```lang\ncode\n```" format.
+  const segments = text.split(/(```[\s\S]*?```)/g);
   let html = '';
   for (const seg of segments) {
-    const fenceMatch = seg.match(/^```([\w.-]*)\r?\n([\s\S]*?)```$/);
-    if (fenceMatch) {
-      const lang    = fenceMatch[1] ? ` class="language-${_escHtml(fenceMatch[1])}"` : '';
-      const code    = _escHtml(fenceMatch[2]);
+    // Identify a triple-backtick block: starts AND ends with ```, has content
+    if (seg.startsWith('```') && seg.endsWith('```') && seg.length > 6) {
+      const inner = seg.slice(3, -3);
+      // If the first line looks like a language tag (only word chars / dots /
+      // hyphens), treat it as such.  Otherwise the first line is code.
+      const nlIdx     = inner.indexOf('\n');
+      let lang = '', code = '';
+      if (nlIdx >= 0) {
+        const firstLine = inner.slice(0, nlIdx).trim();
+        if (firstLine === '' || /^[\w.-]+$/.test(firstLine)) {
+          lang = firstLine;
+          code = inner.slice(nlIdx + 1);
+        } else {
+          code = inner;       // first line is code, not a language tag
+        }
+      } else {
+        code = inner;         // single-line code block, no newline at all
+      }
+      const langAttr = lang ? ` class="language-${_escHtml(lang)}"` : '';
       html +=
         `<div class="ds-code-block-wrapper">` +
         `<button class="ds-copy-code-btn" aria-label="Copy code">Copy</button>` +
-        `<pre><code${lang}>${code}</code></pre>` +
+        `<pre><code${langAttr}>${_escHtml(code)}</code></pre>` +
         `</div>`;
     } else if (seg) {
-      // Handle inline backticks, then wrap in a pre-wrap span
-      const withInline = _escHtml(seg).replace(/`([^`\r\n]+)`/g, '<code>$1</code>');
-      html += `<span class="ds-user-text">${withInline}</span>`;
+      // 1. HTML-escape
+      let part = _escHtml(seg);
+      // 2. cell #N → styled span (same highlight used in the input box)
+      part = part.replace(
+        /\b(cell\s*#\s*\d+)(?=[^\d]|$)/gi,
+        '<span class="ds-cell-ref-inline">$1</span>'
+      );
+      // 3. inline `backtick` → <code>
+      part = part.replace(/`([^`\r\n]+)`/g, '<code>$1</code>');
+      html += `<span class="ds-user-text">${part}</span>`;
     }
   }
   return DOMPurify.sanitize(html, {
@@ -3552,8 +3619,6 @@ function translateCellRefs(
 // ThreadBar component
 // ---------------------------------------------------------------------------
 
-/** Max thread pills shown directly in the bar before overflow into ··· menu */
-const MAX_VISIBLE_THREADS = 4;
 
 interface ThreadBarProps {
   threads: ChatThread[];
@@ -3568,162 +3633,107 @@ interface ThreadBarProps {
 }
 
 const ThreadBar: React.FC<ThreadBarProps> = ({
-  threads, currentId, notebookName, onSwitch, onNew, onRename, onDuplicate, onDelete, rightSlot,
+  threads, currentId, notebookName: _notebookName, onSwitch, onNew, onRename, onDuplicate, onDelete, rightSlot,
 }) => {
-  const [open, setOpen]           = useState(false);
   const [editingId, setEditingId] = useState('');
   const [editValue, setEditValue] = useState('');
   const [renameError, setRenameError] = useState('');
-  const popupRef = useRef<HTMLDivElement>(null);
 
   const tryRename = (id: string, name: string): boolean => {
     const trimmed = name.trim();
     if (!trimmed) return false;
     const collision = threads.some(t => t.id !== id && t.name === trimmed);
-    if (collision) {
-      setRenameError(`"${trimmed}" already exists`);
-      return false;
-    }
+    if (collision) { setRenameError(`"${trimmed}" already exists`); return false; }
     onRename(id, trimmed);
     setRenameError('');
     return true;
   };
 
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setEditingId('');
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
-
-  const visibleThreads = threads.slice(0, MAX_VISIBLE_THREADS);
-  const hiddenCount    = Math.max(0, threads.length - MAX_VISIBLE_THREADS);
-
   return (
-    <div className="ds-thread-bar" ref={popupRef}>
-      {/* Named thread pills — one-click switching, up to MAX_VISIBLE_THREADS */}
+    <div className="ds-thread-bar">
+      {/* All thread pills — scrollable strip; hover reveals actions */}
       <div className="ds-thread-pills">
-        {visibleThreads.map(t => (
-          <button
+        {threads.map(t => (
+          <div
             key={t.id}
-            className={`ds-thread-pill${t.id === currentId ? ' ds-thread-pill--active' : ''}`}
-            onClick={() => onSwitch(t.id)}
-            title={t.name}
+            className={`ds-thread-pill${t.id === currentId ? ' ds-thread-pill--active' : ''}${editingId === t.id ? ' ds-thread-pill--editing' : ''}`}
           >
-            {t.name}
-          </button>
-        ))}
-      </div>
-
-      {/* ··· / +N  — manage all threads, access hidden ones, create new */}
-      <div className="ds-thread-overflow-wrap">
-        <button
-          className={`ds-thread-overflow-btn${open ? ' ds-thread-overflow-btn--open' : ''}`}
-          onClick={() => setOpen(o => !o)}
-          title={open ? 'Close thread menu' : 'Manage threads'}
-          aria-label="Thread menu"
-        >
-          {hiddenCount > 0 ? `+${hiddenCount}` : '···'}
-        </button>
-
-      {/* Management popup — anchored to the ··· button, not the full bar */}
-      {open && (
-        <div className="ds-thread-popup">
-          {/* Notebook context header */}
-          {notebookName && (
-            <div className="ds-thread-popup-notebook">
-              <span className="ds-thread-popup-nb-icon">📓</span>
-              <span className="ds-thread-popup-nb-name" title={notebookName}>{notebookName}</span>
-            </div>
-          )}
-          {threads.map(t => (
-            <div
-              key={t.id}
-              className={`ds-thread-item${t.id === currentId ? ' ds-thread-item-active' : ''}`}
-            >
-              {editingId === t.id ? (
-                <div className="ds-thread-rename-wrap">
-                  <input
-                    className={`ds-thread-rename-input${renameError ? ' ds-thread-rename-error' : ''}`}
-                    value={editValue}
-                    autoFocus
-                    onChange={e => { setEditValue(e.target.value); setRenameError(''); }}
-                    onBlur={() => {
-                      if (!tryRename(t.id, editValue)) {
-                        if (!renameError) setEditingId('');
-                      } else {
-                        setEditingId('');
-                      }
-                    }}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter') {
-                        if (tryRename(t.id, editValue)) setEditingId('');
-                      }
-                      if (e.key === 'Escape') { setEditingId(''); setRenameError(''); }
-                    }}
-                  />
-                  {renameError && (
-                    <span className="ds-thread-rename-msg">{renameError}</span>
-                  )}
-                </div>
-              ) : (
+            {editingId === t.id ? (
+              /* Inline rename input */
+              <div className="ds-thread-rename-wrap">
+                <input
+                  className={`ds-thread-rename-input${renameError ? ' ds-thread-rename-error' : ''}`}
+                  value={editValue}
+                  autoFocus
+                  onChange={e => { setEditValue(e.target.value); setRenameError(''); }}
+                  onBlur={() => { tryRename(t.id, editValue); setEditingId(''); }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') { if (tryRename(t.id, editValue)) setEditingId(''); }
+                    if (e.key === 'Escape') { setEditingId(''); setRenameError(''); }
+                  }}
+                />
+                {renameError && <span className="ds-thread-rename-msg">{renameError}</span>}
+              </div>
+            ) : (
+              <>
+                {/* Name — fades out on hover */}
                 <span
-                  className="ds-thread-item-name"
-                  onClick={() => { onSwitch(t.id); setOpen(false); }}
+                  className="ds-thread-pill-name"
+                  onClick={() => onSwitch(t.id)}
+                  title={t.name}
                 >
-                  {t.id === currentId && <span className="ds-thread-check">✓</span>}
                   {t.name}
                 </span>
-              )}
-              <div className="ds-thread-actions">
-                {/* Rename */}
-                <span
-                  className="ds-thread-action-btn"
-                  onClick={e => { e.stopPropagation(); setEditingId(t.id); setEditValue(t.name); }}
-                  data-tip="Rename"
-                >
-                  <svg viewBox="0 0 14 14" width="11" height="11" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M9.5 1.5l3 3L4 13H1v-3L9.5 1.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
-                  </svg>
-                </span>
-                {/* Duplicate */}
-                <span
-                  className="ds-thread-action-btn"
-                  onClick={e => { e.stopPropagation(); onDuplicate(t.id); }}
-                  data-tip="Duplicate thread"
-                >
-                  <svg viewBox="0 0 14 14" width="11" height="11" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <rect x="4" y="4" width="8" height="9" rx="1.2" stroke="currentColor" strokeWidth="1.4"/>
-                    <path d="M2 10V2a1 1 0 011-1h7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                  </svg>
-                </span>
-                {/* Delete — only when more than one thread exists */}
-                {threads.length > 1 && (
+                {/* Action icons — slide in on hover */}
+                <span className="ds-thread-pill-actions">
+                  {/* Rename / pen */}
                   <span
-                    className="ds-thread-action-btn ds-thread-action-delete"
-                    onClick={e => { e.stopPropagation(); onDelete(t.id); }}
-                    data-tip="Delete thread"
+                    className="ds-thread-pill-btn"
+                    onClick={e => { e.stopPropagation(); setEditingId(t.id); setEditValue(t.name); }}
+                    title="Rename"
                   >
                     <svg viewBox="0 0 14 14" width="11" height="11" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M2 4h10M5 4V2.5a.5.5 0 01.5-.5h3a.5.5 0 01.5.5V4M6 7v3.5M8 7v3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                      <path d="M3 4l.8 7.2a1 1 0 001 .8h4.4a1 1 0 001-.8L11 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                      <path d="M9.5 1.5l3 3L4 13H1v-3L9.5 1.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
                     </svg>
                   </span>
-                )}
-              </div>
-            </div>
-          ))}
-          <div className="ds-thread-new-item" onClick={() => { onNew(); setOpen(false); }}>
-            + New thread
+                  {/* Duplicate */}
+                  <span
+                    className="ds-thread-pill-btn"
+                    onClick={e => { e.stopPropagation(); onDuplicate(t.id); }}
+                    title="Duplicate"
+                  >
+                    <svg viewBox="0 0 14 14" width="11" height="11" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <rect x="4" y="4" width="8" height="9" rx="1.2" stroke="currentColor" strokeWidth="1.4"/>
+                      <path d="M2 10V2a1 1 0 011-1h7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                    </svg>
+                  </span>
+                  {/* Delete — only when more than one thread exists */}
+                  {threads.length > 1 && (
+                    <span
+                      className="ds-thread-pill-btn ds-thread-pill-btn--delete"
+                      onClick={e => { e.stopPropagation(); onDelete(t.id); }}
+                      title="Delete"
+                    >
+                      <svg viewBox="0 0 14 14" width="11" height="11" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M2 4h10M5 4V2.5a.5.5 0 01.5-.5h3a.5.5 0 01.5.5V4M6 7v3.5M8 7v3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                        <path d="M3 4l.8 7.2a1 1 0 001 .8h4.4a1 1 0 001-.8L11 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                      </svg>
+                    </span>
+                  )}
+                </span>
+              </>
+            )}
           </div>
-        </div>
-      )}
+        ))}
+        {/* [+] — add new thread, sits right after the last pill */}
+        <button
+          className="ds-thread-add-btn"
+          onClick={onNew}
+          title="New thread"
+          aria-label="New thread"
+        >+</button>
       </div>
+
       {rightSlot && (
         <>
           <span className="ds-thread-bar-sep">|</span>
@@ -4170,7 +4180,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
     const el = textareaRef.current;
     if (!el) return;
     if (input === lastCEText.current) return; // user's own typing, already handled
-    const newHtml = buildHighlightHtml(input);
+    const newHtml = buildHighlightHtml(input, new Set(atSymbols.map(s => s.name)));
     el.innerHTML = newHtml;
     ceHtmlRef.current = newHtml;
     if (input) moveCECursorToEnd(el);
@@ -4215,6 +4225,9 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   const [activeStreamId, setActiveStreamId] = useState<string>('');
   const [editingMsgId,   setEditingMsgId]   = useState<string | null>(null);
   const [editingText,    setEditingText]     = useState<string>('');
+  // Refs for the contenteditable edit-bubble (mirrors the main input CE pattern)
+  const editCeRef     = useRef<HTMLDivElement>(null);
+  const editCeHtmlRef = useRef<string>('');
 
   // Cancel edit when the user clicks outside the editing bubble
   useEffect(() => {
@@ -4225,6 +4238,21 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
+  }, [editingMsgId]);
+
+  // When editing starts: seed the contenteditable with highlighted HTML and focus it.
+  // editingText is intentionally excluded from deps — we only need to initialise once
+  // per activation; onInput keeps editingText in sync thereafter.
+  useEffect(() => {
+    if (!editingMsgId) { editCeHtmlRef.current = ''; return; }
+    const el = editCeRef.current;
+    if (!el) return;
+    const html = buildHighlightHtml(editingText);
+    el.innerHTML = html;
+    editCeHtmlRef.current = html;
+    moveCECursorToEnd(el);
+    el.focus();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingMsgId]);
 
   // ── Chat thread state ──────────────────────────────────────────────────────
@@ -4282,6 +4310,17 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentNotebookPath]);
 
+  // Proactively load kernel symbols when the notebook changes so that
+  // @-mention context chips can resolve variable names even before the
+  // user types "@".
+  useEffect(() => {
+    if (!currentNotebookPath) return;
+    apiClient.fetchSymbols(currentNotebookPath, [])
+      .then(syms => { if (syms.length > 0) setAtSymbols(syms); })
+      .catch(() => { /* ignore */ });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentNotebookPath]);
+
   // ── Thread persistence helpers ─────────────────────────────────────────────
 
   const _saveThread = async (
@@ -4304,16 +4343,30 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
     // can complete AFTER the DELETE API call, silently re-creating the thread.
     if (!threadsRef.current.some(t => t.id === threadId)) return;
     const saved = msgs
-      .filter(m => m.role === 'user' || m.role === 'assistant')
+      .filter(m =>
+        m.role === 'user' ||
+        m.role === 'assistant' ||
+        m.role === 'warning' ||
+        // Persist system messages that are errors or have a special subtype so
+        // they survive page refreshes.  Transient info messages (e.g. "Skill
+        // activated", "@var resolved") are intentionally not persisted.
+        (m.role === 'system' && (
+          m.subtype != null ||
+          /^[❌⛔]|^Error:/i.test(m.content)
+        ))
+      )
       .map(m => ({
         id: m.id,
-        role: m.role as 'user' | 'assistant',
+        role: m.role as 'user' | 'assistant' | 'system' | 'warning',
         content: m.content,
         timestamp: m.timestamp.toISOString(),
         ...(m.thoughts        ? { thoughts: m.thoughts }               : {}),
         ...(m.operationId     ? { operationId: m.operationId }         : {}),
         ...(m.diffs && m.diffs.length > 0 ? { diffs: m.diffs }        : {}),
         ...(m.diffResolved    ? { diffResolved: m.diffResolved }       : {}),
+        ...(m.subtype         ? { subtype: m.subtype }                 : {}),
+        ...(m.errorProvider   ? { errorProvider: m.errorProvider }     : {}),
+        ...(m.errorHasImages !== undefined ? { errorHasImages: m.errorHasImages } : {}),
       }));
     const now = new Date().toISOString();
     const existing = threadsRef.current.find(t => t.id === threadId);
@@ -4464,6 +4517,9 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
             ...(m.operationId   ? { operationId: m.operationId }     : {}),
             ...(m.diffs && m.diffs.length > 0 ? { diffs: m.diffs as DiffInfo[] } : {}),
             ...(m.diffResolved  ? { diffResolved: m.diffResolved }   : {}),
+            ...(m.subtype       ? { subtype: m.subtype }             : {}),
+            ...(m.errorProvider ? { errorProvider: m.errorProvider } : {}),
+            ...(m.errorHasImages !== undefined ? { errorHasImages: m.errorHasImages } : {}),
           }))
         : [];
     setMessages(_restoredMsgs);
@@ -4478,6 +4534,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
       setAgentOperationId(cached.agentPanel.operationId);
       setAgentResolved(cached.agentPanel.resolved);
       setAgentIncomplete(cached.agentPanel.incomplete);
+      setAgentTimedOut(Boolean((cached.agentPanel as any).timedOut));
       setAgentBashCount(cached.agentPanel.bashCount);
     }
     return true;
@@ -4559,6 +4616,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
       setAgentResolved({});
       setAgentOperationId('');
       setAgentIncomplete(false);
+      setAgentTimedOut(false);
       setAgentBashCount(0);
       setAgentBashWarnings([]);
       setAgentBlockedCmds([]);
@@ -4605,6 +4663,9 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                   ...(m.operationId   ? { operationId: m.operationId }   : {}),
                   ...(m.diffs && m.diffs.length > 0 ? { diffs: m.diffs as DiffInfo[] } : {}),
                   ...(m.diffResolved  ? { diffResolved: m.diffResolved } : {}),
+                  ...(m.subtype       ? { subtype: m.subtype }           : {}),
+                  ...(m.errorProvider ? { errorProvider: m.errorProvider } : {}),
+                  ...(m.errorHasImages !== undefined ? { errorHasImages: m.errorHasImages } : {}),
                 }))
               : [];
           setMessages(_diskMsgs);
@@ -4763,6 +4824,9 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                   ...(m.operationId   ? { operationId: m.operationId }   : {}),
                   ...(m.diffs && m.diffs.length > 0 ? { diffs: m.diffs as DiffInfo[] } : {}),
                   ...(m.diffResolved  ? { diffResolved: m.diffResolved } : {}),
+                  ...(m.subtype       ? { subtype: m.subtype }           : {}),
+                  ...(m.errorProvider ? { errorProvider: m.errorProvider } : {}),
+                  ...(m.errorHasImages !== undefined ? { errorHasImages: m.errorHasImages } : {}),
                 }))
               : [];
           setMessages(_fileMsgs);
@@ -4847,11 +4911,68 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   const [showCmdPopup, setShowCmdPopup] = useState(false);
   const [activeCommand, setActiveCommand] = useState<SlashCommand | null>(null);
 
+  // ── Version update check ──────────────────────────────────────────────────
+  const [updateVersion,  setUpdateVersion]  = useState<string | null>(null);
+  const [updateUrl,      setUpdateUrl]      = useState('');
+  const [releaseNotes,   setReleaseNotes]   = useState('');
+  const [currentVersion, setCurrentVersion] = useState('0.7.1');
+  const [showChangelog,  setShowChangelog]  = useState(false);
+  // 'whats-new' = GitHub release notes for latest; 'history' = full local CHANGELOG.md
+  const [changelogMode,  setChangelogMode]  = useState<'whats-new' | 'history'>('whats-new');
+  const [changelogBody,  setChangelogBody]  = useState('');
+  const [changelogLoading, setChangelogLoading] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r = await fetch('/varys/version-check');
+        if (!r.ok) return;
+        const d = await r.json() as {
+          update_available: boolean; latest: string;
+          release_url: string; release_notes: string; current: string;
+        };
+        setCurrentVersion(d.current || '0.7.1');
+        if (d.update_available) {
+          setUpdateVersion(d.latest);
+          setUpdateUrl(d.release_url || '');
+          setReleaseNotes(d.release_notes || '');
+        }
+      } catch { /* network error — silent */ }
+    })();
+  }, []);
+
+  const openWhatsNew = () => {
+    setChangelogMode('whats-new');
+    if (releaseNotes) {
+      setChangelogBody(releaseNotes);
+      setShowChangelog(true);
+      return;
+    }
+    // Fallback: load local changelog sliced from current version
+    setChangelogLoading(true);
+    setShowChangelog(true);
+    void fetch(`/varys/changelog?since=${encodeURIComponent(currentVersion)}`)
+      .then(r => r.json())
+      .then((d: { content: string }) => { setChangelogBody(d.content || ''); setChangelogLoading(false); })
+      .catch(() => { setChangelogBody('_Could not load release notes._'); setChangelogLoading(false); });
+  };
+
+  const openHistory = () => {
+    setChangelogMode('history');
+    setChangelogLoading(true);
+    setShowChangelog(true);
+    void fetch('/varys/changelog')
+      .then(r => r.json())
+      .then((d: { content: string }) => { setChangelogBody(d.content || ''); setChangelogLoading(false); })
+      .catch(() => { setChangelogBody('_Could not load changelog._'); setChangelogLoading(false); });
+  };
+
   // Agent session state (for /file_agent)
   const [agentBadgeVisible, setAgentBadgeVisible] = useState(false);
   const [agentFileChanges, setAgentFileChanges] = useState<FileChangeEvent[]>([]);
   const [agentFilesRead, setAgentFilesRead] = useState<string[]>([]);
   const [agentIncomplete, setAgentIncomplete] = useState(false);
+  const [agentTimedOut,   setAgentTimedOut]   = useState(false);
   const [agentBashCount, setAgentBashCount] = useState(0);
   const [agentBashWarnings, setAgentBashWarnings]     = useState<string[]>([]);
   const [agentBlockedCmds, setAgentBlockedCmds]       = useState<{command: string; reason: string}[]>([]);
@@ -5644,6 +5765,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
         setAgentFileChanges(indexedChanges);
         setAgentFilesRead(Array.isArray(rawFilesRead) ? (rawFilesRead as string[]) : []);
         setAgentIncomplete(Boolean(rawResponse.incomplete));
+        setAgentTimedOut(Boolean(rawResponse.timed_out));
         setAgentBashCount(Array.isArray(rawBashOutputs) ? rawBashOutputs.length : 0);
         // Collect warn_reason strings from bash outputs
         const warnReasons: string[] = Array.isArray(rawBashOutputs)
@@ -6229,6 +6351,9 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
           ...(m.operationId   ? { operationId: m.operationId }   : {}),
           ...(m.diffs && m.diffs.length > 0 ? { diffs: m.diffs as DiffInfo[] } : {}),
           ...(m.diffResolved  ? { diffResolved: m.diffResolved } : {}),
+          ...(m.subtype       ? { subtype: m.subtype }           : {}),
+          ...(m.errorProvider ? { errorProvider: m.errorProvider } : {}),
+          ...(m.errorHasImages !== undefined ? { errorHasImages: m.errorHasImages } : {}),
         }))
       : [{
           id: `welcome-${threadId}`,
@@ -6293,6 +6418,9 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
           ...(m.operationId   ? { operationId: m.operationId }   : {}),
           ...(m.diffs && m.diffs.length > 0 ? { diffs: m.diffs as DiffInfo[] } : {}),
           ...(m.diffResolved  ? { diffResolved: m.diffResolved } : {}),
+          ...(m.subtype       ? { subtype: m.subtype }           : {}),
+          ...(m.errorProvider ? { errorProvider: m.errorProvider } : {}),
+          ...(m.errorHasImages !== undefined ? { errorHasImages: m.errorHasImages } : {}),
         }))
       : [{
           id: `welcome-${copy.id}`,
@@ -6560,6 +6688,47 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
         return;
       }
     }
+    if (e.key === 'Enter' && e.shiftKey) {
+      // Insert a literal newline at the cursor position.
+      // We must handle this ourselves because the onInput handler strips one
+      // trailing \n (to remove the phantom <br> browsers add), which means
+      // a browser-inserted newline from Shift+Enter gets silently discarded.
+      e.preventDefault();
+      const el = textareaRef.current;
+      if (!el) return;
+
+      const offset   = getCursorCharOffset(el);
+      const newInput = input.slice(0, offset) + '\n' + input.slice(offset);
+
+      // A lone trailing <br> is invisible in a contenteditable; add a second
+      // one so the cursor has a visible blank line to rest on.
+      let newHtml = buildHighlightHtml(newInput, new Set(atSymbols.map(s => s.name)));
+      if (newHtml.endsWith('<br>')) newHtml += '<br>';
+
+      el.innerHTML          = newHtml;
+      ceHtmlRef.current     = newHtml;
+      lastCEText.current    = newInput;
+      setInput(newInput);
+
+      // Place cursor right after the newly inserted newline.
+      if (offset >= input.length) {
+        // Inserted at end: sit between the two trailing <br>s.
+        const brs = Array.from(el.querySelectorAll('br'));
+        const targetBr = brs[brs.length - 2];
+        if (targetBr) {
+          const range = document.createRange();
+          range.setStartAfter(targetBr);
+          range.collapse(true);
+          const sel = window.getSelection();
+          sel?.removeAllRanges();
+          sel?.addRange(range);
+        }
+      } else {
+        setCursorCharOffset(el, offset + 1);
+      }
+      return;
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       void handleSend();
@@ -6628,11 +6797,97 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
     );
   }
 
+  if (showChangelog) {
+    const isWhatsNew = changelogMode === 'whats-new';
+    const title = isWhatsNew
+      ? `What's New${updateVersion ? ` in v${updateVersion}` : ''}`
+      : 'Changelog';
+    return (
+      <div className={`ds-assistant-sidebar ds-chat-${chatTheme}`}>
+        <div className="ds-assistant-header">
+          <span className="ds-assistant-title">
+            <span className="ds-varys-spider">🕷️</span>{' '}
+            {title}
+          </span>
+          <button
+            className="ds-settings-close-btn"
+            onClick={() => setShowChangelog(false)}
+            title="Back to chat"
+          >✕</button>
+        </div>
+        <div className="ds-changelog-panel">
+          {/* Tab bar */}
+          <div className="ds-changelog-tabs">
+            <button
+              className={`ds-changelog-tab${isWhatsNew ? ' ds-changelog-tab--active' : ''}`}
+              onClick={openWhatsNew}
+            >
+              {updateVersion ? `↑ v${updateVersion}` : "What's New"}
+            </button>
+            <button
+              className={`ds-changelog-tab${!isWhatsNew ? ' ds-changelog-tab--active' : ''}`}
+              onClick={openHistory}
+            >
+              Full History
+            </button>
+          </div>
+
+          {/* Body */}
+          <div className="ds-changelog-body">
+            {changelogLoading ? (
+              <div className="ds-changelog-loading">Loading…</div>
+            ) : changelogBody ? (
+              <>
+                <div
+                  className="ds-changelog-content ds-message-content"
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(changelogBody) }}
+                />
+                {isWhatsNew && updateUrl && (
+                  <div className="ds-changelog-footer">
+                    <a href={updateUrl} target="_blank" rel="noreferrer"
+                       className="ds-changelog-github-link">
+                      View on GitHub ↗
+                    </a>
+                    <div className="ds-changelog-update-cmd">
+                      <code>pip install --upgrade varys</code>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="ds-changelog-empty">
+                {isWhatsNew
+                  ? 'You are on the latest version.'
+                  : 'Changelog not available.'}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`ds-assistant-sidebar ds-chat-${chatTheme}`}>
       {/* Header */}
       <div className="ds-assistant-header">
-        <span className="ds-assistant-title"><span className="ds-varys-spider">🕷️</span> Varys <span className="ds-varys-version">v0.7.0</span></span>
+        <span className="ds-assistant-title">
+          <span className="ds-varys-spider">🕷️</span>{' '}Varys{' '}
+          <span
+            className="ds-varys-version ds-varys-version--clickable"
+            onClick={openHistory}
+            title="View changelog"
+          >v0.7.1</span>
+          {updateVersion && (
+            <button
+              className="ds-varys-update-pill"
+              onClick={openWhatsNew}
+              title={`v${updateVersion} is available — click to see what's new`}
+            >
+              ↑ v{updateVersion}
+            </button>
+          )}
+        </span>
         <button
           className="ds-tags-panel-btn"
           onClick={() => setShowTags(true)}
@@ -6971,20 +7226,25 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                     };
                     return (
                       <div className="ds-msg-edit-wrap">
-                        <textarea
-                          className="ds-msg-edit-textarea"
-                          value={editingText}
-                          autoFocus
-                          ref={el => {
-                            if (el) {
-                              el.style.height = 'auto';
-                              el.style.height = el.scrollHeight + 'px';
+                        <div
+                          role="textbox"
+                          aria-multiline="true"
+                          contentEditable
+                          suppressContentEditableWarning
+                          className="ds-msg-edit-textarea ds-msg-edit-ce"
+                          ref={editCeRef}
+                          onInput={() => {
+                            const el = editCeRef.current;
+                            if (!el) return;
+                            const val = el.innerText.replace(/\n$/, '');
+                            setEditingText(val);
+                            const newHtml = buildHighlightHtml(val);
+                            if (newHtml !== editCeHtmlRef.current) {
+                              const pos = getCursorCharOffset(el);
+                              el.innerHTML = newHtml;
+                              editCeHtmlRef.current = newHtml;
+                              setCursorCharOffset(el, pos);
                             }
-                          }}
-                          onChange={e => {
-                            setEditingText(e.target.value);
-                            e.target.style.height = 'auto';
-                            e.target.style.height = e.target.scrollHeight + 'px';
                           }}
                           onKeyDown={e => {
                             if (e.key === 'Enter' && !e.shiftKey) {
@@ -7046,9 +7306,9 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                             setEditingText((msg.content ?? '').trim());
                           } : undefined}
                           dangerouslySetInnerHTML={{
-                            __html: msg.displayContent
-                              ? `<span class="ds-user-text">${_escHtml(msg.displayContent.trim())}</span>`
-                              : renderUserContent((msg.content ?? '').trim()),
+                            __html: renderUserContent(
+                              (msg.displayContent ?? msg.content ?? '').trim()
+                            ),
                           }}
                         />
                       ) : (
@@ -7255,7 +7515,9 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
 
           {agentIncomplete && (
             <div className="ds-agent-incomplete-banner">
-              ⚠ Task reached the turn limit — results may be incomplete.
+              {agentTimedOut
+                ? '⚠ Task reached the time limit — results may be incomplete.'
+                : '⚠ Task reached the turn limit — results may be incomplete.'}
             </div>
           )}
 
@@ -7401,11 +7663,12 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
             >✕</button>
           </div>
         )}
+        {/* Unified bordered frame: text input on top, controls bar on bottom */}
+        <div className="ds-input-frame">
         {/* @notebook chip + textarea share a relative wrapper so the chip
             can be pinned to the top-left corner of the input box */}
         <div className="ds-input-body">
           <div className="ds-nb-ctx-row">
-            <span className="ds-nb-ctx-label">context:</span>
             {currentFilePath ? (
               <span
                 className="ds-nb-ctx-chip ds-nb-ctx-chip--on ds-nb-ctx-chip--file"
@@ -7413,7 +7676,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                 aria-label={`File context: ${currentFilePath}`}
                 title={currentFilePath}
               >
-                <span className="ds-nb-ctx-sign">×</span>
+                <span className="ds-nb-ctx-sign">📎</span>
                 {currentFilePath.split('/').pop()}
               </span>
             ) : (
@@ -7426,7 +7689,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                 aria-label={notebookAware ? 'Notebook included' : 'Notebook excluded'}
                 title={currentNotebookPath}
               >
-                <span className="ds-nb-ctx-sign">{notebookAware ? '×' : '+'}</span>
+                <span className="ds-nb-ctx-sign">📎</span>
                 {currentNotebookPath ? currentNotebookPath.split('/').pop() : 'notebook'}
               </button>
             )}
@@ -7438,7 +7701,19 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                 title={`"${ref}" referenced in your query`}
                 aria-label={ref}
               >
+                <span className="ds-nb-ctx-sign">📎</span>
                 {ref}
+              </span>
+            ))}
+            {/* @-mention chips — one per valid kernel symbol referenced with @ */}
+            {extractAtMentions(input, atSymbols).map(sym => (
+              <span
+                key={sym.name}
+                className="ds-nb-ctx-chip ds-nb-ctx-chip--on ds-at-ref-ctx-chip"
+                title={`@${sym.name}${sym.vtype ? ` (${sym.vtype})` : ''} — kernel variable in context`}
+                aria-label={`@${sym.name}`}
+              >
+                @{sym.name}
               </span>
             ))}
             <div className="ds-reasoning-dropdown" ref={reasoningDropdownRef}>
@@ -7560,8 +7835,8 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
               } else {
                 setAtAnchorPos(-1);
               }
-              // Update inline cell-ref highlighting when the pattern changes
-              const newHtml = buildHighlightHtml(val);
+              // Update inline cell-ref / @-mention highlighting
+              const newHtml = buildHighlightHtml(val, new Set(atSymbols.map(s => s.name)));
               if (newHtml !== ceHtmlRef.current) {
                 const pos = getCursorCharOffset(el);
                 el.innerHTML = newHtml;
@@ -7590,7 +7865,28 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
             </div>
           )}
         </div>
-        <div className="ds-assistant-input-bottom">
+          <div className="ds-assistant-input-bottom">
+          {/* Left: cell-mode selector then model switcher */}
+          {(notebookAware || !!currentFilePath) && (
+            <select
+              className="ds-cell-mode-select"
+              value={cellMode}
+              title={CELL_MODE_TITLE[cellMode]}
+              onChange={e => {
+                const next = e.target.value as CellMode;
+                setCellMode(next);
+                cellModeRef.current = next;
+                threadModeMapRef.current.set(currentThreadIdRef.current, next);
+                try { localStorage.setItem('ds-assistant-cell-mode', next); } catch { /* ignore */ }
+                const tid   = currentThreadIdRef.current;
+                const tName = threadsRef.current.find(t => t.id === tid)?.name ?? 'Thread';
+                void _saveThread(tid, tName, messagesRef.current);
+              }}
+            >
+              <option value="chat">💬 Chat</option>
+              <option value="agent">✨ Agent</option>
+            </select>
+          )}
           <ModelSwitcher
             provider={chatProvider}
             model={chatModel}
@@ -7598,6 +7894,8 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
             saving={modelSwitching}
             onSelect={m => void handleModelSelect(m)}
           />
+          {/* Spacer — pushes token counter and send/stop to the far right */}
+          <span className="ds-input-bottom-spacer" />
           {(() => {
             const usage = threads.find(t => t.id === currentThreadId)?.tokenUsage;
             const hasUsage = usage && (usage.input > 0 || usage.output > 0);
@@ -7612,32 +7910,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
               </span>
             );
           })()}
-          <div className="ds-input-controls">
-            {(notebookAware || !!currentFilePath) && (
-              <select
-                className="ds-cell-mode-select"
-                value={cellMode}
-                title={CELL_MODE_TITLE[cellMode]}
-                onChange={e => {
-                  const next = e.target.value as CellMode;
-                  setCellMode(next);
-                  cellModeRef.current = next;
-                  threadModeMapRef.current.set(currentThreadIdRef.current, next);
-                  try { localStorage.setItem('ds-assistant-cell-mode', next); } catch { /* ignore */ }
-                  // Persist immediately so a refresh before the next message
-                  // does not lose the selection.
-                  const tid   = currentThreadIdRef.current;
-                  const tName = threadsRef.current.find(t => t.id === tid)?.name ?? 'Thread';
-                  void _saveThread(tid, tName, messagesRef.current);
-                }}
-              >
-                <option value="chat">💬 Chat</option>
-                <option value="agent">✨ Agent</option>
-              </select>
-            )}
-          </div>
-          {isLoading && (
-            /* Stop button — circle with a filled square inside */
+          {isLoading ? (
             <button
               className="ds-assistant-send-btn ds-send-stop"
               onClick={handleStop}
@@ -7650,8 +7923,23 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                 <rect x="8" y="8" width="8" height="8" rx="1" fill="currentColor"/>
               </svg>
             </button>
-          )}
-        </div>
+          ) : input.trim() ? (
+            <button
+              className="ds-assistant-send-btn ds-send-arrow"
+              onClick={() => void handleSend()}
+              title="Send message (Enter)"
+              aria-label="Send message"
+            >
+              <svg viewBox="0 0 24 24" width="10" height="10" fill="none"
+                   xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 19V5M5 12l7-7 7 7"
+                      stroke="currentColor" strokeWidth="2.5"
+                      strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          ) : null}
+          </div>{/* end ds-assistant-input-bottom */}
+        </div>{/* end ds-input-frame */}
       </div>
     </div>
   );

@@ -1,14 +1,26 @@
-"""Ollama-specific API endpoints used by the setup wizard and status bar."""
+"""Ollama-specific API endpoints used by the setup wizard and status bar.
+
+Uses Tornado's AsyncHTTPClient (already a dependency via jupyter-server) for
+all HTTP calls — no httpx dependency required.
+"""
 import json
 import subprocess
 
-import httpx
 from jupyter_server.base.handlers import JupyterHandler
 from tornado import web
+from tornado.httpclient import AsyncHTTPClient, HTTPRequest
 
 
 def _ollama_url(settings: dict) -> str:
     return settings.get("ds_assistant_ollama_url", "http://localhost:11434")
+
+
+async def _fetch_json(url: str, timeout: float) -> dict:
+    """Fetch a URL with Tornado's AsyncHTTPClient and return parsed JSON."""
+    client = AsyncHTTPClient()
+    req = HTTPRequest(url, method="GET", request_timeout=timeout, connect_timeout=5)
+    resp = await client.fetch(req)
+    return json.loads(resp.body)
 
 
 class OllamaHealthHandler(JupyterHandler):
@@ -18,23 +30,10 @@ class OllamaHealthHandler(JupyterHandler):
     async def get(self) -> None:
         url = _ollama_url(self.settings)
         try:
-            async with httpx.AsyncClient(timeout=5) as client:
-                resp = await client.get(f"{url}/api/tags")
-                if resp.status_code == 200:
-                    self.finish(
-                        json.dumps({"running": True, "url": url})
-                    )
-                    return
+            await _fetch_json(f"{url}/api/tags", timeout=5)
+            self.finish(json.dumps({"running": True, "url": url}))
         except Exception as exc:
-            self.finish(
-                json.dumps({"running": False, "url": url, "error": str(exc)})
-            )
-            return
-        self.finish(
-            json.dumps(
-                {"running": False, "url": url, "error": "Unexpected response"}
-            )
-        )
+            self.finish(json.dumps({"running": False, "url": url, "error": str(exc)}))
 
 
 class OllamaModelsHandler(JupyterHandler):
@@ -44,11 +43,7 @@ class OllamaModelsHandler(JupyterHandler):
     async def get(self) -> None:
         url = _ollama_url(self.settings)
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(f"{url}/api/tags")
-                resp.raise_for_status()
-                data = resp.json()
-
+            data = await _fetch_json(f"{url}/api/tags", timeout=10)
             models = [
                 {
                     "name": m.get("name", ""),

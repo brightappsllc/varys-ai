@@ -302,7 +302,7 @@ def check_execution_order(cells: list) -> List[Issue]:
                 cell_index=offending['index'],
                 title='Cells executed out of order',
                 message=(
-                    f"Cell at position {offending['index']} has execution "
+                    f"Cell at position {offending['index'] + 1} has execution "
                     f"count {offending['executionCount']} but a preceding cell "
                     f"has count {prev}."
                 ),
@@ -393,6 +393,33 @@ def check_python_random_seed(cells: list) -> List[Issue]:
 
 
 # ---------------------------------------------------------------------------
+# IPython magic stripping — shared by every ast.parse call
+# ---------------------------------------------------------------------------
+
+# Line-magic pattern: any line whose first non-whitespace characters are % or !
+# Cell-magic header: %% at the very start of a line (must be removed entirely,
+# along with its argument line, because %%time / %%capture etc. are not Python).
+_MAGIC_LINE_RE = re.compile(r'^\s*[%!].*$', re.MULTILINE)
+
+
+def _strip_magics(source: str) -> str:
+    """Remove IPython line-magics (%, !) and cell-magic headers (%%) from *source*.
+
+    ``ast.parse`` raises SyntaxError on these constructs, causing the entire
+    cell's definitions to be silently dropped.  Stripping them lets us still
+    analyse the remaining Python code in the same cell.
+
+    Examples handled:
+        %matplotlib inline
+        !pip install pandas
+        %%time
+        %%capture
+        get_ipython().run_line_magic(...)  ← already-compiled form (no strip needed)
+    """
+    return _MAGIC_LINE_RE.sub('', source)
+
+
+# ---------------------------------------------------------------------------
 # AST helpers for RULE 8
 # ---------------------------------------------------------------------------
 
@@ -408,7 +435,7 @@ def _ast_definitions(source: str) -> Set[str]:
     new scopes — names assigned inside a function are not visible outside it.
     """
     try:
-        tree = ast.parse(source)
+        tree = ast.parse(_strip_magics(source))
     except SyntaxError:
         return set()
 
@@ -470,7 +497,7 @@ def _ast_top_level_loads(source: str) -> Set[str]:
     to reduce false positives (they run in their own scope).
     """
     try:
-        tree = ast.parse(source)
+        tree = ast.parse(_strip_magics(source))
     except SyntaxError:
         return set()
 
@@ -493,7 +520,7 @@ def _ast_comprehension_vars(source: str) -> Set[str]:
     Example: ``[item.age for item in df.itertuples()]`` → {item}
     """
     try:
-        tree = ast.parse(source)
+        tree = ast.parse(_strip_magics(source))
     except SyntaxError:
         return set()
     names: Set[str] = set()
@@ -514,7 +541,7 @@ def _has_wildcard_import(cells: list) -> bool:
         if cell.get('type') != 'code':
             continue
         try:
-            tree = ast.parse(cell.get('source', ''))
+            tree = ast.parse(_strip_magics(cell.get('source', '')))
         except SyntaxError:
             continue
         for node in ast.walk(tree):
@@ -641,18 +668,18 @@ def check_undefined_before_definition(cells: list) -> List[Issue]:
                 cell_index=cell['index'],
                 title=f"'{first_name}' used before it is defined",
                 message=(
-                    f"'{first_name}' is referenced in cell {cell['index']} "
-                    f"but first assigned in cell {later_idx}."
+                    f"'{first_name}' is referenced in cell {cell['index'] + 1} "
+                    f"but first assigned in cell {later_idx + 1}."
                 ),
                 explanation=(
                     f"Running the notebook top-to-bottom (Restart & Run All) will "
-                    f"raise a NameError at cell {cell['index']} because "
+                    f"raise a NameError at cell {cell['index'] + 1} because "
                     f"'{first_name}' is not yet defined — it appears for the first "
-                    f"time in cell {later_idx}."
+                    f"time in cell {later_idx + 1}."
                 ),
                 suggestion=(
                     f"Move the definition of '{first_name}' to a cell before "
-                    f"cell {cell['index']}, or reorder the cells so imports and "
+                    f"cell {cell['index'] + 1}, or reorder the cells so imports and "
                     f"assignments come first."
                 ),
                 fix_code=None,
@@ -744,7 +771,7 @@ def check_used_but_never_imported(cells: list) -> List[Issue]:
                 cell_index=cell['index'],
                 title=f"'{name}' used but never imported or defined",
                 message=(
-                    f"'{name}' is referenced in cell {cell['index']} "
+                    f"'{name}' is referenced in cell {cell['index'] + 1} "
                     f"but has no import statement or assignment anywhere "
                     f"in the notebook."
                 ),
@@ -752,11 +779,11 @@ def check_used_but_never_imported(cells: list) -> List[Issue]:
                     f"This works interactively because '{name}' is already "
                     f"in the kernel namespace from a prior run or session.  "
                     f"A clean restart (Kernel \u2192 Restart \u2026 Run All) will "
-                    f"raise NameError at cell {cell['index']}."
+                    f"raise NameError at cell {cell['index'] + 1}."
                 ),
                 suggestion=(
                     f"Add the missing import or assignment for '{name}' to "
-                    f"a cell before cell {cell['index']}.  "
+                    f"a cell before cell {cell['index'] + 1}.  "
                     + (f"Suggested fix: ``{fix}``." if fix else
                        f"Check which package provides '{name}' and add the import.")
                 ),
@@ -791,7 +818,7 @@ def _self_ref_names_in_cell(source: str) -> Set[str]:
     intentionally excluded to keep the false-positive rate low.
     """
     try:
-        tree = ast.parse(source)
+        tree = ast.parse(_strip_magics(source))
     except SyntaxError:
         return set()
 
@@ -854,7 +881,7 @@ def check_inplace_transform_chain(cells: list) -> List[Issue]:
         if len(cell_indices) < _CHAIN_THRESHOLD:
             continue
 
-        cell_list = ', '.join(str(i) for i in cell_indices)
+        cell_list = ', '.join(str(i + 1) for i in cell_indices)
         issues.append(Issue(
             rule_id=f'inplace_transform_chain_{name}',
             severity='info',

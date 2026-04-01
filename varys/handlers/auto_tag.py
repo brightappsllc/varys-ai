@@ -2,7 +2,7 @@
 
 POST /varys/auto-tag
   body: { "cellSource": str, "cellOutput": str | null }
-  response: { "tags": [str, ...] }   (0–3 tag values from library.yaml)
+  response: { "tags": [str, ...] }   (0–3 tag values from library.json)
 """
 import json
 import logging
@@ -14,21 +14,23 @@ from tornado.web import authenticated
 log = logging.getLogger(__name__)
 
 # Resolved once at module load; stays fixed for the lifetime of the server.
-_LIBRARY_PATH = Path(__file__).parent.parent / "tags" / "library.yaml"
+# library.json is the runtime source of truth; library.yaml is the human-editable
+# source that can be re-compiled to JSON with: python -c "import json,yaml;
+#   json.dump(yaml.safe_load(open('library.yaml')), open('library.json','w'), indent=2)"
+_LIBRARY_PATH = Path(__file__).parent.parent / "tags" / "library.json"
 
 
 # ── Library helpers ────────────────────────────────────────────────────────
 
 def _load_library() -> dict:
-    """Load library.yaml and return its parsed content.
+    """Load library.json and return its parsed content.
 
-    Falls back to a minimal hardcoded set if PyYAML is unavailable or the
-    file cannot be read, so auto-tagging degrades gracefully.
+    Falls back to a minimal hardcoded set if the file cannot be read,
+    so auto-tagging degrades gracefully.
     """
     try:
-        import yaml  # type: ignore[import]
         with open(_LIBRARY_PATH, encoding="utf-8") as fh:
-            return yaml.safe_load(fh) or {}
+            return json.load(fh) or {}
     except Exception as exc:
         log.warning("auto_tag: could not load tag library (%s) — using fallback", exc)
         return {

@@ -25,7 +25,7 @@ export interface SavedDiff {
 
 export interface SavedMessage {
   id: string;
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system' | 'warning';
   content: string;
   timestamp: string;
   /** Reasoning trace from sequential thinking — displayed but never sent as LLM context. */
@@ -36,6 +36,12 @@ export interface SavedMessage {
   diffs?: SavedDiff[];
   /** Resolution status — set after the user accepts or rejects the diff. */
   diffResolved?: 'accepted' | 'undone';
+  /** Error sub-type for special system messages (context_too_long, error_recovery). */
+  subtype?: 'error_recovery' | 'context_too_long';
+  /** Provider name associated with an error_recovery prompt. */
+  errorProvider?: string;
+  /** Whether images were part of a context_too_long error. */
+  errorHasImages?: boolean;
 }
 
 /** Accumulated token counts for a thread. */
