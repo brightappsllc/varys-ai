@@ -23,8 +23,10 @@ from tornado.web import authenticated
 
 log = logging.getLogger(__name__)
 
-# CHANGELOG.md lives two levels up from this file: varys/handlers/ → varys/ → repo root
-_CHANGELOG_PATH = Path(__file__).parent.parent.parent / "CHANGELOG.md"
+# CHANGELOG.md is bundled inside the varys package: varys/handlers/ → varys/CHANGELOG.md
+# (The repo-root copy is a symlink/duplicate kept for developers; the package copy is
+#  what pip installs into site-packages/varys/CHANGELOG.md.)
+_CHANGELOG_PATH = Path(__file__).parent.parent / "CHANGELOG.md"
 
 # (mtime, content) — invalidated when the file changes on disk
 _cl_cache: Optional[Tuple[float, str]] = None
