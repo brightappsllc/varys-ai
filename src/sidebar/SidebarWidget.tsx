@@ -4948,10 +4948,11 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
       setShowChangelog(true);
       return;
     }
-    // Fallback: load local changelog sliced from current version
+    // Fallback: load local changelog from current version (inclusive) so the
+    // current release's own changes are always visible in "What's New".
     setChangelogLoading(true);
     setShowChangelog(true);
-    void fetch(`/varys/changelog?since=${encodeURIComponent(currentVersion)}`)
+    void fetch(`/varys/changelog?from=${encodeURIComponent(currentVersion)}`)
       .then(r => r.json())
       .then((d: { content: string }) => { setChangelogBody(d.content || ''); setChangelogLoading(false); })
       .catch(() => { setChangelogBody('_Could not load release notes._'); setChangelogLoading(false); });
