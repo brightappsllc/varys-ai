@@ -716,7 +716,8 @@ def _enrich_local_imports(
 
     if nb_base is None:
         return []
-    working_dir = str(nb_base.parent) if nb_base.name == ".jupyter-assistant" else str(nb_base)
+    from ..utils.paths import notebook_dir as _notebook_dir
+    working_dir = str(_notebook_dir(nb_base))
 
     target_cell = focal_cell
     if target_cell is None and visible_cells:

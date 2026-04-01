@@ -22,7 +22,7 @@ from pathlib import Path
 from jupyter_server.base.handlers import JupyterHandler
 from tornado.web import authenticated
 
-from ..utils.paths import nb_base
+from ..utils.paths import project_base as nb_base
 from ..utils.config import get_config as _get_cfg
 
 log = logging.getLogger(__name__)

@@ -5,6 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.8.0] — Notebook-scoped data layout
+
+### New Features
+
+- **Per-notebook UUID data layout** — each notebook's Varys data (chat threads,
+  cell-summary store, memory, debug logs) is now stored under a stable UUID
+  sub-directory: `<nb_dir>/.jupyter-assistant/<uuid>/`.  The UUID is written once
+  into `notebook.metadata.varys_notebook_id` and travels with the file on rename
+  or move, so renaming a notebook no longer orphans its data.
+  Project-level data (`knowledge/`, `rag/`, `config/`) remains shared at the flat
+  `.jupyter-assistant/` level.
+
+- **Automatic migration** — on first use with an existing flat layout, Varys
+  silently migrates data into the UUID folder.  If multiple notebooks share a
+  folder, each notebook receives a copy of the shared data and Varys logs a
+  warning suggesting `varys nb migrate` for cleanup.
+
+- **`POST /varys/nb/move` endpoint** — moves a notebook *and* its UUID-scoped
+  data directory atomically.  Use this via the frontend (or directly) to keep
+  data co-located when reorganising notebooks.
+
+---
+
 ## [0.7.2] — Patch: Changelog panel fix
 
 ### Bug Fixes

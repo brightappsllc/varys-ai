@@ -43,6 +43,7 @@ from .handlers.usage import UsageHandler
 from .handlers.graph import GraphHandler
 from .handlers.version_check import VersionCheckHandler
 from .handlers.changelog import ChangelogHandler
+from .handlers.nb_move import NbMoveHandler
 
 
 class DSAssistantExtension(ExtensionApp):
@@ -398,4 +399,6 @@ class DSAssistantExtension(ExtensionApp):
             (url_path_join(base, "version-check"),          VersionCheckHandler),
             # Changelog (serves local CHANGELOG.md, optionally sliced)
             (url_path_join(base, "changelog"),              ChangelogHandler),
+            # Notebook move — relocates .ipynb + UUID-scoped Varys data atomically
+            (url_path_join(base, "nb", "move"),             NbMoveHandler),
         ])

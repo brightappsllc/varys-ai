@@ -1,38 +1,260 @@
 """Path utilities for DS Assistant.
 
-All persistent data (chats, skills, memory, RAG, repro DB) lives under a
-`.jupyter-assistant/` folder that is **co-located with the notebook** rather
-than at the JupyterLab root.  This keeps each project's data self-contained.
+All persistent data lives under a `.jupyter-assistant/` folder co-located with
+the notebook's directory.  Within that folder, **notebook-specific** data (chat
+threads, cell summaries, memory, debug logs) is stored under a per-notebook UUID
+sub-directory so that renaming or moving a notebook never orphans its data:
 
-Example
--------
-  root_dir      = /home/user/projects          (where JupyterLab was started)
-  notebook_path = work/analysis/eda.ipynb      (relative to root_dir)
-  nb_base(...)  = /home/user/projects/work/analysis/.jupyter-assistant
+  <nb_dir>/.jupyter-assistant/<notebook_uuid>/context/summary_store.json
+  <nb_dir>/.jupyter-assistant/<notebook_uuid>/chats/
+  <nb_dir>/.jupyter-assistant/<notebook_uuid>/memory/
+  <nb_dir>/.jupyter-assistant/<notebook_uuid>/logs/
 
-When the notebook is at the root (e.g. notebook_path = "eda.ipynb"), the
-base is identical to the old behaviour: root_dir/.jupyter-assistant.
+**Project-level** data (shared across all notebooks in the same directory) stays
+at the flat `.jupyter-assistant/` level:
+
+  <nb_dir>/.jupyter-assistant/knowledge/   ← RAG source documents
+  <nb_dir>/.jupyter-assistant/rag/         ← ChromaDB vector store
+  <nb_dir>/.jupyter-assistant/config/      ← agent.cfg etc.
+
+The per-notebook UUID is stored in ``notebook.metadata.varys_notebook_id``.  It
+is written once (first Varys interaction) and travels with the file on rename or
+move, so the path always resolves correctly regardless of where the file lives.
+
+Migration
+---------
+Existing installations using the old flat layout are detected automatically:
+
+  Old: <nb_dir>/.jupyter-assistant/context/summary_store.json
+  New: <nb_dir>/.jupyter-assistant/<uuid>/context/summary_store.json
+
+When a single notebook is present in the folder the migration runs silently.
+When multiple notebooks share the folder a warning is logged (the flat data is
+copied into every notebook's UUID folder — excess cells are harmlessly ignored
+at runtime since they will never be referenced by the current notebook).
 """
+from __future__ import annotations
+
+import json
+import logging
+import os
+import shutil
+import tempfile
+import uuid as _uuid_mod
 from pathlib import Path
+from typing import Dict, Optional, Set
+
+log = logging.getLogger(__name__)
+
+# ── Module-level caches ────────────────────────────────────────────────────────
+
+# abs_notebook_path → uuid_str
+_UUID_CACHE: Dict[str, str] = {}
+
+# abs .jupyter-assistant dirs already checked for migration this session
+_MIGRATED_CHECK: Set[str] = set()
+
+# Notebook-scoped subdirs that are moved under the UUID folder
+_NB_SCOPED_DIRS = {"context", "chats", "memory", "logs"}
+
+# ── UUID helpers ───────────────────────────────────────────────────────────────
+
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    """Write *content* to *path* atomically (rename trick)."""
+    parent = path.parent
+    fd, tmp = tempfile.mkstemp(dir=parent, prefix=".tmp_varys_", suffix=".json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(content)
+        os.replace(tmp, str(path))
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def get_or_create_notebook_id(notebook_abs_path: str) -> Optional[str]:
+    """Return the stable UUID for a notebook, creating it if absent.
+
+    The UUID is stored in ``notebook.metadata.varys_notebook_id``.  It is
+    written once (first Varys interaction) and survives rename and move.
+
+    Returns ``None`` when the notebook file does not exist or cannot be
+    read/written (e.g. read-only filesystem).  Callers fall back to the
+    old directory-scoped layout in that case.
+    """
+    cache_key = str(notebook_abs_path)
+    if cache_key in _UUID_CACHE:
+        return _UUID_CACHE[cache_key]
+
+    nb_path = Path(notebook_abs_path)
+    if not nb_path.exists():
+        return None
+
+    try:
+        raw = nb_path.read_text(encoding="utf-8")
+        data = json.loads(raw)
+    except Exception as exc:
+        log.debug("paths: could not read notebook %s — %s", nb_path, exc)
+        return None
+
+    existing_id: Optional[str] = (
+        data.get("metadata", {}).get("varys_notebook_id")
+        if isinstance(data.get("metadata"), dict)
+        else None
+    )
+    if existing_id and isinstance(existing_id, str):
+        _UUID_CACHE[cache_key] = existing_id
+        return existing_id
+
+    # Generate a new UUID and persist it in the notebook metadata.
+    new_id = str(_uuid_mod.uuid4())
+    try:
+        if not isinstance(data.get("metadata"), dict):
+            data["metadata"] = {}
+        data["metadata"]["varys_notebook_id"] = new_id
+        # JupyterLab uses 1-space indentation for .ipynb files.
+        _atomic_write_text(nb_path, json.dumps(data, indent=1, ensure_ascii=False) + "\n")
+        log.info("paths: assigned varys_notebook_id=%s to %s", new_id, nb_path.name)
+    except Exception as exc:
+        log.warning("paths: could not write notebook UUID to %s — %s", nb_path, exc)
+        # Return the generated ID but don't cache (will try again next call).
+        return new_id
+
+    _UUID_CACHE[cache_key] = new_id
+    return new_id
+
+
+# ── Migration ──────────────────────────────────────────────────────────────────
+
+
+def _maybe_migrate(nb_dir: Path, nb_id: str) -> None:
+    """Migrate an old flat .jupyter-assistant layout to UUID-scoped if needed.
+
+    Called once per session per ``.jupyter-assistant`` directory.
+    """
+    ja_dir = nb_dir / ".jupyter-assistant"
+    check_key = str(ja_dir)
+    if check_key in _MIGRATED_CHECK:
+        return
+    _MIGRATED_CHECK.add(check_key)
+
+    uuid_base = ja_dir / nb_id
+    if uuid_base.exists():
+        return  # already in new layout
+
+    # Check if there is any flat data worth migrating.
+    has_flat = any((ja_dir / d).exists() for d in _NB_SCOPED_DIRS)
+    if not has_flat:
+        return
+
+    # Count notebooks in this directory.
+    nb_files = list(nb_dir.glob("*.ipynb"))
+
+    if len(nb_files) == 1:
+        log.info(
+            "paths: migrating flat .jupyter-assistant → UUID layout for %s",
+            nb_files[0].name,
+        )
+    else:
+        log.warning(
+            "paths: %d notebooks share %s — copying flat data into each UUID "
+            "folder.  Run 'varys nb migrate' to clean up duplicates.",
+            len(nb_files),
+            ja_dir,
+        )
+
+    # Copy (not move) so that other notebooks still work during transition.
+    uuid_base.mkdir(parents=True, exist_ok=True)
+    for sub in _NB_SCOPED_DIRS:
+        src = ja_dir / sub
+        if src.exists():
+            dst = uuid_base / sub
+            if not dst.exists():
+                try:
+                    shutil.copytree(str(src), str(dst))
+                except Exception as exc:
+                    log.warning("paths: migration copy %s → %s failed: %s", src, dst, exc)
+
+
+# ── Public API ─────────────────────────────────────────────────────────────────
 
 
 def nb_base(root_dir: str, notebook_path: str = "") -> Path:
-    """Return the .jupyter-assistant directory for a notebook.
+    """Return the notebook-scoped ``.jupyter-assistant/<uuid>`` directory.
 
-    Args:
-        root_dir:      Absolute path of the JupyterLab notebook directory.
-        notebook_path: Notebook path, relative *or* absolute.
-                       Pass ``""`` to get the root-level base (e.g. at startup).
+    This is where **per-notebook** data lives: chat threads, cell-summary store,
+    user-memory, and debug logs.
+
+    When ``notebook_path`` is empty (e.g. at server startup) the old flat
+    ``.jupyter-assistant/`` directory is returned for backward compatibility.
+    """
+    root = Path(root_dir)
+
+    if not notebook_path:
+        return root / ".jupyter-assistant"
+
+    nb = Path(notebook_path)
+    if nb.is_absolute():
+        try:
+            nb = nb.relative_to(root)
+        except ValueError:
+            # Outside root — resolve directly from the notebook's parent.
+            nb_abs = str(nb)
+            nb_dir = nb.parent
+            nb_id  = get_or_create_notebook_id(nb_abs)
+            if nb_id is None:
+                return nb_dir / ".jupyter-assistant"
+            _maybe_migrate(nb_dir, nb_id)
+            return nb_dir / ".jupyter-assistant" / nb_id
+
+    nb_abs = str(root / nb)
+    nb_dir = (root / nb).parent
+    nb_id  = get_or_create_notebook_id(nb_abs)
+    if nb_id is None:
+        # Can't read notebook — fall back to flat layout.
+        return nb_dir / ".jupyter-assistant"
+    _maybe_migrate(nb_dir, nb_id)
+    return nb_dir / ".jupyter-assistant" / nb_id
+
+
+def project_base(root_dir: str, notebook_path: str = "") -> Path:
+    """Return the **project-scoped** ``.jupyter-assistant`` directory.
+
+    This is shared across all notebooks in the same folder and is where
+    project-level data lives: ``knowledge/``, ``rag/``, ``config/``,
+    ``skills/``.
+
+    Behaviour is identical to the old ``nb_base()`` (directory-scoped).
     """
     root = Path(root_dir)
     if notebook_path:
         nb = Path(notebook_path)
-        # Convert absolute path to relative so we can anchor it under root_dir.
         if nb.is_absolute():
             try:
                 nb = nb.relative_to(root)
             except ValueError:
-                # Different drive / outside root — use notebook's parent directly
                 return nb.parent / ".jupyter-assistant"
         return (root / nb).parent / ".jupyter-assistant"
     return root / ".jupyter-assistant"
+
+
+def notebook_dir(nb_base_path: Path) -> Path:
+    """Return the notebook's working directory from its ``nb_base`` path.
+
+    Handles both layout variants transparently:
+
+    * New (UUID-scoped): ``<dir>/.jupyter-assistant/<uuid>`` → ``<dir>``
+    * Old (flat):        ``<dir>/.jupyter-assistant``         → ``<dir>``
+    """
+    if nb_base_path.parent.name == ".jupyter-assistant":
+        # New layout: go up two levels past .jupyter-assistant/<uuid>
+        return nb_base_path.parent.parent
+    elif nb_base_path.name == ".jupyter-assistant":
+        # Old flat layout
+        return nb_base_path.parent
+    # Fallback
+    return nb_base_path.parent
