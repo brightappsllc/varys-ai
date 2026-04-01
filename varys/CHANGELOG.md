@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.7.2] — Patch: Changelog panel fix
+
+### Bug Fixes
+
+- **Changelog panel showed "Changelog not available."** on any pip-installed instance
+  (`pip install git+…`). The handler was computing the path to `CHANGELOG.md` relative
+  to the source-repo root, which resolves correctly in development but points to a
+  non-existent `site-packages/CHANGELOG.md` in installed environments.
+  Fixed by bundling `CHANGELOG.md` inside the `varys` Python package
+  (`varys/CHANGELOG.md`) and updating the path lookup accordingly.
+  `deploy.sh` now syncs the repo-root copy into `varys/` on every build.
+
+---
+
 ## [0.7.1] — Input UX Overhaul + Smart Context Chips + Thread Bar Redesign
 
 ### New Features
