@@ -4289,6 +4289,9 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   const threadsRef             = useRef<ChatThread[]>([]);
   const currentThreadIdRef     = useRef('');
   const currentNotebookPathRef = useRef('');
+  // Tracks the operationId whose cells are currently being auto-executed so
+  // handleUndo can interrupt the kernel if the user rejects mid-execution.
+  const executingOpIdRef = useRef<string | null>(null);
   // Holds a stable reference to loadForNotebook so the shell-focus callbacks
   // (registered once at mount) can invoke it without stale closures.
   const loadForNotebookRef = useRef<((path: string) => Promise<void>) | null>(null);
@@ -6114,21 +6117,33 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
         : '\n\nReview the highlighted cell(s) then Accept or Undo.';
       appendToStream(`\n\n${stepSummary}${reviewPrompt}`);
 
-      // Execute cells flagged for auto-run — after the diff block is already visible
+      // Execute cells flagged for auto-run — after the diff block is already visible.
+      // executingOpIdRef lets handleUndo interrupt the kernel and break this loop
+      // if the user clicks Reject while a cell is still running.
       if (!response.requiresApproval) {
-        for (let i = 0; i < response.steps.length; i++) {
-          const step = response.steps[i];
-          const shouldRun =
-            step.type === 'run_cell' ||
-            (step.autoExecute === true && step.type !== 'delete');
-          if (shouldRun) {
-            const notebookIndex = stepIndexMap.get(i) ?? step.cellIndex;
-            setProgressText(`Running cell ${notebookIndex}…`);
-            try {
-              await cellEditor.executeCell(notebookIndex);
-            } catch (err) {
-              console.warn(`[DSAssistant] auto-execution of cell ${notebookIndex} failed:`, err);
+        executingOpIdRef.current = response.operationId;
+        try {
+          for (let i = 0; i < response.steps.length; i++) {
+            // If the user rejected the op mid-execution, stop running further cells.
+            if (executingOpIdRef.current !== response.operationId) break;
+            const step = response.steps[i];
+            const shouldRun =
+              step.type === 'run_cell' ||
+              (step.autoExecute === true && step.type !== 'delete');
+            if (shouldRun) {
+              const notebookIndex = stepIndexMap.get(i) ?? step.cellIndex;
+              setProgressText(`Running cell ${notebookIndex}…`);
+              try {
+                await cellEditor.executeCell(notebookIndex);
+              } catch (err) {
+                console.warn(`[DSAssistant] auto-execution of cell ${notebookIndex} failed:`, err);
+              }
             }
+          }
+        } finally {
+          // Clear only if we're still the active op (don't stomp a newer one).
+          if (executingOpIdRef.current === response.operationId) {
+            executingOpIdRef.current = null;
           }
         }
       }
@@ -6234,6 +6249,13 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   };
 
   const handleUndo = (operationId: string): void => {
+    // If this op's cells are currently auto-executing, interrupt the kernel first
+    // so the running cell stops before we revert the code.
+    if (executingOpIdRef.current === operationId) {
+      executingOpIdRef.current = null; // signals the execution loop to bail out
+      void cellEditor.interruptKernel();
+    }
+
     const op = pendingOps.find(o => o.operationId === operationId);
     if (op?.compositeOpIds) {
       // Reverse order so later steps (which may have inserted cells) are undone first

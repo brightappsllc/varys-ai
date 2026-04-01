@@ -87,6 +87,12 @@ export declare class CellEditor {
      */
     executeCell(index: number): Promise<void>;
     /**
+     * Sends a kernel interrupt request.  Safe to call while a cell is running —
+     * the kernel will raise KeyboardInterrupt in the running cell and become idle.
+     * No-op if no kernel is attached.
+     */
+    interruptKernel(): Promise<void>;
+    /**
      * Adds the pending-highlight CSS class to a cell node.
      */
     highlightCell(index: number): void;
