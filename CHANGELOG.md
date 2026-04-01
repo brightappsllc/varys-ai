@@ -5,6 +5,72 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.7.1] — Input UX Overhaul + Smart Context Chips + Thread Bar Redesign
+
+### New Features
+
+#### Unified Input Frame
+- The user-query input box is now a **single bordered frame** (Cursor-style) containing the text area on top and a controls bar below, joined by a hairline separator. The textarea renders transparently inside the frame; the focus ring moves to the outer frame.
+- **Send / Stop button**: an up-arrow `↑` button appears in the controls bar whenever the user has typed text; clicking it sends the message. The button transforms into a Stop button (⬛) while streaming and disappears once the response completes.
+- **Shift+Enter** now inserts a newline on the first press (previously required two presses due to a `rstrip()` stripping the trailing newline in the `onInput` handler).
+
+#### Smart Context Chips
+- **Paperclip icon (📎)** replaces the `×`/`+` text signs on the notebook/file context chip — bright when the file is included in context, greyed-out when excluded.
+- **Cell reference chips**: typing `cell #N` generates a `📎 cell #N` chip in the context row, confirming the cell is referenced.
+- **`@variable` chips**: typing `@varName` (where `varName` is a live kernel variable) generates a `@varName` chip in the context row. Kernel symbols are loaded proactively when the notebook opens, so chips appear without the user needing to trigger the `@` autocomplete first.
+- **`@variable` inline highlighting**: confirmed `@varName` tokens in the input turn blue-italic (same style as `cell #N`) — only for valid kernel symbols.
+- The `context:` text label is replaced by the `📎` emoji.
+
+#### Thread Bar Redesign
+- **Hover-flip pills**: thread pills show only the name by default; on hover, three action icons slide in to the right of the name — ✏️ rename, ⧉ duplicate, 🗑️ delete. The name remains visible and clickable to switch threads.
+- **`[+]` button** replaces `[···]`; placed immediately after the last pill; creates a new thread in one click.
+- **Inline rename**: clicking the pen icon opens a compact text input directly inside the pill; Enter confirms, Escape cancels.
+- **Scrollable strip**: all threads are visible as a hidden-scrollbar row with no popup needed.
+
+#### Version & Release Notifications
+- **Update-available badge**: a clickable badge appears in the chat header when a newer Varys version is published on GitHub (checked once per session).
+- **In-sidebar changelog panel**: a "What's New" panel shows the diff between the installed version and the latest; critical changes and new features are highlighted.
+
+#### Chat History Persistence
+- Error and warning messages (⚠️ recovery prompts, ❌ provider errors, context-too-long notices) are now **persisted across refreshes**. Previously they disappeared on page reload, leaving back-to-back user bubbles with missing context.
+
+#### Code Block Rendering in User Bubbles
+- Fenced code blocks in user query bubbles are now rendered as styled code blocks (with language detection), both in newly sent bubbles and in the edit-bubble view.
+- `cell #N` references in the edit bubble now display blue-italic styling (was plain text before).
+
+#### File Agent — Time-Based Limit
+- The file agent's `max_turns` limit is replaced with a **wall-clock timeout** (`VARYS_AGENT_TIMEOUT_SECS`, default 120 s). The agent runs until time expires rather than being cut off by an arbitrary turn count.
+
+---
+
+### UI / UX Improvements
+
+- **CoT dropdown spacing**: added visual gap between the notebook chip and the Chain-of-Thought dropdown in the context row.
+- **Reproducibility Guardian "Analyze" button**: icon enlarged from `⌕` to `🔍` and font bumped from 10 px to 12 px for legibility.
+- **Version badge**: matches the "Varys" title text color in both light and dark modes.
+- **Send button style**: dark charcoal circle with white up-arrow, matching the reference icon design.
+
+---
+
+### Bug Fixes
+
+- **Word–number concatenation** (`"all26 cells"`, `"the19 code cells"`): `_strip_null` in `task.py` was calling `.rstrip()` on every streamed token, stripping the trailing space that Anthropic encodes as part of a token. Removed the `.rstrip()` call.
+- **Reproducibility Guardian cell numbering**: rules and the panel displayed 0-based cell indices to users; corrected to 1-based throughout.
+- **Reproducibility Guardian false-positive imports**: `ast.parse` was failing on cells containing IPython magic commands (`%timeit`, `!pip install`, …), causing all subsequent symbol imports in that cell to be flagged as missing. Magic lines are now stripped before parsing.
+- **`AgentTaskResult` dataclass `TypeError`**: `turn_count` (non-default) was placed after `timed_out` (default), violating Python's dataclass field ordering rule.
+- **CoT dropdown hidden behind input frame**: `overflow: hidden` on `.ds-input-frame` clipped the absolutely-positioned reasoning dropdown. Removed the property (border-radius still applies visually).
+- **Cell tag overlay hover bleed**: `.ds-cell-tag-overlay` had `pointer-events: none`, causing mouse events to fall through to JupyterLab's cell hover styles. Fixed by setting `pointer-events: auto` on the overlay and `pointer-events: none` on nested SVGs.
+- **Code block rendering**: the opening-fence regex required a newline after ` ``` `, breaking blocks where code starts on the same line (e.g. ` ```fig, ax = … `). Regex updated to `/(```[\s\S]*?```)/g`.
+
+---
+
+### Security / Dependencies
+
+- **Dependency audit**: eliminated 5 third-party dependencies (`filelock`, `python-dotenv`, `pyyaml`, `httpx`, and `chromadb` telemetry calls) by replacing them with stdlib equivalents (`fcntl`/`msvcrt`, a custom `.env` parser, JSON-based config, and Tornado's `AsyncHTTPClient`). Reduces the attack surface and potential for supply-chain compromise.
+- CI pipeline additions: `pip-audit` scheduled check and SBOM generation on release.
+
+---
+
 ## [0.7.0] — Notebook Dependency Graph + Reproducibility Guardian Overhaul
 
 ### New Features

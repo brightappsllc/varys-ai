@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "varys"
-version = "0.7.0"
+version = "0.7.1"
 description = "Varys — your DS assistant for Jupyter Notebook"
 license = { file = "LICENSE" }
 requires-python = ">=3.9"
