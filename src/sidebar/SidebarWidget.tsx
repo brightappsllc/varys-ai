@@ -1799,20 +1799,26 @@ const ModelsPanel: React.FC<{
             <div className="ds-settings-routing-grid">
               {currentGroup.fields.map(field => {
                 const label = TASK_LABELS[field.key] ?? field.label;
+
                 if (field.type === 'toggle') {
                   const isOn = (values[field.key] ?? 'true') !== 'false';
                   return (
                     <React.Fragment key={field.key}>
+                      {field.sectionHeader && (
+                        <div className="ds-settings-routing-section-header">
+                          {field.sectionHeader}
+                        </div>
+                      )}
                       <label className="ds-settings-label">{label}</label>
                       <div className="ds-settings-routing-toggle-row">
-                        <div
-                          className={`ds-settings-toggle${isOn ? ' ds-settings-toggle--on' : ''}`}
-                          onClick={() => handleChange(field.key, isOn ? 'false' : 'true')}
-                          role="switch"
-                          aria-checked={isOn}
-                        >
-                          <div className="ds-settings-toggle-knob" />
-                        </div>
+                        <label className="ds-settings-toggle-switch">
+                          <input
+                            type="checkbox"
+                            checked={isOn}
+                            onChange={() => handleChange(field.key, isOn ? 'false' : 'true')}
+                          />
+                          <span className="ds-settings-toggle-slider" />
+                        </label>
                         {field.description && (
                           <span className="ds-settings-routing-toggle-desc">{field.description}</span>
                         )}
@@ -1820,6 +1826,7 @@ const ModelsPanel: React.FC<{
                     </React.Fragment>
                   );
                 }
+
                 if (field.key === 'DS_COMPLETION_PROVIDER') {
                   return (
                     <React.Fragment key={field.key}>
@@ -1852,6 +1859,23 @@ const ModelsPanel: React.FC<{
                     </React.Fragment>
                   );
                 }
+
+                // Default: provider select + optional inline info bubble
+                const bubble = field.key === 'DS_BG_TASK_PROVIDER' ? (
+                  <div key={`bubble-${field.key}`} className="ds-settings-routing-bubble">
+                    <div className="ds-settings-bg-task-bubble-title">Background Task Model</div>
+                    <p className="ds-settings-bg-task-bubble-body">
+                      Powers background work independently of your chat model: long-term memory
+                      inference, preference extraction, and LLM summarization of large markdown
+                      cells (&gt;2 000 chars).
+                    </p>
+                    <p className="ds-settings-bg-task-bubble-body">
+                      Without a configured Background model, large markdown cells are{' '}
+                      <em>truncated at a sentence boundary</em> rather than summarized.
+                    </p>
+                  </div>
+                ) : null;
+
                 return (
                   <React.Fragment key={field.key}>
                     <label className="ds-settings-label">{label}</label>
@@ -1865,22 +1889,10 @@ const ModelsPanel: React.FC<{
                         <option key={p} value={p}>{p}</option>
                       ))}
                     </select>
+                    {bubble}
                   </React.Fragment>
                 );
               })}
-            </div>
-
-            {/* Background Task info bubble */}
-            <div className="ds-settings-bg-task-bubble">
-              <div className="ds-settings-bg-task-bubble-title">Background Task Model</div>
-              <p className="ds-settings-bg-task-bubble-body">
-                Powers background work independently of your chat model: long-term memory inference,
-                preference extraction, and LLM summarization of large markdown cells (&gt;2 000 chars).
-              </p>
-              <p className="ds-settings-bg-task-bubble-body">
-                Without a configured Background model, large markdown cells are{' '}
-                <em>truncated at a sentence boundary</em> rather than summarized.
-              </p>
             </div>
           </>
         ) : (
