@@ -4143,6 +4143,43 @@
   line-height: 1.4;
 }
 
+/* Routing tab: toggle row (full-width, inline desc) */
+.ds-settings-routing-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ds-settings-routing-toggle-desc {
+  font-size: 10px;
+  color: var(--ds-text-dim, #888);
+  line-height: 1.4;
+  flex: 1;
+}
+
+/* Background Task info bubble — shown in the Routing tab */
+.ds-settings-bg-task-bubble {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  background: var(--ds-surface, #f4f5f9);
+  border: 1px solid var(--jp-border-color2, #e0e0e0);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ds-settings-bg-task-bubble-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--jp-ui-font-color0, #111);
+}
+.ds-settings-bg-task-bubble-body {
+  margin: 0;
+  font-size: 11px;
+  color: var(--jp-ui-font-color2, #555);
+  line-height: 1.5;
+}
+.ds-settings-bg-task-bubble-body em { font-style: italic; }
+
 /* Simple Tasks info note — shown in the Routing tab */
 .ds-settings-bg-task-note {
   margin: 10px 0 0;
@@ -5801,6 +5838,13 @@
 .ds-chat-night .ds-settings-toggle-desc {
   color: var(--ds-text-dim, #8890a8);
 }
+.ds-chat-night .ds-settings-routing-toggle-desc { color: #6c7086; }
+.ds-chat-night .ds-settings-bg-task-bubble {
+  background: rgba(255,255,255,0.04);
+  border-color: #45475a;
+}
+.ds-chat-night .ds-settings-bg-task-bubble-title { color: #cdd6f4; }
+.ds-chat-night .ds-settings-bg-task-bubble-body  { color: #a6adc8; }
 .ds-chat-night .ds-settings-bg-task-note {
   border-left-color: #7d9fce;
   background: rgba(125, 159, 206, 0.10);
