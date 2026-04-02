@@ -4,13 +4,30 @@ from __future__ import annotations
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from ..context.summary_store import SummaryStore
 from .ast_fallback import ASTParser
 
 
 # ── Constants ─────────────────────────────────────────────────────────────────
+
+# Matches top-level import statements to detect reimports across cells.
+_IMPORT_RE = re.compile(
+    r'^(?:import\s+(\w+)|from\s+(\w+)\s+import)',
+    re.MULTILINE,
+)
+
+
+def _extract_imports(source: str) -> Set[str]:
+    """Return the set of top-level module names imported in *source*."""
+    mods: Set[str] = set()
+    for m in _IMPORT_RE.finditer(source):
+        mod = m.group(1) or m.group(2)
+        if mod:
+            mods.add(mod)
+    return mods
+
 
 # Matplotlib / seaborn state handles that are not data artifacts.
 # Filtered from defines, loads, and external_loads at graph-build time;
@@ -40,6 +57,7 @@ class NodeData:
     external_loads: List[str]
     execution_count: Optional[int]
     anomalies: List[str] = field(default_factory=list)
+    node_role: str = 'empty'   # 'defines' | 'redefines' | 'consumes' | 'empty'
 
 
 @dataclass
@@ -48,6 +66,7 @@ class EdgeData:
     target_uuid: str
     symbol: str
     anomaly: Optional[str] = None   # SKIP_LINK | OUT_OF_ORDER | None
+    edge_type: str = 'dependency'   # 'dependency' | 'redefines' | 'reimport'
 
 
 @dataclass
@@ -178,6 +197,12 @@ class GraphBuilder:
         )
         store_data = self._store.get_all_current()
 
+        # Source text keyed by cell_id — needed for reimport detection.
+        source_map: Dict[str, str] = {
+            c.get("cell_id", ""): c.get("source", "")
+            for c in sorted_cells
+        }
+
         nodes: List[NodeData] = []
 
         for cell in sorted_cells:
@@ -258,6 +283,68 @@ class GraphBuilder:
                     resolved.add(sym)
 
             node.external_loads = [s for s in node.loads if s not in resolved]
+
+        # ── Redefine edge pass ────────────────────────────────────────────────
+        # When a symbol is defined by multiple cells (e.g. df = df.dropna()),
+        # the SummaryStore often records no loads for the reassignment cell,
+        # leaving the graph disconnected.  We connect consecutive definers of
+        # the same symbol with an explicit "redefines" edge.
+        existing_keys: Set[Tuple[str, str, str]] = {
+            (e.source_uuid, e.target_uuid, e.symbol) for e in edges
+        }
+        symbol_definers: Dict[str, List[NodeData]] = {}
+        for node in nodes:
+            for sym in node.defines:
+                symbol_definers.setdefault(sym, []).append(node)
+
+        for sym, definers in symbol_definers.items():
+            if len(definers) < 2:
+                continue
+            sorted_definers = sorted(definers, key=lambda n: n.cell_index)
+            for i in range(1, len(sorted_definers)):
+                prev = sorted_definers[i - 1]
+                curr = sorted_definers[i]
+                key = (prev.cell_uuid, curr.cell_uuid, sym)
+                if key not in existing_keys:
+                    edges.append(EdgeData(
+                        source_uuid=prev.cell_uuid,
+                        target_uuid=curr.cell_uuid,
+                        symbol=sym,
+                        edge_type='redefines',
+                    ))
+                    existing_keys.add(key)
+
+        # ── Node role computation ─────────────────────────────────────────────
+        seen_syms: Set[str] = set()
+        for node in sorted(nodes, key=lambda n: n.cell_index):
+            is_redefine  = any(s in seen_syms for s in node.defines)
+            is_new_define = any(s not in seen_syms for s in node.defines)
+            seen_syms.update(node.defines)
+            if is_redefine:
+                node.node_role = 'redefines'
+            elif is_new_define:
+                node.node_role = 'defines'
+            elif node.loads:
+                node.node_role = 'consumes'
+            # else: stays 'empty'
+
+        # ── Reimport edge pass ────────────────────────────────────────────────
+        first_importer: Dict[str, str] = {}   # module → cell_uuid
+        for node in nodes:
+            cell_imports = _extract_imports(source_map.get(node.cell_uuid, ''))
+            for mod in sorted(cell_imports):
+                if mod in first_importer:
+                    key = (first_importer[mod], node.cell_uuid, mod)
+                    if key not in existing_keys:
+                        edges.append(EdgeData(
+                            source_uuid=first_importer[mod],
+                            target_uuid=node.cell_uuid,
+                            symbol=mod,
+                            edge_type='reimport',
+                        ))
+                        existing_keys.add(key)
+                else:
+                    first_importer[mod] = node.cell_uuid
 
         return GraphData(
             notebook_path=self._notebook_path,
