@@ -5180,6 +5180,8 @@
 }
 .ds-skill-row--active {
   background: var(--jp-brand-color3, #e3f0fc);
+  border-left: 3px solid var(--jp-brand-color1, #1976d2);
+  padding-left: 3px;
 }
 
 /* iOS-style toggle */
@@ -5331,7 +5333,7 @@
   gap: 6px;
 }
 .ds-skill-library-row--imported {
-  opacity: 0.5;
+  /* full opacity — "Installed" badge signals the state clearly */
 }
 
 .ds-skill-library-info {
@@ -5365,10 +5367,21 @@
   text-overflow: ellipsis;
 }
 
-.ds-skill-library-check {
-  font-size: 13px;
-  color: #4caf50;
+.ds-skill-library-installed {
   flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  color: #28a745;
+  background: rgba(40, 167, 69, 0.10);
+  border: 1px solid rgba(40, 167, 69, 0.28);
+  border-radius: 10px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.ds-chat-night .ds-skill-library-installed {
+  color: #4dc97a;
+  background: rgba(77, 201, 122, 0.10);
+  border-color: rgba(77, 201, 122, 0.25);
 }
 
 .ds-skill-library-import-btn {
@@ -5535,10 +5548,10 @@
 
 /* Filepath hint below tab bar */
 .ds-skill-editor-filepath {
-  font-size: 9px;
+  font-size: 10px;
   font-family: var(--jp-code-font-family, monospace);
   color: var(--ds-text-dim, #5a5f72);
-  padding: 2px 8px;
+  padding: 3px 8px;
   border-bottom: 1px solid var(--jp-border-color2, #eee);
   flex-shrink: 0;
   background: var(--jp-layout-color1, #fff);
@@ -5546,11 +5559,20 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.ds-skill-editor-filepath-dir {
+  color: var(--jp-ui-font-color1, #333);
+  font-weight: 500;
+}
+.ds-skill-editor-filepath-sep {
+  margin: 0 1px;
+  opacity: 0.5;
+}
 
-.ds-skill-editor-dirty {
+.ds-skill-tab-dot {
   font-size: 8px;
   color: #f0ad00;
-  flex-shrink: 0;
+  margin-left: 4px;
+  vertical-align: middle;
 }
 
 .ds-skill-editor-saved {

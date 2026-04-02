@@ -2266,7 +2266,7 @@ const SkillsPanel: React.FC<{ apiClient: APIClient; notebookPath?: string }> = (
             title="Browse factory-default skills bundled with the extension"
           >
             <span className="ds-skill-library-chevron">{libraryOpen ? '▾' : '▸'}</span>
-            <span>📦 Skill Library</span>
+            <span>Skill Library</span>
           </button>
 
           {libraryOpen && (
@@ -2293,7 +2293,7 @@ const SkillsPanel: React.FC<{ apiClient: APIClient; notebookPath?: string }> = (
                       {b.description && <span className="ds-skill-library-desc">{b.description}</span>}
                     </div>
                     {b.imported ? (
-                      <span className="ds-skill-library-check" title="Already in your project">✓</span>
+                      <span className="ds-skill-library-installed" title="Already in your skills">Installed</span>
                     ) : (
                       <button
                         className="ds-skill-library-import-btn"
@@ -2329,16 +2329,15 @@ const SkillsPanel: React.FC<{ apiClient: APIClient; notebookPath?: string }> = (
                   if (dirty && !window.confirm('Discard unsaved changes?')) return;
                   setEditorTab('skill'); setDirty(false); setSaveStatus(null); setSaveError('');
                 }}
-              >SKILL.md</button>
+              >SKILL.md{dirty && editorTab === 'skill' && <span className="ds-skill-tab-dot">●</span>}</button>
               <button
                 className={`ds-skill-editor-tab${editorTab === 'readme' ? ' ds-skill-editor-tab--active' : ''}`}
                 onClick={() => {
                   if (dirty && !window.confirm('Discard unsaved changes?')) return;
                   setEditorTab('readme'); setDirty(false); setSaveStatus(null); setSaveError('');
                 }}
-              >README.md</button>
+              >README.md{dirty && editorTab === 'readme' && <span className="ds-skill-tab-dot">●</span>}</button>
               <div className="ds-skill-editor-tabs-spacer" />
-              {dirty && <span className="ds-skill-editor-dirty" title="Unsaved changes">●</span>}
               {saveStatus === 'ok'  && <span className="ds-skill-editor-saved">✓ Saved</span>}
               {saveStatus === 'err' && <span className="ds-skill-editor-error" title={saveError}>✗ {saveError || 'Error'}</span>}
               <button
@@ -2350,7 +2349,9 @@ const SkillsPanel: React.FC<{ apiClient: APIClient; notebookPath?: string }> = (
             </div>
             {/* Filename hint */}
             <div className="ds-skill-editor-filepath">
-              {selectedName}/{editorTab === 'skill' ? 'SKILL.md' : 'README.md'}
+              <span className="ds-skill-editor-filepath-dir">{selectedName}</span>
+              <span className="ds-skill-editor-filepath-sep">/</span>
+              {editorTab === 'skill' ? 'SKILL.md' : 'README.md'}
             </div>
             <textarea
               key={`${selectedName}-${editorTab}`}
