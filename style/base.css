@@ -5959,6 +5959,9 @@
   border-bottom-color: var(--ds-border, #35354a);
   background: var(--ds-header-bg, #22222e);
 }
+.ds-chat-night .ds-skill-editor-filepath-dir {
+  color: var(--ds-text, #c5c5cc);
+}
 .ds-chat-night .ds-skill-editor-textarea {
   background: #13131a;
   color: var(--ds-text, #c5c5cc);
