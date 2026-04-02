@@ -47,13 +47,10 @@ class AnthropicAgentProvider(AgentProvider):
     def __init__(self, api_key: str, model: str) -> None:
         self._api_key = api_key
         self._model = model
-        # VARYS_AGENT_PROMPT_CACHING takes precedence; falls back to the shared
-        # VARYS_PROMPT_CACHING switch so one variable can control everything.
-        _raw = os.environ.get(
-            "VARYS_AGENT_PROMPT_CACHING",
-            os.environ.get("VARYS_PROMPT_CACHING", "true"),
+        self._prompt_caching = (
+            os.environ.get("VARYS_PROMPT_CACHING", "true").strip().lower()
+            not in ("false", "0", "no")
         )
-        self._prompt_caching = _raw.strip().lower() not in ("false", "0", "no")
         # Lazily built on first stream_turn() call; reused every subsequent call
         self._cached_system: list[dict] | None = None
         self._cached_tools: list[dict] | None = None
