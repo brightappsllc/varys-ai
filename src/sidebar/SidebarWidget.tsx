@@ -1580,6 +1580,7 @@ const ModelsPanel: React.FC<{
   const [toolSupport, setToolSupport]               = useState<{ supported: boolean; reason: string | null } | null>(null);
   const [checkingToolSupport, setCheckingToolSupport] = useState(false);
   const [saveTried, setSaveTried] = useState(false);
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     apiClient
@@ -1919,20 +1920,38 @@ const ModelsPanel: React.FC<{
               const isDisabled = field.disabledWhen
                 ? (values[field.disabledWhen] ?? 'true') === 'false'
                 : false;
+              const isPassword = field.type === 'password';
+              const fieldValue = values[field.key] ?? '';
+              const isRevealed = revealed[field.key] ?? false;
               return (
                 <React.Fragment key={field.key}>
                   {sectionHeaderEl}
                   <div className="ds-settings-row">
                     <label className="ds-settings-label">{field.label}</label>
-                    <input
-                      className={`ds-settings-input${isDisabled ? ' ds-settings-input--disabled' : ''}`}
-                      type={field.type === 'password' && masked[field.key] ? 'password' : 'text'}
-                      value={values[field.key] ?? ''}
-                      onChange={e => handleChange(field.key, e.target.value)}
-                      placeholder={field.type === 'password' ? '(unchanged)' : (field.placeholder ?? '')}
-                      autoComplete="off"
-                      disabled={isDisabled}
-                    />
+                    <div className={`ds-settings-input-wrapper${isPassword ? ' ds-settings-input-wrapper--password' : ''}`}>
+                      <input
+                        className={`ds-settings-input${isDisabled ? ' ds-settings-input--disabled' : ''}`}
+                        type={isPassword && !isRevealed ? 'password' : 'text'}
+                        value={fieldValue}
+                        onChange={e => handleChange(field.key, e.target.value)}
+                        placeholder={isPassword ? '(unchanged)' : (field.placeholder ?? '')}
+                        autoComplete="off"
+                        disabled={isDisabled}
+                      />
+                      {isPassword && fieldValue !== '' && (
+                        <button
+                          className="ds-settings-input-reveal-btn"
+                          type="button"
+                          onClick={() => setRevealed(r => ({ ...r, [field.key]: !r[field.key] }))}
+                          title={isRevealed ? 'Hide' : 'Reveal'}
+                        >
+                          {isRevealed ? '⊘' : '◎'}
+                        </button>
+                      )}
+                    </div>
+                    {field.description && (
+                      <span className="ds-settings-field-desc">{field.description}</span>
+                    )}
                   </div>
                 </React.Fragment>
               );
