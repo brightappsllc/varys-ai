@@ -10,6 +10,13 @@ import { NODE_WIDTH, NODE_HEIGHT } from './graphTypes';
 // ── Synchronous layout (fallback / shared logic) ──────────────────────────────
 
 export function computeLayoutSync(data: GraphData): LayoutResult {
+  // ── Debug: log what edges dagre receives ─────────────────────────────────
+  const edgeSummary = data.edges.map(e =>
+    `[${e.edgeType ?? 'dep'}] ${e.sourceUuid.slice(0, 6)}→${e.targetUuid.slice(0, 6)} (${e.symbol})`
+  );
+  console.debug('[varys-graph] nodes:', data.nodes.length,
+    '| edges:', data.edges.length, '\n', edgeSummary.join('\n'));
+
   const g = new dagre.graphlib.Graph();
   g.setGraph({
     rankdir: 'TB',
@@ -24,8 +31,30 @@ export function computeLayoutSync(data: GraphData): LayoutResult {
     g.setNode(node.cellUuid, { width: NODE_WIDTH, height: NODE_HEIGHT });
   }
   for (const edge of data.edges) {
-    g.setEdge(edge.sourceUuid, edge.targetUuid);
+    // Use the symbol as the edge name so multiple edges between the same
+    // pair of nodes (e.g. one dependency + one redefines) each get their
+    // own slot in dagre rather than overwriting each other.
+    g.setEdge(edge.sourceUuid, edge.targetUuid, {}, edge.symbol);
   }
+
+  // ── Debug: verify dagre received the edges ────────────────────────────────
+  const dagreEdges = g.edges();
+  console.debug('[varys-graph] dagre edge count:', dagreEdges.length,
+    '\n', dagreEdges.map(e => `${e.v.slice(0,6)}→${e.w.slice(0,6)} name=${e.name}`).join('\n'));
+  const components = new Map<string, string>();
+  const findRoot = (id: string): string => {
+    if (!components.has(id)) components.set(id, id);
+    const p = components.get(id)!;
+    return p === id ? id : findRoot(p);
+  };
+  dagreEdges.forEach(e => {
+    const rv = findRoot(e.v), rw = findRoot(e.w);
+    if (rv !== rw) components.set(rv, rw);
+  });
+  data.nodes.forEach(n => findRoot(n.cellUuid));
+  const roots = new Set([...data.nodes.map(n => findRoot(n.cellUuid))]);
+  console.debug('[varys-graph] connected components:', roots.size,
+    roots.size > 1 ? '⚠ DISCONNECTED' : '✓ single component');
 
   dagre.layout(g);
 
