@@ -2521,6 +2521,12 @@ const TagsSettingsPanel: React.FC = () => {
   const [nameErr, setNameErr]       = useState('');
   const [editIdx, setEditIdx]       = useState<number | null>(null);
 
+  // collapsible: top-level sections + each category group
+  const allGroupKeys = ['__custom__', '__builtin__', ...BUILT_IN_TAG_DEFS.map(g => g.category)];
+  const [openSections, setOpenSections] = useState<Set<string>>(new Set(allGroupKeys));
+  const toggleSection = (key: string) =>
+    setOpenSections(prev => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s; });
+
   const allBuiltInValues: string[] = ([] as string[]).concat(
     ...BUILT_IN_TAG_DEFS.map((g: { category: string; tags: { value: string; topic: string; description: string }[] }) =>
       g.tags.map((t: { value: string; topic: string; description: string }) => t.value)
@@ -2585,77 +2591,94 @@ const TagsSettingsPanel: React.FC = () => {
 
       {/* ── Custom tags ────────────────────────────────────────────────────── */}
       <div className="ds-tags-settings-section">
-        <div className="ds-tags-settings-section-header">
+        <div
+          className="ds-tags-settings-section-header ds-tags-settings-section-header--toggle"
+          onClick={() => toggleSection('__custom__')}
+        >
+          <span className={`ds-tags-settings-chevron${openSections.has('__custom__') ? ' ds-tags-settings-chevron--open' : ''}`}>›</span>
           <span className="ds-tags-settings-section-title">Custom Tags</span>
           <span className="ds-tags-settings-section-count">{customTags.length}</span>
         </div>
 
-        {customTags.length === 0 && (
-          <p className="ds-tags-settings-empty">No custom tags yet. Create one below.</p>
-        )}
+        {openSections.has('__custom__') && (<>
+          {customTags.length === 0 && (
+            <p className="ds-tags-settings-empty">No custom tags yet. Create one below.</p>
+          )}
 
-        {customTags.map((tag, idx) => (
-          <div key={tag.value} className="ds-tags-settings-row">
-            <span
-              className="ds-tags-settings-pill"
-              style={{ '--pill-color': tagColorTs(tag.value) } as React.CSSProperties}
-            >{tag.value}</span>
-            {editIdx === idx ? (
-              <EditDescRow
-                initial={tag.description}
-                onSave={desc => saveEdit(idx, desc)}
-                onCancel={() => setEditIdx(null)}
+          {customTags.map((tag, idx) => (
+            <div key={tag.value} className="ds-tags-settings-row">
+              <span
+                className="ds-tags-settings-pill"
+                style={{ '--pill-color': tagColorTs(tag.value) } as React.CSSProperties}
+              >{tag.value}</span>
+              {editIdx === idx ? (
+                <EditDescRow
+                  initial={tag.description}
+                  onSave={desc => saveEdit(idx, desc)}
+                  onCancel={() => setEditIdx(null)}
+                />
+              ) : (
+                <>
+                  <span className="ds-tags-settings-desc" onClick={() => setEditIdx(idx)}>
+                    {tag.description || <em className="ds-tags-settings-desc-empty">no description — click to add</em>}
+                  </span>
+                  <button className="ds-tags-settings-edit-btn" onClick={() => setEditIdx(idx)} title="Edit description">✎</button>
+                  <button className="ds-tags-settings-del-btn" onClick={() => deleteCustomTag(idx)} title="Delete tag">🗑</button>
+                </>
+              )}
+            </div>
+          ))}
+
+          {/* New tag form */}
+          <div className="ds-tags-settings-new-form">
+            <div className="ds-tags-settings-new-row">
+              <input
+                className="ds-tags-settings-name-input"
+                placeholder="tag-value"
+                value={newValue}
+                onChange={e => { setNewValue(e.target.value); setNameErr(''); }}
+                onKeyDown={e => { if (e.key === 'Enter') addCustomTag(); }}
               />
-            ) : (
-              <>
-                <span className="ds-tags-settings-desc" onClick={() => setEditIdx(idx)}>
-                  {tag.description || <em className="ds-tags-settings-desc-empty">no description — click to add</em>}
-                </span>
-                <button className="ds-tags-settings-edit-btn" onClick={() => setEditIdx(idx)} title="Edit description">✎</button>
-                <button className="ds-tags-settings-del-btn" onClick={() => deleteCustomTag(idx)} title="Delete tag">🗑</button>
-              </>
-            )}
+              <input
+                className="ds-tags-settings-desc-input"
+                placeholder="Description (optional)"
+                value={newDesc}
+                onChange={e => setNewDesc(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') addCustomTag(); }}
+              />
+              <button
+                className="ds-tags-settings-add-btn"
+                onClick={addCustomTag}
+                disabled={!newValue.trim()}
+              >+ Add</button>
+            </div>
+            {nameErr && <p className="ds-tags-settings-error">{nameErr}</p>}
           </div>
-        ))}
-
-        {/* New tag form */}
-        <div className="ds-tags-settings-new-form">
-          <div className="ds-tags-settings-new-row">
-            <input
-              className="ds-tags-settings-name-input"
-              placeholder="tag-value"
-              value={newValue}
-              onChange={e => { setNewValue(e.target.value); setNameErr(''); }}
-              onKeyDown={e => { if (e.key === 'Enter') addCustomTag(); }}
-            />
-            <input
-              className="ds-tags-settings-desc-input"
-              placeholder="Description (optional)"
-              value={newDesc}
-              onChange={e => setNewDesc(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') addCustomTag(); }}
-            />
-            <button
-              className="ds-tags-settings-add-btn"
-              onClick={addCustomTag}
-              disabled={!newValue.trim()}
-            >+ Add</button>
-          </div>
-          {nameErr && <p className="ds-tags-settings-error">{nameErr}</p>}
-        </div>
+        </>)}
       </div>
 
       {/* ── Built-in tags ──────────────────────────────────────────────────── */}
       <div className="ds-tags-settings-section">
-        <div className="ds-tags-settings-section-header">
+        <div
+          className="ds-tags-settings-section-header ds-tags-settings-section-header--toggle"
+          onClick={() => toggleSection('__builtin__')}
+        >
+          <span className={`ds-tags-settings-chevron${openSections.has('__builtin__') ? ' ds-tags-settings-chevron--open' : ''}`}>›</span>
           <span className="ds-tags-settings-section-title">Built-in Tags</span>
           <span className="ds-tags-settings-section-count">{allBuiltInValues.length}</span>
         </div>
-        {BUILT_IN_TAG_DEFS.map(group => (
+        {openSections.has('__builtin__') && BUILT_IN_TAG_DEFS.map(group => (
           <div key={group.category} className="ds-tags-settings-group">
-            <div className="ds-tags-settings-group-label">{group.category}</div>
-            {group.tags.map(tag => (
-              <div key={tag.value} className="ds-tags-settings-row ds-tags-settings-row--builtin">
+            <div
+              className="ds-tags-settings-group-label ds-tags-settings-group-label--toggle"
+              onClick={() => toggleSection(group.category)}
+            >
+              <span className={`ds-tags-settings-chevron ds-tags-settings-chevron--sm${openSections.has(group.category) ? ' ds-tags-settings-chevron--open' : ''}`}>›</span>
+              {group.category}
+              <span className="ds-tags-settings-group-count">{group.tags.length}</span>
+            </div>
+            {openSections.has(group.category) && group.tags.map(tag => (
+              <div key={tag.value} className="ds-tags-settings-row">
                 <span
                   className="ds-tags-settings-pill"
                   style={{ '--pill-color': tagColorTs(tag.value) } as React.CSSProperties}
