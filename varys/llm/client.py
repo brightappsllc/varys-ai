@@ -1,5 +1,6 @@
 """Claude API client for DS Assistant."""
 import asyncio
+import os
 import re as _re
 import uuid
 from typing import Any, Callable, Awaitable, Dict, List, Optional
@@ -418,6 +419,58 @@ class ClaudeClient:
         self.last_usage = {"input": int(input_tokens), "output": int(output_tokens)}
 
     # ------------------------------------------------------------------
+    # Prompt caching
+    # ------------------------------------------------------------------
+
+    # Boundary between static rules and dynamic content in SYSTEM_PROMPT_TEMPLATE.
+    # Everything before this marker (persona + all core rules) is stable across
+    # requests and safe to cache.  Skills and memory follow this point and change
+    # on every request.
+    _CACHE_BOUNDARY = "\n## Skills Context\n"
+
+    @staticmethod
+    def _prompt_caching_enabled() -> bool:
+        return os.environ.get("VARYS_PROMPT_CACHING", "true").strip().lower() not in (
+            "false", "0", "no"
+        )
+
+    @staticmethod
+    def _log_cache_usage(usage: object, label: str) -> None:
+        import logging as _logging
+        _log = _logging.getLogger(__name__)
+        created = getattr(usage, "cache_creation_input_tokens", 0) or 0
+        read    = getattr(usage, "cache_read_input_tokens",    0) or 0
+        if created or read:
+            _log.debug("Prompt cache (%s): created=%d read=%d", label, created, read)
+
+    def _to_cached_system_blocks(self, system: str) -> list:
+        """Split *system* at the Skills Context boundary and return content blocks.
+
+        The static prefix (persona + core rules) is marked cacheable.
+        The dynamic suffix (skills + memory + trailing rules) is sent uncached.
+        Falls back to a single cached block when the boundary is not found.
+        """
+        if not self._prompt_caching_enabled():
+            return [{"type": "text", "text": system}]
+
+        idx = system.find(self._CACHE_BOUNDARY)
+        if idx == -1:
+            # Template changed or custom prompt — cache the whole thing.
+            return [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+
+        return [
+            {
+                "type": "text",
+                "text": system[:idx],
+                "cache_control": {"type": "ephemeral"},
+            },
+            {
+                "type": "text",
+                "text": system[idx:],
+            },
+        ]
+
+    # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
@@ -548,6 +601,7 @@ class ClaudeClient:
             return self._fallback_response(user_message, operation_id)
 
         system_prompt = self._build_system_prompt(skills, memory)
+        system_blocks = self._to_cached_system_blocks(system_prompt)
         content_blocks = self._build_content_blocks(user_message, notebook_context)
         messages = self._prepend_history(chat_history, content_blocks)
 
@@ -559,7 +613,7 @@ class ClaudeClient:
                 response = await self._aclient.messages.create(
                     model=self.model,
                     max_tokens=8192,
-                    system=system_prompt,
+                    system=system_blocks,
                     tools=[OPERATION_PLAN_TOOL],
                     tool_choice={"type": "any"},
                     messages=messages,
@@ -571,6 +625,7 @@ class ClaudeClient:
                         getattr(response.usage, "input_tokens", 0),
                         getattr(response.usage, "output_tokens", 0),
                     )
+                    self._log_cache_usage(response.usage, "plan_chat")
 
                 # Extract the tool_use block - guaranteed structured output
                 for block in response.content:
@@ -677,6 +732,7 @@ class ClaudeClient:
             return self._fallback_response(user_message, operation_id)
 
         system_prompt = self._build_system_prompt(skills, memory, reasoning_mode=reasoning_mode)
+        system_blocks = self._to_cached_system_blocks(system_prompt)
         content_blocks = self._build_content_blocks(user_message, notebook_context)
         messages = self._prepend_history(chat_history, content_blocks)
 
@@ -695,7 +751,7 @@ class ClaudeClient:
                 api_kwargs: Dict[str, Any] = dict(
                     model=self.model,
                     max_tokens=_MAX_TOKENS_THINKING if use_thinking else _MAX_TOKENS_DEFAULT,
-                    system=system_prompt,
+                    system=system_blocks,
                     tools=[OPERATION_PLAN_TOOL],
                     # "auto" lets Claude emit explanation text before the tool call.
                     # "any"/"tool" would conflict with extended thinking.
@@ -732,6 +788,7 @@ class ClaudeClient:
                         getattr(final_msg.usage, "input_tokens", 0),
                         getattr(final_msg.usage, "output_tokens", 0),
                     )
+                    self._log_cache_usage(final_msg.usage, "plan_stream_chat")
 
                 for block in final_msg.content:
                     if block.type == "tool_use" and block.name == "create_operation_plan":
@@ -871,11 +928,16 @@ class ClaudeClient:
         _MAX_TOKENS_DEFAULT  = 8_192
         _MAX_CONTINUATIONS   = 2  # safety cap on seamless auto-continuation turns
 
+        # Split system prompt into cacheable static block + dynamic block.
+        # The static block (persona + core rules) is stable across requests;
+        # the dynamic block (skills + memory) changes each turn.
+        system_blocks = self._to_cached_system_blocks(system)
+
         for _turn in range(_MAX_CONTINUATIONS + 1):
             api_kwargs: Dict[str, Any] = dict(
                 model=self.model,
                 max_tokens=_MAX_TOKENS_THINKING if use_thinking else _MAX_TOKENS_DEFAULT,
-                system=system,
+                system=system_blocks,
                 messages=messages,
             )
             if use_thinking:
@@ -911,6 +973,7 @@ class ClaudeClient:
                         getattr(final_chat.usage, "input_tokens", 0),
                         getattr(final_chat.usage, "output_tokens", 0),
                     )
+                    self._log_cache_usage(final_chat.usage, "stream_chat")
 
             # Auto-continue when the model was stopped by the token limit.
             # We replay the partial text as an assistant turn and ask "Continue."
