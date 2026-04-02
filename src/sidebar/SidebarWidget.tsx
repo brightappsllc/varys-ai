@@ -2404,7 +2404,7 @@ const CommandsPanel: React.FC<{ apiClient: APIClient }> = ({ apiClient }) => {
   return (
     <div className="ds-commands-panel">
       <div className="ds-commands-toolbar">
-        <span className="ds-commands-count">{cmds.length} commands</span>
+        <span className="ds-commands-count"><span className="ds-commands-count-num">{cmds.length}</span> commands</span>
         <button className="ds-commands-refresh-btn" onClick={refresh} title="Reload commands">
           {loading ? '…' : '↻'}
         </button>

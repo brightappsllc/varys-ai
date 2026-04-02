@@ -5006,6 +5006,13 @@
   font-size: 11px;
   color: var(--jp-ui-font-color2, #777);
 }
+.ds-commands-count-num {
+  font-weight: 700;
+  color: var(--ds-text, #1e1e2e);
+}
+.ds-chat-night .ds-commands-count-num {
+  color: var(--ds-text, #c5c5cc);
+}
 .ds-commands-refresh-btn {
   background: none;
   border: 1px solid var(--ds-border, #d8dae0);
@@ -5038,10 +5045,20 @@
   display: flex;
   align-items: baseline;
   gap: 8px;
-  padding: 4px 0;
+  padding: 5px 6px;
+  border-radius: 4px;
+  transition: background 0.1s;
+  margin: 0 -6px;
+}
+.ds-commands-row:hover {
+  background: var(--ds-surface, #eeeff3);
+}
+.ds-chat-night .ds-commands-row:hover {
+  background: rgba(255,255,255,0.04);
 }
 .ds-commands-name {
   font-size: 12px;
+  font-weight: 600;
   font-family: var(--jp-code-font-family, monospace);
   color: var(--jp-brand-color1, #1976d2);
   white-space: nowrap;
@@ -5054,10 +5071,12 @@
 }
 .ds-commands-skill-badge {
   font-size: 10px;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: var(--jp-brand-color3, #d0e6ff);
+  font-family: var(--jp-code-font-family, monospace);
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(25, 118, 210, 0.10);
   color: var(--jp-brand-color1, #1976d2);
+  border: 1px solid rgba(25, 118, 210, 0.22);
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -5988,8 +6007,9 @@
   color: var(--ds-text, #c5c5cc);
 }
 .ds-chat-night .ds-commands-skill-badge {
-  background: rgba(126,200,227,0.15);
+  background: rgba(126,200,227,0.10);
   color: #7ec8e3;
+  border-color: rgba(126,200,227,0.22);
 }
 .ds-chat-night .ds-commands-empty {
   color: #555870;
