@@ -3743,10 +3743,42 @@
 .ds-settings-row {
   display: flex;
   flex-direction: column;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 .ds-settings-row:last-child {
   margin-bottom: 0;
+}
+
+/* ── Input wrapper (for password reveal button) ── */
+.ds-settings-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.ds-settings-input-wrapper--password .ds-settings-input {
+  padding-right: 26px;
+}
+.ds-settings-input-reveal-btn {
+  position: absolute;
+  right: 5px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-size: 13px;
+  color: var(--ds-text-dim, #5a5f72);
+  opacity: 0.45;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.ds-settings-input-reveal-btn:hover { opacity: 0.9; }
+
+/* ── Field description (non-toggle) ── */
+.ds-settings-field-desc {
+  font-size: 10px;
+  color: var(--ds-text-dim, #5a5f72);
+  margin-top: 4px;
+  line-height: 1.4;
 }
 
 .ds-settings-label {
