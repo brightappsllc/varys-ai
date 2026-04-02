@@ -17,7 +17,7 @@ export function computeLayoutSync(data: GraphData): LayoutResult {
   console.debug('[varys-graph] nodes:', data.nodes.length,
     '| edges:', data.edges.length, '\n', edgeSummary.join('\n'));
 
-  const g = new dagre.graphlib.Graph();
+  const g = new dagre.graphlib.Graph({ multigraph: true });
   g.setGraph({
     rankdir: 'TB',
     nodesep: 40,
