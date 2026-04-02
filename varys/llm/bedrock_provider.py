@@ -4,6 +4,7 @@ import base64
 import configparser
 import json
 import logging
+import os
 import re
 import subprocess
 import uuid
@@ -282,7 +283,7 @@ class BedrockProvider(BaseLLMProvider):
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": max_tokens,
             "thinking": {"type": "enabled", "budget_tokens": self.thinking_budget},
-            "system": system,
+            "system": self._to_invoke_model_system(system),
             "messages": messages,
         }
         if tools:
@@ -298,6 +299,7 @@ class BedrockProvider(BaseLLMProvider):
         result = json.loads(resp["body"].read())
         usage = result.get("usage", {})
         self._set_usage(usage.get("input_tokens", 0), usage.get("output_tokens", 0))
+        self._log_cache_usage(usage, "invoke_model_raw", converse=False)
         return result
 
     def _invoke_with_thinking(
@@ -406,6 +408,75 @@ class BedrockProvider(BaseLLMProvider):
 
     def _build_system(self, skills: List[Dict[str, str]], memory: str, reasoning_mode: str = "off") -> str:
         return _build_system_prompt_shared(skills, memory, reasoning_mode=reasoning_mode)
+
+    # ── Prompt caching helpers ────────────────────────────────────────────────
+
+    # Semantic split point — matches the boundary used in client.py (ClaudeClient).
+    _CACHE_BOUNDARY = "\n## Skills Context\n"
+
+    @staticmethod
+    def _prompt_caching_enabled() -> bool:
+        return os.environ.get("VARYS_PROMPT_CACHING", "true").strip().lower() not in (
+            "false", "0", "no"
+        )
+
+    def _is_claude_model(self) -> bool:
+        """True when the active model is an Anthropic Claude model (supports caching)."""
+        name = self.chat_model.lower()
+        return "anthropic" in name or "claude" in name
+
+    def _to_converse_system_blocks(self, system: str) -> List[Dict[str, Any]]:
+        """Build Bedrock Converse API system array with optional prompt caching.
+
+        When caching is enabled for a Claude model, a cachePoint marker is
+        inserted after the static prefix (persona + core rules) so that
+        content before the marker is served from cache on subsequent requests.
+        Non-Claude models and disabled caching fall back to a single text block.
+        """
+        if not self._prompt_caching_enabled() or not self._is_claude_model():
+            return [{"text": system}]
+
+        idx = system.find(self._CACHE_BOUNDARY)
+        if idx == -1:
+            # Boundary not found — cache the entire system prompt.
+            return [{"text": system}, {"cachePoint": {"type": "default"}}]
+
+        return [
+            {"text": system[:idx]},
+            {"cachePoint": {"type": "default"}},
+            {"text": system[idx:]},
+        ]
+
+    def _to_invoke_model_system(self, system: str) -> Any:
+        """Build system value for invoke_model body with optional prompt caching.
+
+        Returns a list of Anthropic-format content blocks with cache_control
+        on the static prefix.  Falls back to a plain string when caching is
+        disabled or the model doesn't support it.
+        """
+        if not self._prompt_caching_enabled() or not self._is_claude_model():
+            return system
+
+        idx = system.find(self._CACHE_BOUNDARY)
+        if idx == -1:
+            return [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+
+        return [
+            {"type": "text", "text": system[:idx], "cache_control": {"type": "ephemeral"}},
+            {"type": "text", "text": system[idx:]},
+        ]
+
+    @staticmethod
+    def _log_cache_usage(usage: Dict[str, Any], label: str, converse: bool) -> None:
+        """Log Bedrock prompt-cache hit/miss at DEBUG level."""
+        if converse:
+            created = usage.get("cacheWriteInputTokens", 0) or 0
+            read    = usage.get("cacheReadInputTokens",  0) or 0
+        else:
+            created = usage.get("cache_creation_input_tokens", 0) or 0
+            read    = usage.get("cache_read_input_tokens",     0) or 0
+        if created or read:
+            log.debug("Bedrock cache (%s): created=%d read=%d", label, created, read)
 
     # ── Operation-plan tool in Anthropic Messages API format ─────────────────
     # Used by stream_plan_task when thinking is enabled (invoke_model path).
@@ -616,16 +687,19 @@ class BedrockProvider(BaseLLMProvider):
         messages = [{"role": h["role"], "content": [{"text": h["content"]}]} for h in history]
         messages.append({"role": "user", "content": content})
 
+        system_blocks = self._to_converse_system_blocks(system)
+
         def _call():
             resp = self._boto_client.converse(
                 modelId=self.chat_model,
-                system=[{"text": system}],
+                system=system_blocks,
                 messages=messages,
                 toolConfig=_TOOL_CONFIG,
                 inferenceConfig={"maxTokens": self._max_tokens_override or 4096, "temperature": 0.2},
             )
             u = resp.get("usage", {})
             self._set_usage(u.get("inputTokens", 0), u.get("outputTokens", 0))
+            self._log_cache_usage(u, "plan_task", converse=True)
             for block in resp.get("output", {}).get("message", {}).get("content", []):
                 if "toolUse" in block and block["toolUse"]["name"] == "create_operation_plan":
                     data = block["toolUse"]["input"]
@@ -740,15 +814,18 @@ class BedrockProvider(BaseLLMProvider):
 
         self._last_thinking = ""
 
+        system_blocks = self._to_converse_system_blocks(system)
+
         def _call():
             resp = self._boto_client.converse(
                 modelId=self.chat_model,
-                system=[{"text": system}],
+                system=system_blocks,
                 messages=messages,
                 inferenceConfig={"maxTokens": self._max_chat_tokens(), "temperature": 0.3},
             )
             u = resp.get("usage", {})
             self._set_usage(u.get("inputTokens", 0), u.get("outputTokens", 0))
+            self._log_cache_usage(u, "chat", converse=True)
             for block in resp.get("output", {}).get("message", {}).get("content", []):
                 if "text" in block:
                     return block["text"]
@@ -791,7 +868,7 @@ class BedrockProvider(BaseLLMProvider):
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": max_tokens,
             "thinking": {"type": "enabled", "budget_tokens": self.thinking_budget},
-            "system": system,
+            "system": self._to_invoke_model_system(system),
             "messages": messages,
         }
         if tools:
@@ -938,6 +1015,7 @@ class BedrockProvider(BaseLLMProvider):
             elif etype == "message_start":
                 usage = evt.get("message", {}).get("usage", {})
                 input_tokens += usage.get("input_tokens", 0)
+                self._log_cache_usage(usage, "stream_invoke_model", converse=False)
 
         await executor_future
         self._set_usage(input_tokens, output_tokens)
@@ -983,11 +1061,13 @@ class BedrockProvider(BaseLLMProvider):
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue = asyncio.Queue()
 
+        system_blocks = self._to_converse_system_blocks(system)
+
         def _run() -> None:
             try:
                 resp = self._boto_client.converse_stream(
                     modelId=self.chat_model,
-                    system=[{"text": system}],
+                    system=system_blocks,
                     messages=messages,
                     inferenceConfig={
                         "maxTokens": self._max_chat_tokens(),
