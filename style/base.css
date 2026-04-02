@@ -4319,6 +4319,13 @@
   font-size: 11px;
   color: var(--jp-ui-font-color2, #666);
 }
+.ds-mcp-count {
+  font-weight: 700;
+  color: var(--ds-text, #1e1e2e);
+}
+.ds-chat-night .ds-mcp-count {
+  color: var(--ds-text, #c5c5cc);
+}
 
 .ds-mcp-reload-btn {
   background: none;
@@ -4415,20 +4422,30 @@
 .ds-mcp-server-header {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   min-width: 0;
 }
 
 .ds-mcp-server-dot { flex-shrink: 0; font-size: 10px; }
 
+.ds-mcp-server-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
 .ds-mcp-server-name {
   font-weight: 600;
+  font-size: 12px;
   color: var(--jp-ui-font-color0, #111);
-  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ds-mcp-server-cmd {
-  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4512,23 +4529,27 @@
 }
 .ds-mcp-tools-toggle:hover { color: var(--jp-brand-color1, #1976d2); }
 
-.ds-mcp-tools-list {
-  margin: 4px 0 0 12px;
-  padding: 0;
-  list-style: none;
+.ds-mcp-tools-chips {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
 }
 
-.ds-mcp-tool-name {
+.ds-mcp-tool-chip {
   font-size: 10px;
   font-family: var(--jp-code-font-family, monospace);
   color: var(--jp-ui-font-color2, #555);
   background: var(--jp-layout-color1, #fff);
   border: 1px solid var(--jp-border-color2, #ddd);
-  border-radius: 3px;
-  padding: 1px 6px;
+  border-radius: 10px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+.ds-chat-night .ds-mcp-tool-chip {
+  background: rgba(255,255,255,0.05);
+  border-color: var(--ds-border, #35354a);
+  color: var(--ds-text-dim, #8890a8);
 }
 
 .ds-mcp-add {
@@ -4590,12 +4611,14 @@
 }
 
 .ds-mcp-add-btn {
+  align-self: flex-start;
   background: var(--jp-brand-color1, #1976d2);
   color: #fff;
   border: none;
   border-radius: 4px;
-  padding: 5px 10px;
+  padding: 5px 14px;
   font-size: 11px;
+  font-weight: 500;
   cursor: pointer;
 }
 .ds-mcp-add-btn:hover:not(:disabled) { background: var(--jp-brand-color0, #1565c0); }
@@ -4675,17 +4698,31 @@
 
 /* ── Config file viewer ─────────────────────────────────────────────────────── */
 .ds-mcp-config-viewer {
-  margin-top: 16px;
+  margin-top: 8px;
   border-top: 1px solid var(--jp-border-color2, #e0e0e0);
-  padding-top: 10px;
+  padding-top: 8px;
 }
-.ds-mcp-config-viewer-label {
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--jp-ui-font-color2, #666);
-  margin-bottom: 6px;
+.ds-mcp-config-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--ds-text-dim, #5a5f72);
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  text-align: left;
+}
+.ds-mcp-config-toggle:hover { color: var(--jp-brand-color1, #1976d2); }
+.ds-mcp-config-toggle-path {
   font-family: var(--jp-code-font-family, monospace);
+  font-size: 10px;
+  opacity: 0.7;
 }
+.ds-chat-night .ds-mcp-config-toggle { color: var(--ds-text-dim, #8890a8); }
+.ds-chat-night .ds-mcp-config-toggle:hover { color: #7ec8e3; }
 .ds-mcp-config-textarea {
   width: 100%;
   box-sizing: border-box;

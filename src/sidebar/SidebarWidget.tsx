@@ -956,6 +956,7 @@ const MCPPanel: React.FC<{ apiClient: APIClient }> = ({ apiClient }) => {
   const [pasteError, setPasteError] = useState('');
   const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
   const [statusMsg, setStatusMsg] = useState<{type: 'ok'|'err'; text: string} | null>(null);
+  const [configOpen, setConfigOpen] = useState(false);
 
   const refresh = async () => {
     setLoading(true);
@@ -1116,7 +1117,9 @@ const MCPPanel: React.FC<{ apiClient: APIClient }> = ({ apiClient }) => {
     <div className="ds-mcp-panel">
       <div className="ds-mcp-header">
         <span className="ds-mcp-summary">
-          {Object.keys(servers).length} server(s) · {totalTools} tool(s)
+          <span className="ds-mcp-count">{Object.keys(servers).length}</span> servers
+          {' · '}
+          <span className="ds-mcp-count">{totalTools}</span> tools
         </span>
         <button className="ds-mcp-reload-btn" onClick={() => void handleReload()} disabled={loading}>
           {loading ? '…' : '↺ Reload'}
@@ -1144,10 +1147,12 @@ const MCPPanel: React.FC<{ apiClient: APIClient }> = ({ apiClient }) => {
               <span className="ds-mcp-server-dot" title={info.status}>
                 {STATUS_DOT[info.status] ?? '⚫'}
               </span>
-              <span className={`ds-mcp-server-name${isDisabled ? ' ds-mcp-server-name--disabled' : ''}`}>{name}</span>
-              <span className="ds-mcp-server-cmd" title={`${info.config.command} ${info.config.args.join(' ')}`}>
-                {info.config.command} {info.config.args.join(' ')}
-              </span>
+              <div className="ds-mcp-server-info">
+                <span className={`ds-mcp-server-name${isDisabled ? ' ds-mcp-server-name--disabled' : ''}`}>{name}</span>
+                <span className="ds-mcp-server-cmd" title={`${info.config.command} ${info.config.args.join(' ')}`}>
+                  {info.config.command} {info.config.args.join(' ')}
+                </span>
+              </div>
               {/* Enable / disable toggle */}
               <label
                 className="ds-mcp-server-toggle"
@@ -1186,16 +1191,16 @@ const MCPPanel: React.FC<{ apiClient: APIClient }> = ({ apiClient }) => {
                   className="ds-mcp-tools-toggle"
                   onClick={() => setExpandedTools(p => ({ ...p, [name]: !p[name] }))}
                 >
-                  {expandedTools[name] ? '▾' : '▸'} {info.tools.length} tool(s)
+                  {expandedTools[name] ? '▾' : '▸'} {info.tools.length} tool{info.tools.length !== 1 ? 's' : ''}
                 </button>
                 {expandedTools[name] && (
-                  <ul className="ds-mcp-tools-list">
+                  <div className="ds-mcp-tools-chips">
                     {info.tools.map(t => (
-                      <li key={t} className="ds-mcp-tool-name">
+                      <span key={t} className="ds-mcp-tool-chip">
                         {t.replace(`${name}__`, '')}
-                      </li>
+                      </span>
                     ))}
-                  </ul>
+                  </div>
                 )}
               </div>
             )}
@@ -1216,7 +1221,7 @@ const MCPPanel: React.FC<{ apiClient: APIClient }> = ({ apiClient }) => {
           className="ds-mcp-input ds-mcp-paste-textarea"
           placeholder={`{\n  "mcpServers": {\n    "Filesystem": {\n      "command": "npx",\n      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],\n      "env": {},\n      "disabled": false\n    }\n  }\n}`}
           value={pasteJson}
-          rows={10}
+          rows={7}
           spellCheck={false}
           onChange={e => { setPasteJson(e.target.value); setPasteError(''); }}
         />
@@ -1236,17 +1241,25 @@ const MCPPanel: React.FC<{ apiClient: APIClient }> = ({ apiClient }) => {
         </p>
       </div>
 
-      {/* Read-only config viewer */}
+      {/* Read-only config viewer — collapsed by default */}
       {configRaw && (
         <div className="ds-mcp-config-viewer">
-          <div className="ds-mcp-config-viewer-label">~/.jupyter/varys-mcp.json</div>
-          <textarea
-            className="ds-mcp-config-textarea"
-            value={configRaw}
-            readOnly
-            rows={Math.min(configRaw.split('\n').length + 1, 20)}
-            spellCheck={false}
-          />
+          <button
+            className="ds-mcp-config-toggle"
+            onClick={() => setConfigOpen(o => !o)}
+          >
+            {configOpen ? '▾' : '▸'} Raw config
+            <span className="ds-mcp-config-toggle-path">~/.jupyter/varys-mcp.json</span>
+          </button>
+          {configOpen && (
+            <textarea
+              className="ds-mcp-config-textarea"
+              value={configRaw}
+              readOnly
+              rows={Math.min(configRaw.split('\n').length + 1, 20)}
+              spellCheck={false}
+            />
+          )}
         </div>
       )}
     </div>
