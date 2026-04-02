@@ -7,6 +7,7 @@ Two entry points:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import time
@@ -211,13 +212,34 @@ async def run(
                 timed_out="timed out" in output.lower(),
                 warn_reason=warn_reason,
             ))
+            # Inject a structured WARN notice so the LLM knows the command ran
+            # but was flagged — it can adapt (safer alternative, ask user, etc.)
+            if warn_reason:
+                notice = json.dumps({
+                    "bash_guard": "WARN",
+                    "reason": warn_reason,
+                    "command": cmd,
+                    "hint": "Command executed, but it was flagged as potentially risky. Consider a safer alternative if the intent allows.",
+                }, ensure_ascii=False)
+                return notice + "\n\n" + output
             return output
-        except BlockedCommandError as exc:
-            from ..bash_guard import BashRisk, RiskLevel
-            blocked_risk = BashRisk(cmd, RiskLevel.BLOCK, str(exc), "")
+        except BlockedCommandError:
+            # Re-analyse to get the clean reason/pattern (cheap pure-regex call).
+            from ..bash_guard import analyze_command as _analyze
+            blocked_risk = _analyze(cmd, _bash_ctx)
+            reason = blocked_risk.reason or "unsafe command pattern matched"
             _bash_audit_log(blocked_risk, was_blocked=True, nb_base=_nb_base)
-            blocked_commands.append(BlockedCommand(command=cmd, reason=str(exc)))
-            return f"[Blocked by Varys safety guard: {exc}]"
+            blocked_commands.append(BlockedCommand(command=cmd, reason=reason))
+            # Return a structured denial — the LLM sees this as a tool result,
+            # not an execution crash, so it can adapt: try a safer alternative
+            # or ask the user for explicit permission.
+            return json.dumps({
+                "status": "denied",
+                "bash_guard": "BLOCK",
+                "reason": reason,
+                "command": cmd,
+                "hint": "Command was not executed. Try a safer alternative, or ask the user for explicit permission to run this command.",
+            }, ensure_ascii=False)
 
     async def _glob(pattern: str, path: str = "") -> str:
         return await execute_glob(pattern, working_dir, path)
