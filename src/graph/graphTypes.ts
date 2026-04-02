@@ -10,6 +10,8 @@ export type AnomalyId =
   | 'UNEXECUTED_IN_CHAIN';
 
 export type DataSource = 'store' | 'ast';
+export type NodeRole  = 'defines' | 'redefines' | 'consumes' | 'empty';
+export type EdgeType  = 'dependency' | 'redefines' | 'reimport';
 
 export interface NodeData {
   cellUuid:       string;
@@ -23,6 +25,7 @@ export interface NodeData {
   externalLoads:  string[];
   executionCount: number | null;
   anomalies:      AnomalyId[];
+  nodeRole:       NodeRole;
 }
 
 export interface EdgeData {
@@ -30,6 +33,7 @@ export interface EdgeData {
   targetUuid: string;
   symbol:     string;
   anomaly:    'SKIP_LINK' | 'OUT_OF_ORDER' | null;
+  edgeType:   EdgeType;
 }
 
 export interface GraphData {
