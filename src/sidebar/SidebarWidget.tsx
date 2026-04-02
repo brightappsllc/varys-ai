@@ -1862,18 +1862,13 @@ const ModelsPanel: React.FC<{
 
                 // Default: provider select + optional inline info bubble
                 const bubble = field.key === 'DS_BG_TASK_PROVIDER' ? (
-                  <div key={`bubble-${field.key}`} className="ds-settings-routing-bubble">
-                    <div className="ds-settings-bg-task-bubble-title">Background Task Model</div>
-                    <p className="ds-settings-bg-task-bubble-body">
-                      Powers background work independently of your chat model: long-term memory
-                      inference, preference extraction, and LLM summarization of large markdown
-                      cells (&gt;2 000 chars).
-                    </p>
-                    <p className="ds-settings-bg-task-bubble-body">
-                      Without a configured Background model, large markdown cells are{' '}
-                      <em>truncated at a sentence boundary</em> rather than summarized.
-                    </p>
-                  </div>
+                  <span key={`bubble-${field.key}`} className="ds-settings-routing-bubble-desc">
+                    Powers background work independently of your chat model: long-term memory
+                    inference, preference extraction, and LLM summarization of large markdown
+                    cells (&gt;2 000 chars).
+                    Without a configured Background model, large markdown cells are{' '}
+                    <em>truncated at a sentence boundary</em> rather than summarized.
+                  </span>
                 ) : null;
 
                 return (

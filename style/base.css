@@ -3720,17 +3720,13 @@
   border-bottom: 1px solid var(--jp-border-color2, #e0e0e0);
   padding-bottom: 4px;
 }
-/* Background Task info bubble — spans both columns, directly below its row */
-.ds-settings-routing-bubble {
+/* Background Task inline description — spans both columns, plain text matching toggle desc */
+.ds-settings-routing-bubble-desc {
   grid-column: 1 / -1;
-  margin: -6px 0 0;
-  padding: 10px 12px;
-  background: var(--ds-surface, #f4f5f9);
-  border: 1px solid var(--jp-border-color2, #e0e0e0);
-  border-radius: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  font-size: 10px;
+  color: var(--ds-text-dim, #888);
+  line-height: 1.4;
+  margin-top: -10px;
 }
 .ds-settings-routing-grid .ds-settings-label {
   white-space: nowrap;
@@ -5864,10 +5860,7 @@
 }
 .ds-chat-night .ds-settings-routing-toggle-desc { color: #6c7086; }
 .ds-chat-night .ds-settings-routing-section-header { color: #6c7086; border-bottom-color: #45475a; }
-.ds-chat-night .ds-settings-routing-bubble {
-  background: rgba(255,255,255,0.04);
-  border-color: #45475a;
-}
+.ds-chat-night .ds-settings-routing-bubble-desc { color: #6c7086; }
 .ds-chat-night .ds-settings-bg-task-bubble {
   background: rgba(255,255,255,0.04);
   border-color: #45475a;
