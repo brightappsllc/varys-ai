@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -337,22 +338,32 @@ BASH_TOOL_SCHEMA = {
 # ── Glob tool ────────────────────────────────────────────────────────────────
 
 _GLOB_MAX_RESULTS = 300
+_GLOB_TIMEOUT_SECS = 15
 
 
-def _sync_glob(base: str, pattern: str, real_wd: str) -> list[str]:
-    """Return relative paths for all files/dirs matching *pattern* under *base*."""
-    # rglob handles "**" patterns natively; for plain names we do a recursive search.
+def _sync_glob(base: str, pattern: str, real_wd: str) -> tuple[list[str], bool]:
+    """Return (relative_paths, timed_out) for files matching *pattern* under *base*.
+
+    Iterates the rglob generator lazily so it stops as soon as the deadline or
+    result cap is hit — avoids materialising millions of paths up front.
+    """
+    deadline = time.monotonic() + _GLOB_TIMEOUT_SECS
     base_path = Path(base)
+    results: list[str] = []
+    timed_out = False
     try:
-        hits = list(base_path.rglob(pattern))
+        for h in base_path.rglob(pattern):
+            if time.monotonic() > deadline:
+                timed_out = True
+                break
+            real_h = os.path.realpath(h)
+            if real_h == real_wd or real_h.startswith(real_wd + os.sep):
+                results.append(os.path.relpath(real_h, real_wd))
+            if len(results) >= _GLOB_MAX_RESULTS:
+                break
     except Exception:
-        return []
-    results = []
-    for h in sorted(hits):
-        real_h = os.path.realpath(h)
-        if real_h == real_wd or real_h.startswith(real_wd + os.sep):
-            results.append(os.path.relpath(real_h, real_wd))
-    return results
+        pass
+    return sorted(results), timed_out
 
 
 async def execute_glob(
@@ -363,6 +374,7 @@ async def execute_glob(
     """Find files/dirs matching a glob pattern within working_dir.
 
     Returns newline-separated relative paths (up to 300 results).
+    Times out after 15 seconds and returns partial results with a notice.
     """
     real_wd = os.path.realpath(working_dir)
     base = real_wd if not path else os.path.realpath(os.path.join(working_dir, path))
@@ -371,14 +383,20 @@ async def execute_glob(
     if not os.path.isdir(base):
         return f"[Error: directory '{path}' not found]"
 
-    results = await asyncio.to_thread(_sync_glob, base, pattern, real_wd)
+    results, timed_out = await asyncio.to_thread(_sync_glob, base, pattern, real_wd)
 
     if not results:
+        if timed_out:
+            return f"[Timed out after {_GLOB_TIMEOUT_SECS}s — no results collected. Try a more specific pattern or path.]"
         return f"No files matching '{pattern}'"
-    truncated = len(results) > _GLOB_MAX_RESULTS
-    out = "\n".join(results[:_GLOB_MAX_RESULTS])
-    if truncated:
-        out += f"\n… ({len(results) - _GLOB_MAX_RESULTS} more results omitted)"
+    out = "\n".join(results)
+    notes = []
+    if len(results) == _GLOB_MAX_RESULTS:
+        notes.append(f"capped at {_GLOB_MAX_RESULTS} results")
+    if timed_out:
+        notes.append(f"timed out after {_GLOB_TIMEOUT_SECS}s — results may be incomplete")
+    if notes:
+        out += f"\n… ({', '.join(notes)})"
     return out
 
 
@@ -416,6 +434,7 @@ GLOB_TOOL_SCHEMA = {
 # ── Grep tool ─────────────────────────────────────────────────────────────────
 
 _GREP_MAX_MATCHES = 100
+_GREP_TIMEOUT_SECS = 15
 
 
 def _sync_grep(
@@ -425,25 +444,40 @@ def _sync_grep(
     ignore_case: bool,
     real_wd: str,
 ) -> str:
+    deadline = time.monotonic() + _GREP_TIMEOUT_SECS
     flags = re.IGNORECASE if ignore_case else 0
     try:
         regex = re.compile(pattern, flags)
     except re.error as exc:
         return f"[Error: invalid regex '{pattern}': {exc}]"
 
+    # ── File discovery (lazy iteration to avoid materialising millions of paths) ──
     if os.path.isfile(base):
         files = [base]
     else:
         glob_pat = include if include else "*"
-        files = sorted(
-            str(p) for p in Path(base).rglob(glob_pat)
-            if p.is_file()
-            and (os.path.realpath(str(p)) == real_wd
-                 or os.path.realpath(str(p)).startswith(real_wd + os.sep))
-        )
+        files = []
+        try:
+            for p in Path(base).rglob(glob_pat):
+                if time.monotonic() > deadline:
+                    return (
+                        f"[Timed out after {_GREP_TIMEOUT_SECS}s during file discovery — "
+                        "try a more specific path or include filter]"
+                    )
+                if p.is_file():
+                    real_p = os.path.realpath(str(p))
+                    if real_p == real_wd or real_p.startswith(real_wd + os.sep):
+                        files.append(str(p))
+        except Exception:
+            pass
 
+    # ── Search phase ─────────────────────────────────────────────────────────
     results: list[str] = []
-    for file_path in files:
+    timed_out = False
+    for file_path in sorted(files):
+        if time.monotonic() > deadline:
+            timed_out = True
+            break
         rel = os.path.relpath(file_path, real_wd)
         try:
             with open(file_path, encoding="utf-8", errors="replace") as fh:
@@ -458,10 +492,17 @@ def _sync_grep(
             break
 
     if not results:
+        if timed_out:
+            return f"[Timed out after {_GREP_TIMEOUT_SECS}s — no matches found before timeout. Try a more specific path or include filter.]"
         return f"No matches for '{pattern}'"
     out = "\n".join(results)
+    notes = []
     if len(results) == _GREP_MAX_MATCHES:
-        out += f"\n… (output capped at {_GREP_MAX_MATCHES} matches)"
+        notes.append(f"output capped at {_GREP_MAX_MATCHES} matches")
+    if timed_out:
+        notes.append(f"timed out after {_GREP_TIMEOUT_SECS}s — results may be incomplete")
+    if notes:
+        out += f"\n… ({', '.join(notes)})"
     return out
 
 
