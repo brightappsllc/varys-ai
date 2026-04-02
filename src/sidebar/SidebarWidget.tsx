@@ -1785,9 +1785,9 @@ const ModelsPanel: React.FC<{
     : (TAB_GROUPS.find(g => g.id === (subSection ?? 'anthropic')) ?? TAB_GROUPS[1]);
 
   const TASK_LABELS: Record<string, string> = {
-    DS_CHAT_PROVIDER:           'Chat',
+    DS_CHAT_PROVIDER:           'Chat / Agent',
     DS_COMPLETION_PROVIDER:     'Completion',
-    DS_BG_TASK_PROVIDER:   'Background Task',
+    DS_BG_TASK_PROVIDER:        'Background Task',
   };
 
   return (
@@ -1797,36 +1797,64 @@ const ModelsPanel: React.FC<{
         {section === 'model-routing' ? (
           <>
             <div className="ds-settings-routing-grid">
-              {currentGroup.fields.map(field => (
-                <React.Fragment key={field.key}>
-                  <label className="ds-settings-label">{TASK_LABELS[field.key] ?? field.label}</label>
-                  {field.key === 'DS_COMPLETION_PROVIDER' ? (
-                    <div className="ds-settings-routing-controls">
-                      <select
-                        className="ds-settings-select"
-                        value={values[field.key] ?? ''}
-                        onChange={e => handleChange(field.key, e.target.value)}
-                      >
-                        <option value="">— select provider —</option>
-                        {PROVIDER_LIST.map(p => (
-                          <option key={p} value={p}>{p}</option>
-                        ))}
-                      </select>
-                      <label className="ds-settings-token-label" title="Max tokens returned per completion">
-                        Tokens
-                        <input
-                          className="ds-settings-token-input"
-                          type="number"
-                          min={16}
-                          max={2048}
-                          step={16}
-                          value={values['COMPLETION_MAX_TOKENS'] ?? '128'}
-                          onChange={e => handleChange('COMPLETION_MAX_TOKENS', e.target.value)}
-                          title="Max tokens returned per completion (default: 128)"
-                        />
-                      </label>
-                    </div>
-                  ) : (
+              {currentGroup.fields.map(field => {
+                const label = TASK_LABELS[field.key] ?? field.label;
+                if (field.type === 'toggle') {
+                  const isOn = (values[field.key] ?? 'true') !== 'false';
+                  return (
+                    <React.Fragment key={field.key}>
+                      <label className="ds-settings-label">{label}</label>
+                      <div className="ds-settings-routing-toggle-row">
+                        <div
+                          className={`ds-settings-toggle${isOn ? ' ds-settings-toggle--on' : ''}`}
+                          onClick={() => handleChange(field.key, isOn ? 'false' : 'true')}
+                          role="switch"
+                          aria-checked={isOn}
+                        >
+                          <div className="ds-settings-toggle-knob" />
+                        </div>
+                        {field.description && (
+                          <span className="ds-settings-routing-toggle-desc">{field.description}</span>
+                        )}
+                      </div>
+                    </React.Fragment>
+                  );
+                }
+                if (field.key === 'DS_COMPLETION_PROVIDER') {
+                  return (
+                    <React.Fragment key={field.key}>
+                      <label className="ds-settings-label">{label}</label>
+                      <div className="ds-settings-routing-controls">
+                        <select
+                          className="ds-settings-select"
+                          value={values[field.key] ?? ''}
+                          onChange={e => handleChange(field.key, e.target.value)}
+                        >
+                          <option value="">— select provider —</option>
+                          {PROVIDER_LIST.map(p => (
+                            <option key={p} value={p}>{p}</option>
+                          ))}
+                        </select>
+                        <label className="ds-settings-token-label" title="Max tokens returned per completion">
+                          Tokens
+                          <input
+                            className="ds-settings-token-input"
+                            type="number"
+                            min={16}
+                            max={2048}
+                            step={16}
+                            value={values['COMPLETION_MAX_TOKENS'] ?? '128'}
+                            onChange={e => handleChange('COMPLETION_MAX_TOKENS', e.target.value)}
+                            title="Max tokens returned per completion (default: 128)"
+                          />
+                        </label>
+                      </div>
+                    </React.Fragment>
+                  );
+                }
+                return (
+                  <React.Fragment key={field.key}>
+                    <label className="ds-settings-label">{label}</label>
                     <select
                       className="ds-settings-select"
                       value={values[field.key] ?? ''}
@@ -1837,17 +1865,23 @@ const ModelsPanel: React.FC<{
                         <option key={p} value={p}>{p}</option>
                       ))}
                     </select>
-                  )}
-                </React.Fragment>
-              ))}
+                  </React.Fragment>
+                );
+              })}
             </div>
-            <p className="ds-settings-bg-task-note">
-              <strong>Background Task Model</strong> powers background work: long-term memory
-              inference, preference extraction, and LLM summarization of large
-              markdown cells (&gt;2 000 chars). Without a configured Background model,
-              large markdown cells are <em>truncated at a sentence boundary</em> rather
-              than summarized.
-            </p>
+
+            {/* Background Task info bubble */}
+            <div className="ds-settings-bg-task-bubble">
+              <div className="ds-settings-bg-task-bubble-title">Background Task Model</div>
+              <p className="ds-settings-bg-task-bubble-body">
+                Powers background work independently of your chat model: long-term memory inference,
+                preference extraction, and LLM summarization of large markdown cells (&gt;2 000 chars).
+              </p>
+              <p className="ds-settings-bg-task-bubble-body">
+                Without a configured Background model, large markdown cells are{' '}
+                <em>truncated at a sentence boundary</em> rather than summarized.
+              </p>
+            </div>
           </>
         ) : (
           <>
