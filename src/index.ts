@@ -542,6 +542,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
       (cellId, notebookPath, tags) => {
         apiClient.cellLifecycle({ cell_id: cellId, notebook_path: notebookPath, action: 'tags_changed', tags });
       },
+      '/varys',
     );
 
     // ── Output overlay: badges + context menu (D + C + E) ────────────────────
