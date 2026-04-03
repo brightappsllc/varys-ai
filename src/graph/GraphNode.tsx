@@ -94,11 +94,6 @@ export const GraphNode: React.FC<Props> = ({
 
   const opacity = dimmed ? 0.3 : 1;
 
-  // Description: combine label + sublabel on one line
-  const description = node.sublabel
-    ? `${node.label} · ${node.sublabel}`
-    : node.label;
-
   return (
     <g
       className="ds-graph-node"
