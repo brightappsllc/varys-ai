@@ -193,7 +193,7 @@ def _build_code_summary(
         defined, _ = _extract_symbols(source)
         return {
             "cell_type":        "code",
-            "source_snippet":   source[:SNIPPET_CHARS],
+            "source_snippet":   source[:SNIPPET_CHARS].strip(),
             "llm_summary":      None,
             "output":           None,
             "symbols_defined":  defined,
@@ -263,7 +263,7 @@ def _build_code_summary(
 
     return {
         "cell_type":        "code",
-        "source_snippet":   source[:SNIPPET_CHARS],
+        "source_snippet":   source[:SNIPPET_CHARS].strip(),
         "llm_summary":      None,
         "output":           summary_output,
         "symbols_defined":  defined,
@@ -289,7 +289,7 @@ def _build_markdown_summary(
     snippet = _truncate_at_sentence(source, MARKDOWN_THRESHOLD) if truncated else source
     return {
         "cell_type":        "markdown",
-        "source_snippet":   snippet,
+        "source_snippet":   snippet.strip(),
         "llm_summary":      None,
         "output":           None,
         "symbols_defined":  [],
@@ -313,7 +313,7 @@ def _build_raw_summary(
 ) -> Dict[str, Any]:
     return {
         "cell_type":        "raw",
-        "source_snippet":   source[:SNIPPET_CHARS],
+        "source_snippet":   source[:SNIPPET_CHARS].strip(),
         "llm_summary":      None,
         "output":           None,
         "symbols_defined":  [],
@@ -365,7 +365,7 @@ async def build_markdown_summary_async(
         )
         return {
             "cell_type":        "markdown",
-            "source_snippet":   source[:SNIPPET_CHARS],
+            "source_snippet":   source[:SNIPPET_CHARS].strip(),
             "llm_summary":      summary_text.strip() if summary_text else None,
             "output":           None,
             "symbols_defined":  [],
