@@ -203,7 +203,7 @@ class SummaryStore:
 
             # Patch runtime fields when the incoming value is non-empty and
             # differs from what is stored.
-            for field in ("execution_count", "symbol_types", "symbol_values"):
+            for field in ("execution_count", "symbol_types", "symbol_values", "symbol_meta"):
                 incoming = summary.get(field)
                 # Skip None / empty-dict / empty-list — those carry no info
                 if not incoming and incoming != 0:
