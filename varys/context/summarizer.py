@@ -217,9 +217,10 @@ def _build_code_summary(
     defined, consumed = _extract_symbols(source)
     mutation_only = _is_mutation_only(defined)
 
-    # Populate symbol_values and symbol_types from kernel snapshot
+    # Populate symbol_values, symbol_types, and symbol_meta from kernel snapshot
     symbol_values: Dict[str, Any] = {}
     symbol_types:  Dict[str, str] = {}
+    symbol_meta:   Dict[str, Any] = {}
 
     for name in defined:
         snap = kernel_snapshot.get(name)
@@ -227,13 +228,22 @@ def _build_code_summary(
             continue
         vtype = snap.get("type", "unknown")
 
-        # symbol_types — human-readable type string
+        # symbol_types — human-readable display string
         if vtype == "dataframe":
             shape = snap.get("shape", [0, 0])
             symbol_types[name] = f"DataFrame({shape[0]}, {shape[1]})"
+            # symbol_meta — structured column profiles (columns, dtypes, stats)
+            columns = snap.get("columns")
+            if isinstance(columns, dict) and columns:
+                symbol_meta[name] = {"columns": columns}
+        elif vtype == "series":
+            shape = snap.get("shape", [0])
+            dtype = snap.get("dtype", "")
+            symbol_types[name] = f"Series({shape[0]})" if not dtype else f"Series({shape[0]}, {dtype})"
         elif vtype == "ndarray":
             shape = snap.get("shape", [])
-            symbol_types[name] = f"ndarray{tuple(shape)}"
+            dtype = snap.get("dtype", "")
+            symbol_types[name] = f"ndarray{tuple(shape)}" if not dtype else f"ndarray{tuple(shape)} {dtype}"
         elif vtype in ("function", "builtin_function_or_method", "method"):
             symbol_types[name] = "function"
         else:
@@ -274,6 +284,7 @@ def _build_code_summary(
         "symbols_consumed": consumed,
         "symbol_values":    symbol_values,
         "symbol_types":     symbol_types,
+        "symbol_meta":      symbol_meta,
         "execution_count":  execution_count,
         "had_error":        had_error,
         "error_text":       error_text,
