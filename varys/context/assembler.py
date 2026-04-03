@@ -466,15 +466,21 @@ def _format_summary_cell(
         output    = summary.get("output")
         ec        = summary.get("execution_count")
 
+        symbol_meta = summary.get("symbol_meta", {})
+
         # Overlay live kernel state for defined variables when available.
-        # This corrects stale shapes from the SummaryStore (e.g. df mutated
-        # by a later cell without re-running this one).
+        # This corrects stale shapes/meta from the SummaryStore (e.g. df
+        # mutated by a later cell without re-running this one).
         if live_vars and defined:
-            live_types = {
-                name: live_vars[name]["type"]
-                for name in defined
-                if name in live_vars and live_vars[name].get("type")
-            }
+            live_types = {}
+            for name in defined:
+                lv = live_vars.get(name)
+                if not lv:
+                    continue
+                if lv.get("type"):
+                    live_types[name] = lv["type"]
+                if lv.get("symbol_meta"):
+                    symbol_meta = {**symbol_meta, name: lv["symbol_meta"]}
             if live_types:
                 sym_types = {**sym_types, **live_types}
 
@@ -489,6 +495,13 @@ def _format_summary_cell(
             lines.append(f"Consumes: {', '.join(c_parts)}")
         if sym_types:
             lines.append(f"Types: {', '.join(f'{k}={v}' for k, v in sym_types.items())}")
+        # Enrich with column profiles (DataFrames) and hyperparams (sklearn)
+        for name in defined:
+            meta = symbol_meta.get(name)
+            if meta:
+                rendered = _render_symbol_meta(name, meta)
+                if rendered:
+                    lines.append(rendered)
         if output:
             snippet = output[:200] + (" […]" if len(output) > 200 else "")
             lines.append(f'Output: "{snippet}"')
@@ -515,6 +528,45 @@ def _format_summary_cell(
 
     lines.append("---")
     return "\n".join(lines)
+
+
+def _render_col_profile(col_name: str, profile: Dict[str, Any]) -> str:
+    """Format one DataFrame column profile as a compact token: name(dtype …hints)."""
+    dtype = profile.get("dtype", "?")
+    hints: List[str] = []
+    n_null = profile.get("n_null")
+    if n_null:
+        hints.append(f"{n_null}null")
+    mean = profile.get("mean")
+    if mean is not None:
+        hints.append(f"μ={mean}")
+    elif profile.get("min") is not None:
+        # datetime or numeric without mean — show range
+        hints.append(f"{profile['min']}…{profile['max']}")
+    n_unique = profile.get("n_unique")
+    if n_unique is not None and dtype in ("object", "category", "bool"):
+        hints.append(f"{n_unique}uniq")
+    inner = " ".join(hints)
+    return f"{col_name}({dtype} {inner})" if inner else f"{col_name}({dtype})"
+
+
+def _render_symbol_meta(name: str, meta: Dict[str, Any]) -> Optional[str]:
+    """Return a compact enrichment line for one variable's symbol_meta, or None."""
+    columns = meta.get("columns")
+    if isinstance(columns, dict) and columns:
+        shown = list(columns.items())[:8]
+        parts = [_render_col_profile(cn, cp) for cn, cp in shown]
+        suffix = f" +{len(columns) - 8} more" if len(columns) > 8 else ""
+        return f"  {name} cols: {' | '.join(parts)}{suffix}"
+
+    params = meta.get("params")
+    if isinstance(params, dict) and params:
+        shown = list(params.items())[:10]
+        pairs = [f"{k}={v}" for k, v in shown]
+        suffix = f" +{len(params) - 10} more" if len(params) > 10 else ""
+        return f"  {name} params: {', '.join(pairs)}{suffix}"
+
+    return None
 
 
 def _format_focal_cell(
