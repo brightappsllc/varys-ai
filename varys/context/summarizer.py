@@ -411,9 +411,10 @@ def _build_markdown_summary(
     tags: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     truncated = len(source) > MARKDOWN_THRESHOLD
-    auto_summary: Optional[str] = None
     if truncated:
-        auto_summary = _textrank_summary(source) or _truncate_at_sentence(source, MARKDOWN_THRESHOLD)
+        auto_summary: Optional[str] = _textrank_summary(source) or _truncate_at_sentence(source, MARKDOWN_THRESHOLD)
+    else:
+        auto_summary = source.strip()
     return {
         "cell_type":        "markdown",
         "source_snippet":   source[:SNIPPET_CHARS].strip(),
