@@ -16,7 +16,8 @@ Expected request body:
     "error_text":       null,
     "cell_type":        "code",
     "kernel_snapshot":  { "var_name": {"type": "int", "value": 42}, ... },
-    "tags":             ["important", "skip-execution"]
+    "tags":             ["important", "skip-execution"],
+    "execution_ms":     1234
   }
 """
 import asyncio
@@ -67,6 +68,7 @@ class CellExecutedHandler(JupyterHandler):
                 cell_type       = body.get("cell_type", "code"),
                 kernel_snapshot = body.get("kernel_snapshot") or {},
                 tags            = body.get("tags") or [],
+                execution_ms    = body.get("execution_ms") or None,
                 settings        = dict(self.settings),
             )
         )
@@ -114,6 +116,7 @@ async def _summarize_and_store(
     cell_type:       str,
     kernel_snapshot: dict,
     tags:            list,
+    execution_ms:    "int | None",
     settings:        dict,
 ) -> None:
     """Build a summary and persist it to the SummaryStore.
@@ -155,6 +158,7 @@ async def _summarize_and_store(
                     output=output, execution_count=execution_count,
                     had_error=had_error, error_text=error_text,
                     kernel_snapshot=kernel_snapshot, tags=tags, stems=stems,
+                    execution_ms=execution_ms,
                 )
         else:
             # build_summary does AST parsing + string work — run in thread.
@@ -164,6 +168,7 @@ async def _summarize_and_store(
                 output=output, execution_count=execution_count,
                 had_error=had_error, error_text=error_text,
                 kernel_snapshot=kernel_snapshot, tags=tags, stems=stems,
+                execution_ms=execution_ms,
             )
 
         # Persist summary to disk in a thread.

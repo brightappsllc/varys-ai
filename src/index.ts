@@ -554,6 +554,16 @@ const plugin: JupyterFrontEndPlugin<void> = {
     // After every cell execution:
     //  1. Run reproducibility rules (fire-and-forget, never awaited).
     //  2. Notify the Smart Cell Context backend to update the SummaryStore.
+
+    // Track wall-clock execution start times keyed by stable cell UUID.
+    const _execStartTimes = new Map<string, number>();
+    NotebookActions.executionScheduled.connect((_sender, { cell }) => {
+      if (!cell) return;
+      const model  = cell.model;
+      const cellId = (model as any).id ?? (model as any).sharedModel?.id ?? '';
+      if (cellId) _execStartTimes.set(cellId, Date.now());
+    });
+
     NotebookActions.executed.connect((_sender, { notebook: _nb, cell }) => {
       const panel = notebookTracker.currentWidget;
       if (!panel) return;
@@ -589,6 +599,13 @@ const plugin: JupyterFrontEndPlugin<void> = {
           const cellId: string =
             (model as any).id ?? (model as any).sharedModel?.id ?? '';
           if (!cellId) return;
+
+          // Compute wall-clock duration (ms) — available when executionScheduled fired.
+          const _startTime  = _execStartTimes.get(cellId);
+          const executionMs: number | null = _startTime !== undefined
+            ? Date.now() - _startTime
+            : null;
+          _execStartTimes.delete(cellId);
 
           const notebookPath = panel.context.path;
           const source       = model.sharedModel.getSource();
@@ -650,6 +667,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
             cell_type:       cellType,
             kernel_snapshot: kernelSnapshot,
             tags,
+            execution_ms:    executionMs,
           });
         } catch {
           // Non-fatal: SummaryStore update is best-effort
