@@ -143,6 +143,7 @@ def build_summary(
     kernel_snapshot: Optional[Dict[str, Any]] = None,
     tags: Optional[List[str]] = None,
     stems: Optional[Dict[str, List[str]]] = None,
+    execution_ms: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Build a structured summary object for a cell.
 
@@ -172,6 +173,7 @@ def build_summary(
     return _build_code_summary(
         source, output, execution_count, had_error, error_text,
         kernel_snapshot or {}, normalised_tags, stems=stems,
+        execution_ms=execution_ms,
     )
 
 
@@ -187,6 +189,7 @@ def _build_code_summary(
     kernel_snapshot: Dict[str, Any],
     tags: Optional[List[str]] = None,
     stems: Optional[Dict[str, List[str]]] = None,
+    execution_ms: Optional[int] = None,
 ) -> Dict[str, Any]:
     from .action_stems import DEFAULT_STEMS, detect_actions
     is_import = _is_import_cell(source)
@@ -212,6 +215,7 @@ def _build_code_summary(
             "deleted":          False,
             "tags":             tags or [],
             "cell_action":      detect_actions(source, True, stems or DEFAULT_STEMS, tags=normalised_tags),
+            "execution_ms":     execution_ms,
         }
 
     defined, consumed = _extract_symbols(source)
@@ -294,6 +298,7 @@ def _build_code_summary(
         "deleted":          False,
         "tags":             tags or [],
         "cell_action":      detect_actions(source, False, stems or DEFAULT_STEMS, tags=tags),
+        "execution_ms":     execution_ms,
     }
 
 
