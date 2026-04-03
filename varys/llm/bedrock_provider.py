@@ -211,6 +211,36 @@ class BedrockProvider(BaseLLMProvider):
                 return await loop.run_in_executor(None, fn)
             raise
 
+    async def _retry_on_expired_token(self, coro_fn: Callable[[], Awaitable]):
+        """Run a streaming coroutine; on ExpiredTokenException refresh and retry once.
+
+        Streaming paths cannot use _call_with_auto_refresh (which wraps sync
+        callables in run_in_executor).  This wrapper catches the RuntimeError
+        that _stream_invoke_model / _stream_converse raise when they receive an
+        ExpiredTokenException from the boto3 response queue, refreshes creds,
+        and replays the coroutine from the beginning.
+
+        Safe to retry because ExpiredTokenException is always raised before any
+        response chunks are delivered (the token is checked server-side before
+        the stream opens), so the on_chunk callback has not been called yet.
+        """
+        try:
+            return await coro_fn()
+        except RuntimeError as exc:
+            if "ExpiredTokenException" not in str(exc):
+                raise
+            if not self.aws_auth_refresh:
+                raise RuntimeError(
+                    "AWS credentials expired. Configure 'AWS Auth Refresh Command' "
+                    "in Bedrock settings to enable automatic token refresh."
+                ) from exc
+            log.warning(
+                "Bedrock: ExpiredTokenException during streaming — "
+                "refreshing credentials and retrying"
+            )
+            await asyncio.get_running_loop().run_in_executor(None, self._run_auth_refresh)
+            return await coro_fn()
+
     def _max_chat_tokens(self) -> int:
         """Return the effective max-output-token limit for the active chat model.
 
@@ -578,13 +608,15 @@ class BedrockProvider(BaseLLMProvider):
 
             try:
                 thinking_text, _resp_text, _full_blocks, tool_use_blocks = (
-                    await self._stream_invoke_model(
-                        system,
-                        anthropic_msgs,
-                        on_text_chunk or _noop,
-                        on_thought=_thought_proxy,
-                        tools=[self._PLAN_TOOL_ANTHROPIC],
-                        force_tool_name="create_operation_plan",
+                    await self._retry_on_expired_token(
+                        lambda: self._stream_invoke_model(
+                            system,
+                            anthropic_msgs,
+                            on_text_chunk or _noop,
+                            on_thought=_thought_proxy,
+                            tools=[self._PLAN_TOOL_ANTHROPIC],
+                            force_tool_name="create_operation_plan",
+                        )
                     )
                 )
             except Exception as e:
@@ -1333,11 +1365,13 @@ class BedrockProvider(BaseLLMProvider):
 
             try:
                 thinking_text, _resp_text, _full_blocks, _tool_use = (
-                    await self._stream_invoke_model(
-                        system,
-                        anthropic_msgs,
-                        on_chunk,
-                        on_thought=_thought_proxy,
+                    await self._retry_on_expired_token(
+                        lambda: self._stream_invoke_model(
+                            system,
+                            anthropic_msgs,
+                            on_chunk,
+                            on_thought=_thought_proxy,
+                        )
                     )
                 )
             except Exception as e:
@@ -1364,7 +1398,9 @@ class BedrockProvider(BaseLLMProvider):
             msgs.append({"role": "user", "content": user})
 
         try:
-            await self._stream_converse(system=system, messages=msgs, on_chunk=on_chunk)
+            await self._retry_on_expired_token(
+                lambda: self._stream_converse(system=system, messages=msgs, on_chunk=on_chunk)
+            )
         except Exception as e:
             log.error("Bedrock stream_chat (converse_stream) error: %s", e)
             raise RuntimeError(f"AWS Bedrock error: {e}") from e
