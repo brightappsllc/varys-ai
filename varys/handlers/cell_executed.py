@@ -69,12 +69,38 @@ class CellExecutedHandler(JupyterHandler):
                 kernel_snapshot = body.get("kernel_snapshot") or {},
                 tags            = body.get("tags") or [],
                 execution_ms    = body.get("execution_ms") or None,
+                kernel_id       = body.get("kernel_id") or "",
                 settings        = dict(self.settings),
             )
         )
 
 
 # ── Thread-safe sync helpers (called via asyncio.to_thread) ───────────────────
+
+
+def _update_kernel_state(
+    root_dir:        str,
+    notebook_path:   str,
+    kernel_id:       str,
+    cell_id:         str,
+    execution_count: "int | None",
+    summary:         dict,
+) -> None:
+    """Persist live variable state to kernel_state.json.
+
+    Called only for successfully executed code cells (no error, kernel_id present).
+    Synchronous — must be called via asyncio.to_thread.
+    """
+    from ..context.kernel_state import KernelState
+    ks = KernelState(root_dir, notebook_path)
+    ks.update(
+        kernel_id       = kernel_id,
+        cell_id         = cell_id,
+        execution_count = execution_count,
+        symbol_types    = summary.get("symbol_types", {}),
+        symbol_values   = summary.get("symbol_values", {}),
+        symbol_meta     = summary.get("symbol_meta", {}),
+    )
 
 
 def _upsert_to_store(
@@ -117,6 +143,7 @@ async def _summarize_and_store(
     kernel_snapshot: dict,
     tags:            list,
     execution_ms:    "int | None",
+    kernel_id:       str,
     settings:        dict,
 ) -> None:
     """Build a summary and persist it to the SummaryStore.
@@ -203,6 +230,14 @@ async def _summarize_and_store(
             log.debug("Inference pipeline triggered for %s", notebook_path)
         else:
             log.debug("SummaryStore: upserted cell %s … (notebook: %s)", cell_id[:8], notebook_path)
+
+        # ── Update live kernel state (only for successfully executed code cells) ──
+        if cell_type == "code" and not had_error and kernel_id:
+            await asyncio.to_thread(
+                _update_kernel_state,
+                root_dir, notebook_path, kernel_id, cell_id,
+                execution_count, summary,
+            )
 
     except Exception as exc:
         log.warning(

@@ -445,6 +445,7 @@ export declare class APIClient {
         kernel_snapshot: Record<string, unknown>;
         tags: string[];
         execution_ms: number | null;
+        kernel_id: string;
     }): void;
     /**
      * Fire-and-forget: notify the backend of a cell lifecycle event.

@@ -668,6 +668,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
             kernel_snapshot: kernelSnapshot,
             tags,
             execution_ms:    executionMs,
+            kernel_id:       panel.sessionContext.session?.kernel?.id ?? '',
           });
         } catch {
           // Non-fatal: SummaryStore update is best-effort
