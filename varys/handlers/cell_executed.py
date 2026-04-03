@@ -137,6 +137,10 @@ async def _summarize_and_store(
         )
         from ..llm.factory import create_bg_task_provider
 
+        from ..context.action_stems import ActionStemLoader
+        stem_loader = ActionStemLoader(root_dir, notebook_path)
+        stems = await asyncio.to_thread(stem_loader.load)
+
         # For large markdown cells, try the LLM prose-summary path first (it is
         # already async and yields the event loop between network calls).
         if cell_type == "markdown" and len(source) > MARKDOWN_THRESHOLD:
@@ -150,7 +154,7 @@ async def _summarize_and_store(
                     cell_id=cell_id, source=source, cell_type=cell_type,
                     output=output, execution_count=execution_count,
                     had_error=had_error, error_text=error_text,
-                    kernel_snapshot=kernel_snapshot, tags=tags,
+                    kernel_snapshot=kernel_snapshot, tags=tags, stems=stems,
                 )
         else:
             # build_summary does AST parsing + string work — run in thread.
@@ -159,7 +163,7 @@ async def _summarize_and_store(
                 cell_id=cell_id, source=source, cell_type=cell_type,
                 output=output, execution_count=execution_count,
                 had_error=had_error, error_text=error_text,
-                kernel_snapshot=kernel_snapshot, tags=tags,
+                kernel_snapshot=kernel_snapshot, tags=tags, stems=stems,
             )
 
         # Persist summary to disk in a thread.

@@ -142,6 +142,7 @@ def build_summary(
     error_text: Optional[str],
     kernel_snapshot: Optional[Dict[str, Any]] = None,
     tags: Optional[List[str]] = None,
+    stems: Optional[Dict[str, List[str]]] = None,
 ) -> Dict[str, Any]:
     """Build a structured summary object for a cell.
 
@@ -170,7 +171,7 @@ def build_summary(
         return _build_raw_summary(source, normalised_tags)
     return _build_code_summary(
         source, output, execution_count, had_error, error_text,
-        kernel_snapshot or {}, normalised_tags
+        kernel_snapshot or {}, normalised_tags, stems=stems,
     )
 
 
@@ -185,7 +186,9 @@ def _build_code_summary(
     error_text: Optional[str],
     kernel_snapshot: Dict[str, Any],
     tags: Optional[List[str]] = None,
+    stems: Optional[Dict[str, List[str]]] = None,
 ) -> Dict[str, Any]:
+    from .action_stems import DEFAULT_STEMS, detect_actions
     is_import = _is_import_cell(source)
 
     if is_import:
@@ -208,6 +211,7 @@ def _build_code_summary(
             "truncated":        False,
             "deleted":          False,
             "tags":             tags or [],
+            "cell_action":      detect_actions(source, True, stems or DEFAULT_STEMS),
         }
 
     defined, consumed = _extract_symbols(source)
@@ -278,6 +282,7 @@ def _build_code_summary(
         "truncated":        False,
         "deleted":          False,
         "tags":             tags or [],
+        "cell_action":      detect_actions(source, False, stems or DEFAULT_STEMS),
     }
 
 
@@ -304,6 +309,7 @@ def _build_markdown_summary(
         "truncated":        truncated,
         "deleted":          False,
         "tags":             tags or [],
+        "cell_action":      [],
     }
 
 
@@ -328,6 +334,7 @@ def _build_raw_summary(
         "truncated":        False,
         "deleted":          False,
         "tags":             tags or [],
+        "cell_action":      [],
     }
 
 
@@ -380,6 +387,7 @@ async def build_markdown_summary_async(
             "truncated":        False,
             "deleted":          False,
             "tags":             tags or [],
+            "cell_action":      [],
         }
     except Exception as exc:
         _model = getattr(getattr(provider, "_chat_client", None), "model", "?")
