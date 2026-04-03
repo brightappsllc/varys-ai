@@ -1,6 +1,7 @@
 """GraphBuilder — produces GraphData from SummaryStore + AST fallback."""
 from __future__ import annotations
 
+import os
 import re
 import time
 from dataclasses import dataclass, field
@@ -11,6 +12,27 @@ from .ast_fallback import ASTParser
 
 
 # ── Constants ─────────────────────────────────────────────────────────────────
+
+# Matches data-loading calls to extract the source filename for node labels.
+# Captures the first string argument of common pandas/builtins read functions.
+_DATA_SOURCE_RE = re.compile(
+    r'(?:(?:pd|pandas)\.)?'
+    r'read_(?:csv|excel|parquet|json|table|feather|orc|sas|spss|stata|html|pickle|hdf)\s*\(\s*[rf]?([\'"])([^\'"]+)\1'
+    r'|open\s*\(\s*[rf]?([\'"])([^\'"]+)\3',
+)
+
+
+def _extract_data_source_file(source: str) -> Optional[str]:
+    """Return the basename of the first data file path found in *source*, or None."""
+    m = _DATA_SOURCE_RE.search(source)
+    if not m:
+        return None
+    # Groups 2 or 4 hold the path string depending on which branch matched.
+    path = m.group(2) or m.group(4)
+    if not path:
+        return None
+    return os.path.basename(path)
+
 
 # Matches top-level import statements to detect reimports across cells.
 _IMPORT_RE = re.compile(
@@ -155,6 +177,11 @@ def _build_label(
             base_sub = f"{typ} · {val_str}" if val_str and len(val_str) <= 20 else typ
         else:
             base_sub = typ
+
+        # Append the source filename when this cell loads data from a file.
+        data_file = _extract_data_source_file(source)
+        if data_file:
+            base_sub = f"{base_sub} · {data_file}" if base_sub else data_file
 
         sublabel = f"{base_sub} · not executed" if unexecuted and base_sub else (
             "not executed" if unexecuted else base_sub
