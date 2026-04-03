@@ -163,6 +163,19 @@ class SummaryStore:
                 result[cell_id] = summary
         return result
 
+    @staticmethod
+    def _cell_snippet(source: str) -> str:
+        """Return a short human-readable label for a cell.
+
+        Picks the first non-blank, non-comment line and trims it to 80 chars.
+        Falls back to the raw first 80 chars when every line is blank/comment.
+        """
+        for line in source.splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#"):
+                return stripped[:80]
+        return source[:80].replace("\n", " ")
+
     def upsert(self, cell_id: str, source: str, summary: Dict[str, Any]) -> bool:
         """Append a new version entry if source hash differs from the latest.
 
@@ -186,6 +199,11 @@ class SummaryStore:
         }
         versions.append(entry)
         data[cell_id] = versions
+
+        # Keep _cells index up-to-date for human inspection
+        cells_index = data.get("_cells") if isinstance(data.get("_cells"), dict) else {}
+        cells_index[cell_id] = self._cell_snippet(source)
+        data["_cells"] = cells_index
 
         # Update inference counter in _meta
         meta = data.get("_meta") if isinstance(data.get("_meta"), dict) else {}
@@ -216,6 +234,11 @@ class SummaryStore:
         versions = data.get(cell_id, [])
         if versions:
             versions[-1]["deleted"] = True
+            # Prefix the _cells snippet so deleted cells are obvious on inspection
+            cells_index = data.get("_cells") if isinstance(data.get("_cells"), dict) else {}
+            if cell_id in cells_index and not cells_index[cell_id].startswith("~"):
+                cells_index[cell_id] = "~" + cells_index[cell_id]
+            data["_cells"] = cells_index
             self._save(data)
 
     def mark_restored(self, cell_id: str) -> None:
@@ -224,6 +247,11 @@ class SummaryStore:
         versions = data.get(cell_id, [])
         if versions:
             versions[-1]["deleted"] = False
+            # Remove the ~ prefix added by mark_deleted
+            cells_index = data.get("_cells") if isinstance(data.get("_cells"), dict) else {}
+            if cell_id in cells_index and cells_index[cell_id].startswith("~"):
+                cells_index[cell_id] = cells_index[cell_id][1:]
+            data["_cells"] = cells_index
             self._save(data)
 
     def patch_tags(self, cell_id: str, tags: List[str]) -> bool:
