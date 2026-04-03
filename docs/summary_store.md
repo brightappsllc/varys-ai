@@ -163,13 +163,16 @@ This is the main payload — everything Varys knows about the cell.
 "summary": {
   "cell_type":        "code",
   "source_snippet":   "df = pd.read_csv('titanic.csv')",
-  "auto_summary":      null,
+  "auto_summary":     null,
   "output":           null,
   "symbols_defined":  ["df"],
   "symbols_consumed": [],
   "symbol_values":    {},
   "symbol_types":     {"df": "DataFrame(891, 12)"},
+  "symbol_meta":      {"df": {"columns": {"age": {"dtype": "float64", "mean": 29.7, "n_null": 177}}}},
+  "cell_action":      ["Load data"],
   "execution_count":  3,
+  "execution_ms":     1234,
   "had_error":        false,
   "error_text":       null,
   "is_mutation_only": false,
@@ -193,6 +196,9 @@ This is the main payload — everything Varys knows about the cell.
 | `symbols_consumed` | list[str] | Names read from other cells (not defined here, not Python builtins) |
 | `symbol_values` | dict | Scalar values of defined symbols: `{"threshold": 0.85}`. Only int, float, bool, str (≤200 chars). DataFrames/arrays excluded. |
 | `symbol_types` | dict | Type strings for defined symbols: `{"df": "DataFrame(891, 12)"}`, `{"clf": "LinearRegression"}` |
+| `symbol_meta` | dict | Structured metadata for complex types. DataFrames: `{"columns": {"col": {"dtype", "n_unique", "n_null", "min", "max", "mean"}}}`. sklearn estimators: `{"params": {"n_estimators": 100, ...}}`. Empty for scalars/strings. |
+| `cell_action` | list[str] | Semantic action labels derived from stem matching: `["Load data"]`, `["Aggregate", "Visualize"]`. Defaults to `["Compute"]` when no stem matches. `["Import"]` for import-only cells. `["Define · name"]` for function/class definitions. |
+| `execution_ms` | int\|null | Wall-clock execution time in milliseconds, measured from `executionScheduled` to completion. `null` if timing was unavailable. |
 | `execution_count` | int\|null | The `[N]` counter shown by Jupyter. `null` for unexecuted cells. |
 | `had_error` | bool | `true` if the cell raised an exception |
 | `error_text` | string\|null | The error message if `had_error` is true |

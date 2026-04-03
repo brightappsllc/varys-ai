@@ -459,11 +459,13 @@ def _format_summary_cell(
     ]
 
     if ctype == "code":
-        defined   = summary.get("symbols_defined", [])
-        consumed  = summary.get("symbols_consumed", [])
-        sym_vals  = summary.get("symbol_values", {})
-        sym_types = summary.get("symbol_types", {})
-        output    = summary.get("output")
+        defined     = summary.get("symbols_defined", [])
+        consumed    = summary.get("symbols_consumed", [])
+        sym_vals    = summary.get("symbol_values", {})
+        sym_types   = summary.get("symbol_types", {})
+        output      = summary.get("output")
+        cell_action = summary.get("cell_action") or []
+        exec_ms     = summary.get("execution_ms")
 
         symbol_meta = summary.get("symbol_meta", {})
 
@@ -482,6 +484,16 @@ def _format_summary_cell(
                     symbol_meta = {**symbol_meta, name: lv["symbol_meta"]}
             if live_types:
                 sym_types = {**sym_types, **live_types}
+
+        # Action line — "Compute" and "Import" are implied by other fields
+        action_parts = [a for a in cell_action if a not in ("Compute", "Import")]
+        if action_parts:
+            action_str = " + ".join(action_parts)
+            if exec_ms is not None and exec_ms >= 1000:
+                action_str += f" ({exec_ms / 1000:.1f}s)"
+            lines.append(f"Action: {action_str}")
+        elif exec_ms is not None and exec_ms >= 1000:
+            lines.append(f"Slow: {exec_ms / 1000:.1f}s")
 
         if defined:
             lines.append(f"Defines: {', '.join(defined)}")
