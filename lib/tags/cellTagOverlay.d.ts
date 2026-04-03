@@ -35,6 +35,6 @@ type TagsChangedFn = (cellId: string, notebookPath: string, tags: string[]) => v
  *                      When provided, a ⚡ button is rendered on every cell.
  * @returns Cleanup function to remove overlays and disconnect signals.
  */
-export declare function initCellTagOverlay(tracker: INotebookTracker, onAutoTag?: AutoTagFn, onTagsChanged?: TagsChangedFn): () => void;
+export declare function initCellTagOverlay(tracker: INotebookTracker, onAutoTag?: AutoTagFn, onTagsChanged?: TagsChangedFn, baseUrl?: string): () => void;
 export {};
 //# sourceMappingURL=cellTagOverlay.d.ts.map
