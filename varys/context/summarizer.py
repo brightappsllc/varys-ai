@@ -57,6 +57,12 @@ _OUTPUT_SUMMARY_SYSTEM = (
     "Output ONLY the summary — no preamble, no labels, no markdown formatting."
 )
 
+_COMMENTS_SUMMARY_SYSTEM = (
+    "You are summarizing inline comments from a Jupyter notebook code cell. "
+    "Produce a concise 1–2 sentence summary capturing the main intent or explanation. "
+    "Output ONLY the summary — no preamble, no labels, no markdown formatting."
+)
+
 _MD_NOISE_RE = re.compile(r'[#*`_\[\]()>~|]')
 
 # ── TextRank summarizer ────────────────────────────────────────────────────────
@@ -179,6 +185,22 @@ def _collect_target_names(node: ast.expr, names: set) -> None:
             _collect_target_names(elt, names)
     elif isinstance(node, ast.Starred):
         _collect_target_names(node.value, names)
+
+
+def _extract_comments(source: str) -> str:
+    """Return all full-line comments from a code cell, joined with newlines.
+
+    Only collects lines whose first non-whitespace character is ``#`` — inline
+    comments after code (``x = 1  # note``) are intentionally excluded because
+    they are rarely self-contained explanations.  The leading ``#`` and any
+    immediately following whitespace are stripped from each line.
+    """
+    lines = []
+    for line in source.splitlines():
+        stripped = line.strip()
+        if stripped.startswith('#'):
+            lines.append(stripped.lstrip('#').strip())
+    return '\n'.join(ln for ln in lines if ln)
 
 
 def _is_import_cell(source: str) -> bool:
@@ -340,6 +362,19 @@ def _build_code_summary(
                 if len(str(sample)) <= SYMBOL_VALUE_MAX:
                     symbol_values[name] = sample
 
+    # ── Comment-based auto_summary ────────────────────────────────────────────
+    # Aggregate full-line comments.  Short blocks are stored verbatim; long
+    # blocks are compressed with TextRank.  If TextRank returns None (too few
+    # prose sentences) we store None here and cell_executed.py will run the
+    # async LLM fallback after this synchronous function returns.
+    comments = _extract_comments(source)
+    if not comments:
+        auto_summary: Optional[str] = None
+    elif len(comments) <= MARKDOWN_THRESHOLD:
+        auto_summary = comments
+    else:
+        auto_summary = _textrank_summary(comments)   # None signals LLM needed
+
     # Truncate output for summary storage (full output is used for focal cell)
     summary_output: Optional[str] = None
     if output and output.strip():
@@ -351,7 +386,7 @@ def _build_code_summary(
     return {
         "cell_type":        "code",
         "source_snippet":   source[:SNIPPET_CHARS].strip(),
-        "auto_summary":      None,
+        "auto_summary":     auto_summary,
         "output":           summary_output,
         "symbols_defined":  defined,
         "symbols_consumed": consumed,
@@ -553,6 +588,37 @@ def collapse_output(text: str) -> str:
             result.extend(lines[i:j])
         i = j
     return '\n'.join(result)
+
+
+async def patch_code_summary_comments_async(
+    summary: Dict[str, Any],
+    comments: str,
+    provider: Any,
+) -> Dict[str, Any]:
+    """LLM fallback: populate ``auto_summary`` when TextRank returned None.
+
+    Called by ``cell_executed._summarize_and_store`` after the sync
+    ``build_summary`` path when:
+      - cell_type == "code"
+      - auto_summary is None  (TextRank had too few sentences to rank)
+      - len(comments) > MARKDOWN_THRESHOLD
+
+    Mutates and returns the summary dict in-place.
+    Falls back to truncated comments on any LLM failure.
+    """
+    capped   = comments[:LLM_SUMMARY_MAX_INPUT_CHARS]
+    user_msg = f"Summarize these code cell comments:\n\n{capped}"
+    try:
+        result = await provider.chat(system=_COMMENTS_SUMMARY_SYSTEM, user=user_msg)
+        summary["auto_summary"] = result.strip() if result else comments[:OUTPUT_SUMMARY_CHARS]
+    except Exception as exc:
+        _model = getattr(getattr(provider, "_chat_client", None), "model", "?")
+        log.warning(
+            "patch_code_summary_comments_async: LLM call failed (model=%s): %s",
+            _model, exc,
+        )
+        summary["auto_summary"] = comments[:OUTPUT_SUMMARY_CHARS]
+    return summary
 
 
 async def summarize_output_async(output: str, provider: Any) -> str:
