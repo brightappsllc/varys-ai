@@ -334,7 +334,9 @@ def _build_code_summary(
         elif vtype == "series":
             shape = snap.get("shape", [0])
             dtype = snap.get("dtype", "")
-            symbol_types[name] = f"Series({shape[0]})" if not dtype else f"Series({shape[0]}, {dtype})"
+            sname = snap.get("name")
+            base  = f"Series({shape[0]}, {dtype})" if dtype else f"Series({shape[0]})"
+            symbol_types[name] = f"{base} '{sname}'" if sname else base
         elif vtype == "ndarray":
             shape = snap.get("shape", [])
             dtype = snap.get("dtype", "")
