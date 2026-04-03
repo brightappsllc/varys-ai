@@ -121,6 +121,13 @@ for _name in NAMES_PLACEHOLDER:
                 continue
         except ImportError:
             pass
+        try:
+            import sklearn.base as _skl
+            if isinstance(_obj, _skl.BaseEstimator):
+                _snap[_name] = {'type': type(_obj).__qualname__, 'params': _obj.get_params(deep=False)}
+                continue
+        except ImportError:
+            pass
         if isinstance(_obj, (int, float, bool)):
             _snap[_name] = {'type': _t, 'value': _obj}
         elif isinstance(_obj, str):
