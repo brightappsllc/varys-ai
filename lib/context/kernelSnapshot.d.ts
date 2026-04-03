@@ -6,9 +6,17 @@
  * a kernel_snapshot dict for the SummaryStore.
  */
 /**
- * Return the set of simple assignment targets found in cell source.
- * Matches `name =` at the start of any line (ignores augmented assignments,
- * attribute assignments, and subscript assignments).
+ * Return all variable names assigned in cell source, including tuple-unpacking.
+ *
+ * Handles:
+ *   name = expr                       simple assignment
+ *   a, b = expr                       flat tuple unpacking
+ *   a, *b, c = expr                   starred unpacking
+ *   (a, b) = expr  /  [a, b] = expr  parenthesised / bracketed unpacking
+ *
+ * Does NOT handle nested unpacking (a, (b, c) = ...) — uncommon in notebooks.
+ * Augmented assignments (+=, -=, …), attribute assignments (obj.x = …), and
+ * subscript assignments (d[k] = …) are intentionally ignored.
  */
 export declare function extractAssignedNames(source: string): string[];
 /**
