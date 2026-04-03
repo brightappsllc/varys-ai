@@ -186,12 +186,35 @@ class SummaryStore:
         data = self._load()
         versions: List[Dict] = data.get(cell_id, [])
 
-        # No-op if source is unchanged — but still keep _cells index current
+        # Source unchanged — check whether runtime fields need a patch.
+        # We never bump the version for runtime-only changes (execution_count,
+        # symbol_types, symbol_values) but we do overwrite them in-place so
+        # the store always reflects the most-recent kernel state.
         if versions and versions[-1].get("hash") == new_hash:
+            stored_summary = versions[-1].get("summary") or {}
+            needs_save = False
+
+            # Backfill _cells if this cell was written before the index existed
             cells_index = data.get("_cells") if isinstance(data.get("_cells"), dict) else {}
             if cell_id not in cells_index:
                 cells_index[cell_id] = self._cell_snippet(source)
                 data["_cells"] = cells_index
+                needs_save = True
+
+            # Patch runtime fields when the incoming value is non-empty and
+            # differs from what is stored.
+            for field in ("execution_count", "symbol_types", "symbol_values"):
+                incoming = summary.get(field)
+                # Skip None / empty-dict / empty-list — those carry no info
+                if not incoming and incoming != 0:
+                    continue
+                if incoming != stored_summary.get(field):
+                    stored_summary[field] = incoming
+                    needs_save = True
+
+            if needs_save:
+                versions[-1]["summary"] = stored_summary
+                data[cell_id] = versions
                 self._save(data)
             return False
 
