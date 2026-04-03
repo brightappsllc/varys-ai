@@ -133,11 +133,12 @@ export const GraphNode: React.FC<Props> = ({
           style={{
             width:    NODE_WIDTH,
             height:   NODE_HEIGHT,
-            padding:  '8px 10px 6px',
+            padding:  '5px 10px 5px',
             boxSizing: 'border-box',
             display:  'flex',
             flexDirection: 'column',
             justifyContent: 'center',
+            alignItems: 'center',
             overflow: 'hidden',
             position: 'relative',
           }}
@@ -168,35 +169,57 @@ export const GraphNode: React.FC<Props> = ({
             </span>
           )}
 
-          {/* "Cell N" header */}
+          {/* "Cell N" — small muted tag */}
           <span
-            className="ds-graph-node-label"
+            className="ds-graph-node-cell-tag"
             style={{
-              fontSize:   12,
-              fontWeight: 600,
-              color:      'var(--jp-ui-font-color0)',
+              fontSize:   9,
+              fontWeight: 400,
+              color:      'var(--jp-ui-font-color2)',
+              letterSpacing: '0.04em',
+              lineHeight: 1,
+              marginBottom: 3,
               whiteSpace: 'nowrap',
-              overflow:   'hidden',
-              textOverflow: 'ellipsis',
             }}
           >
             Cell {node.cellIndex + 1}
           </span>
 
-          {/* Description: label · sublabel */}
-          {description && (
+          {/* Variable name — hero text */}
+          <span
+            className="ds-graph-node-label"
+            style={{
+              fontSize:   14,
+              fontWeight: 700,
+              color:      'var(--jp-ui-font-color0)',
+              whiteSpace: 'nowrap',
+              overflow:   'hidden',
+              textOverflow: 'ellipsis',
+              maxWidth:   NODE_WIDTH - 20,
+              textAlign:  'center',
+              lineHeight: 1.2,
+            }}
+          >
+            {node.label}
+          </span>
+
+          {/* Sublabel — type / shape / filename */}
+          {node.sublabel && (
             <span
               className="ds-graph-node-sublabel"
               style={{
-                fontSize:   10,
+                fontSize:   9,
                 color:      'var(--jp-ui-font-color2)',
                 whiteSpace: 'nowrap',
                 overflow:   'hidden',
                 textOverflow: 'ellipsis',
-                marginTop:  2,
+                maxWidth:   NODE_WIDTH - 20,
+                textAlign:  'center',
+                marginTop:  3,
+                lineHeight: 1,
               }}
             >
-              {description}
+              {node.sublabel}
             </span>
           )}
         </div>
