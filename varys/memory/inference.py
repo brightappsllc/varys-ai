@@ -525,7 +525,7 @@ async def run_inference(root_dir: str, notebook_path: str, settings: dict) -> No
             if provider is not None:
                 unmatched = _detect_unmatched_cells(all_summaries)
                 if unmatched:
-                    loader = ActionStemLoader(root_dir, notebook_path)
+                    loader = ActionStemLoader()
                     stems  = await asyncio.to_thread(loader.load)
                     await _update_action_stems(unmatched[:5], stems, provider, loader)
         except Exception as exc:

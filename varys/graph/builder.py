@@ -286,7 +286,7 @@ class GraphBuilder:
         """
         from ..context.action_stems import ActionStemLoader, DEFAULT_STEMS, detect_actions
         try:
-            stem_loader = ActionStemLoader(self._store.root_dir, self._notebook_path)
+            stem_loader = ActionStemLoader()
             default_stems = stem_loader.load()
         except Exception:
             default_stems = DEFAULT_STEMS

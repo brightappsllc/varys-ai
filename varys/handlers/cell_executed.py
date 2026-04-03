@@ -138,7 +138,7 @@ async def _summarize_and_store(
         from ..llm.factory import create_bg_task_provider
 
         from ..context.action_stems import ActionStemLoader
-        stem_loader = ActionStemLoader(root_dir, notebook_path)
+        stem_loader = ActionStemLoader()
         stems = await asyncio.to_thread(stem_loader.load)
 
         # For large markdown cells, try the LLM prose-summary path first (it is
