@@ -635,6 +635,9 @@ const plugin: JupyterFrontEndPlugin<void> = {
             }
           }
 
+          const tags: string[] =
+            (model.metadata['tags'] as string[] | undefined) ?? [];
+
           apiClient.cellExecuted({
             cell_id:         cellId,
             notebook_path:   notebookPath,
@@ -645,6 +648,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
             error_text:      errorText,
             cell_type:       cellType,
             kernel_snapshot: kernelSnapshot,
+            tags,
           });
         } catch {
           // Non-fatal: SummaryStore update is best-effort

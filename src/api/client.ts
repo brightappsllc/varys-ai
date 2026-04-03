@@ -818,6 +818,7 @@ export class APIClient {
     error_text:      string | null;
     cell_type:       string;
     kernel_snapshot: Record<string, unknown>;
+    tags:            string[];
   }): void {
     fetch(`${this.baseUrl}/cell-executed`, {
       method:  'POST',
