@@ -26,6 +26,7 @@ export interface NodeData {
   executionCount: number | null;
   anomalies:      AnomalyId[];
   nodeRole:       NodeRole;
+  cellAction:     string[];
 }
 
 export interface EdgeData {

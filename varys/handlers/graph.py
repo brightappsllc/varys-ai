@@ -69,6 +69,7 @@ def _node(n: NodeData) -> dict:
         "executionCount": n.execution_count,
         "anomalies":     n.anomalies,
         "nodeRole":      n.node_role,
+        "cellAction":    n.cell_action,
     }
 
 

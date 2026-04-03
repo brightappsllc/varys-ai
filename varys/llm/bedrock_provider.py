@@ -813,6 +813,7 @@ class BedrockProvider(BaseLLMProvider):
         system: str,
         user: str,
         chat_history: Optional[List[Dict[str, str]]] = None,
+        temperature: Optional[float] = None,
     ) -> str:
         await self._ensure_credentials()
         history = list(chat_history or [])

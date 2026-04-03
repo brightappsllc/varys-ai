@@ -80,6 +80,7 @@ class NodeData:
     execution_count: Optional[int]
     anomalies: List[str] = field(default_factory=list)
     node_role: str = 'empty'   # 'defines' | 'redefines' | 'consumes' | 'empty'
+    cell_action: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -125,24 +126,89 @@ def _extract_plot_titles(source: str) -> List[str]:
     return titles
 
 
+def _build_action_context(
+    cell_action: List[str],
+    source: str,
+    effective_defines: List[str],
+    symbol_types: Dict[str, str],
+    symbol_values: Dict[str, Any],
+) -> str:
+    """Build the sublabel for action-labeled nodes.
+
+    Returns a concise context string based on the primary action.
+    """
+    primary = cell_action[0] if cell_action else ""
+
+    if primary == "Load data":
+        # "{var} · {filename} · {shape}"
+        parts: List[str] = []
+        if effective_defines:
+            parts.append(effective_defines[0])
+        data_file = _extract_data_source_file(source)
+        if data_file:
+            parts.append(data_file)
+        if effective_defines:
+            sym = effective_defines[0]
+            typ = symbol_types.get(sym, "")
+            if typ:
+                parts.append(typ)
+        return " · ".join(parts)
+
+    if primary.startswith("Define"):
+        # Name already in label — no sublabel needed
+        return ""
+
+    if primary in ("Visualize",):
+        titles = _extract_plot_titles(source)
+        if titles:
+            return titles[0]
+        return effective_defines[0] if effective_defines else ""
+
+    if primary == "Display":
+        # Try to extract first argument to print() / display()
+        m = re.search(r'(?:print|display)\s*\(\s*([A-Za-z_]\w*)', source)
+        if m:
+            return m.group(1)
+        return ""
+
+    # All other actions: first defined or consumed symbol
+    if effective_defines:
+        sym = effective_defines[0]
+        typ = symbol_types.get(sym, "")
+        return f"{sym} · {typ}" if typ else sym
+    return ""
+
+
 def _build_label(
     effective_defines: List[str],
     symbol_types: Dict[str, str],
     symbol_values: Dict[str, Any],
     source: str,
     unexecuted: bool,
+    cell_action: Optional[List[str]] = None,
 ) -> tuple[str, str]:
-    """Return ``(label, sublabel)`` using the unified four-priority cascade.
+    """Return ``(label, sublabel)`` using the unified five-priority cascade.
 
     ``effective_defines`` must already have ``VIZ_HANDLE_SYMBOLS`` removed.
     If ``unexecuted`` is True, ``" · not executed"`` is appended to the sublabel.
 
     Priority:
+      0. Semantic action label (cell_action != ["Compute"] and not empty)
       1. First define with a ``symbol_types`` entry  → symbol name / type shape
       2. First define with no type info              → symbol name / ""
       3. Plot title extraction                       → joined titles / "plot"
       4. Source truncation                           → first 40 chars / ""
     """
+    # ── Priority 0: semantic action label ─────────────────────────────────────
+    if cell_action and cell_action != ["Compute"]:
+        label = " + ".join(cell_action)
+        sublabel = _build_action_context(
+            cell_action, source, effective_defines, symbol_types, symbol_values
+        )
+        if unexecuted:
+            sublabel = f"{sublabel} · not executed" if sublabel else "not executed"
+        return label, sublabel
+
     # ── Priority 1 & 2: symbol-based label ────────────────────────────────────
     primary: Optional[str] = None
     for sym in effective_defines:
@@ -218,6 +284,13 @@ class GraphBuilder:
                    already filtered to code cells only by the frontend.
                    Empty-source cells are also dropped here.
         """
+        from ..context.action_stems import ActionStemLoader, DEFAULT_STEMS, detect_actions
+        try:
+            stem_loader = ActionStemLoader(self._store.root_dir, self._notebook_path)
+            default_stems = stem_loader.load()
+        except Exception:
+            default_stems = DEFAULT_STEMS
+
         sorted_cells = sorted(
             (c for c in cells if c.get("source", "").strip()),
             key=lambda c: c["index"],
@@ -250,6 +323,7 @@ class GraphBuilder:
                 symbol_types: Dict[str, str] = summary.get("symbol_types") or {}
                 symbol_values: Dict[str, Any] = summary.get("symbol_values") or {}
                 execution_count: Optional[int] = summary.get("execution_count")
+                cell_action: List[str] = summary.get("cell_action") or []
                 data_source = "store"
                 unexecuted = False
             else:
@@ -259,6 +333,8 @@ class GraphBuilder:
                 symbol_types = {}
                 symbol_values = {}
                 execution_count = None
+                is_import = summary.get("is_import_cell", False) if summary else False
+                cell_action = detect_actions(source, is_import, default_stems)
                 data_source = "ast"
                 unexecuted = True
 
@@ -267,7 +343,8 @@ class GraphBuilder:
             effective_loads = [s for s in raw_loads if s not in VIZ_HANDLE_SYMBOLS]
 
             label, sublabel = _build_label(
-                effective_defines, symbol_types, symbol_values, source, unexecuted
+                effective_defines, symbol_types, symbol_values, source, unexecuted,
+                cell_action=cell_action,
             )
 
             nodes.append(NodeData(
@@ -282,6 +359,7 @@ class GraphBuilder:
                 external_loads=[],
                 execution_count=execution_count,
                 anomalies=[],
+                cell_action=cell_action,
             ))
 
         # ── Edge construction ─────────────────────────────────────────────────
