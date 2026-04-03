@@ -1,8 +1,9 @@
 """Action stem detector — maps code patterns to semantic action labels.
 
 The stem dictionary lives at:
-  <project_base>/config/action_stems.json
+  ~/.jupyter/varys_action_stems.json
 
+The file is global — shared across all projects and notebooks.
 On first use the file is written from DEFAULT_STEMS so the user can edit it.
 The inference pipeline extends the file automatically when it encounters cells
 whose source doesn't match any known stem (see varys/memory/inference.py).
@@ -158,13 +159,16 @@ def detect_actions(
 # ── Stem loader / updater ─────────────────────────────────────────────────────
 
 class ActionStemLoader:
-    """Loads and persists the project-scoped action_stems.json file."""
+    """Loads and persists the global action_stems.json file.
 
-    def __init__(self, root_dir: str, notebook_path: str = "") -> None:
-        from ..utils.paths import project_base
-        cfg_dir = project_base(root_dir, notebook_path) / "config"
-        cfg_dir.mkdir(parents=True, exist_ok=True)
-        self._path = cfg_dir / "action_stems.json"
+    Stored at ``~/.jupyter/varys_action_stems.json`` so the learned vocabulary
+    is shared across all projects and notebooks.
+    """
+
+    def __init__(self, root_dir: str = "", notebook_path: str = "") -> None:
+        jupyter_dir = Path.home() / ".jupyter"
+        jupyter_dir.mkdir(parents=True, exist_ok=True)
+        self._path = jupyter_dir / "varys_action_stems.json"
 
     def load(self) -> Dict[str, List[str]]:
         """Return the stem dict.  Writes DEFAULT_STEMS to disk on first call."""
