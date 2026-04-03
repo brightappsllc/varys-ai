@@ -211,7 +211,7 @@ def _build_code_summary(
             "truncated":        False,
             "deleted":          False,
             "tags":             tags or [],
-            "cell_action":      detect_actions(source, True, stems or DEFAULT_STEMS),
+            "cell_action":      detect_actions(source, True, stems or DEFAULT_STEMS, tags=normalised_tags),
         }
 
     defined, consumed = _extract_symbols(source)
@@ -282,7 +282,7 @@ def _build_code_summary(
         "truncated":        False,
         "deleted":          False,
         "tags":             tags or [],
-        "cell_action":      detect_actions(source, False, stems or DEFAULT_STEMS),
+        "cell_action":      detect_actions(source, False, stems or DEFAULT_STEMS, tags=tags),
     }
 
 

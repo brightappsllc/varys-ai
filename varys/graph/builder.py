@@ -139,7 +139,7 @@ def _build_action_context(
     """
     primary = cell_action[0] if cell_action else ""
 
-    if primary == "Load data":
+    if primary == "data-loading":
         # "{var} · {filename} · {shape}"
         parts: List[str] = []
         if effective_defines:
@@ -158,13 +158,13 @@ def _build_action_context(
         # Name already in label — no sublabel needed
         return ""
 
-    if primary in ("Visualize",):
+    if primary == "figure":
         titles = _extract_plot_titles(source)
         if titles:
             return titles[0]
         return effective_defines[0] if effective_defines else ""
 
-    if primary == "Display":
+    if primary == "display":
         # Try to extract first argument to print() / display()
         m = re.search(r'(?:print|display)\s*\(\s*([A-Za-z_]\w*)', source)
         if m:

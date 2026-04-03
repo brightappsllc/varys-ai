@@ -23,26 +23,33 @@ log = logging.getLogger(__name__)
 # ── Default stem vocabulary ────────────────────────────────────────────────────
 
 DEFAULT_STEMS: Dict[str, List[str]] = {
-    "Load data":    ["pd.read_csv(", "pd.read_excel(", "pd.read_parquet(",
-                     "pd.read_json(", "pd.read_feather(", "pd.read_table(",
-                     "pd.read_hdf(", "open("],
-    "Export data":  [".to_csv(", ".to_excel(", ".to_parquet(",
-                     ".to_json(", ".to_sql(", ".to_pickle("],
-    "Filter rows":  [".query(", ".dropna(", ".drop_duplicates(", ".loc[", ".iloc["],
-    "Fill missing": [".fillna(", ".interpolate(", ".ffill(", ".bfill("],
-    "Cast types":   [".astype(", "pd.to_datetime(", "pd.to_numeric(", "pd.Categorical("],
-    "Aggregate":    [".groupby(", ".pivot_table(", "pd.crosstab(", ".agg(", ".resample("],
-    "Merge":        [".merge(", ".join(", "pd.concat("],
-    "Reshape":      [".melt(", ".pivot(", ".stack(", ".unstack(", ".transpose("],
-    "Apply fn":     [".apply(", ".map(", ".applymap("],
-    "Sort":         [".sort_values(", ".sort_index(", ".nlargest(", ".nsmallest("],
-    "Train model":  [".fit(", ".fit_transform(", ".partial_fit("],
-    "Predict":      [".predict(", ".score(", ".predict_proba(", ".decision_function("],
-    "Evaluate":     ["classification_report(", "confusion_matrix(",
-                     "mean_squared_error(", "accuracy_score(", "r2_score(",
-                     "roc_auc_score(", "f1_score("],
-    "Visualize":    ["plt.", "sns.", ".plot(", "fig.", "ax."],
-    "Display":      ["print(", "display(", "IPython.display"],
+    # ── Names match the built-in ML Pipeline cell tags so tags and actions
+    # share a single vocabulary with no mapping layer.
+    "data-loading":        ["pd.read_csv(", "pd.read_excel(", "pd.read_parquet(",
+                            "pd.read_json(", "pd.read_feather(", "pd.read_table(",
+                            "pd.read_hdf(", "open("],
+    "export":              [".to_csv(", ".to_excel(", ".to_parquet(",
+                            ".to_json(", ".to_sql(", ".to_pickle("],
+    "preprocessing":       [".query(", ".dropna(", ".drop_duplicates(",
+                            ".loc[", ".iloc[",
+                            ".fillna(", ".interpolate(", ".ffill(", ".bfill(",
+                            ".astype(", "pd.to_datetime(", "pd.to_numeric(",
+                            "pd.Categorical(",
+                            ".sort_values(", ".sort_index(",
+                            ".nlargest(", ".nsmallest("],
+    "feature-engineering": [".groupby(", ".pivot_table(", "pd.crosstab(",
+                            ".agg(", ".resample(",
+                            ".merge(", ".join(", "pd.concat(",
+                            ".melt(", ".pivot(", ".stack(", ".unstack(",
+                            ".transpose(", ".apply(", ".map(", ".applymap("],
+    "training":            [".fit(", ".fit_transform(", ".partial_fit("],
+    "inference":           [".predict(", ".score(", ".predict_proba(",
+                            ".decision_function("],
+    "evaluation":          ["classification_report(", "confusion_matrix(",
+                            "mean_squared_error(", "accuracy_score(", "r2_score(",
+                            "roc_auc_score(", "f1_score("],
+    "figure":              ["plt.", "sns.", ".plot(", "fig.", "ax."],
+    "display":             ["print(", "display(", "IPython.display"],
 }
 
 
@@ -126,17 +133,21 @@ def detect_actions(
     source: str,
     is_import_cell: bool,
     stems: Dict[str, List[str]],
+    tags: Optional[List[str]] = None,
 ) -> List[str]:
     """Return the list of semantic action labels that match *source*.
 
     Rules (applied in order):
       1. Import cells           → ["Import"]
       2. Pure def/class cells   → ["Define · name1, name2"]
-      3. Stem matching          → all matching action names (preserve dict order)
-      4. Fallback               → ["Compute"]
+      3. Cell tags              → any tag that is a known action key (tags share
+                                  the same vocabulary as stems — no mapping needed)
+      4. Stem matching          → all matching action names (preserve dict order)
+      5. Fallback               → ["Compute"]
 
+    Tags take priority over stem detection because they are user-intent.
     Stems are matched against the comment-stripped source so that a commented-out
-    ``# df.dropna()`` does not trigger "Filter rows".
+    ``# df.dropna()`` does not trigger "preprocessing".
     """
     if is_import_cell:
         return ["Import"]
@@ -147,6 +158,12 @@ def detect_actions(
     if is_def:
         label = "Define · " + ", ".join(names) if names else "Define"
         return [label]
+
+    # Tags share the stems vocabulary — check membership with no mapping
+    if tags:
+        tag_actions = [t for t in tags if t in stems]
+        if tag_actions:
+            return tag_actions
 
     matched: List[str] = []
     for action, stem_list in stems.items():
