@@ -136,13 +136,32 @@ async def _summarize_and_store(
         from ..context.summarizer    import (
             build_summary,
             build_markdown_summary_async,
+            summarize_output_async,
+            collapse_output,
             MARKDOWN_THRESHOLD,
+            OUTPUT_SUMMARY_CHARS,
         )
         from ..llm.factory import create_bg_task_provider
 
         from ..context.action_stems import ActionStemLoader
         stem_loader = ActionStemLoader()
         stems = await asyncio.to_thread(stem_loader.load)
+
+        # ── Output pre-processing: collapse repetitive lines, then LLM-summarize
+        # if still over the storage threshold.  LLM is only invoked when the
+        # collapsed output is genuinely large (>1 000 chars) so the extra latency
+        # / cost only occurs for verbose cells (training loops, long reports, …).
+        processed_output = output
+        if output:
+            collapsed = await asyncio.to_thread(collapse_output, output)
+            if len(collapsed) > OUTPUT_SUMMARY_CHARS:
+                bg_provider = create_bg_task_provider(settings)
+                if bg_provider:
+                    processed_output = await summarize_output_async(collapsed, bg_provider)
+                else:
+                    processed_output = collapsed   # truncation safety-net inside build_summary
+            else:
+                processed_output = collapsed
 
         # For large markdown cells, try the LLM prose-summary path first (it is
         # already async and yields the event loop between network calls).
@@ -155,7 +174,7 @@ async def _summarize_and_store(
                 summary = await asyncio.to_thread(
                     build_summary,
                     cell_id=cell_id, source=source, cell_type=cell_type,
-                    output=output, execution_count=execution_count,
+                    output=processed_output, execution_count=execution_count,
                     had_error=had_error, error_text=error_text,
                     kernel_snapshot=kernel_snapshot, tags=tags, stems=stems,
                     execution_ms=execution_ms,
@@ -165,7 +184,7 @@ async def _summarize_and_store(
             summary = await asyncio.to_thread(
                 build_summary,
                 cell_id=cell_id, source=source, cell_type=cell_type,
-                output=output, execution_count=execution_count,
+                output=processed_output, execution_count=execution_count,
                 had_error=had_error, error_text=error_text,
                 kernel_snapshot=kernel_snapshot, tags=tags, stems=stems,
                 execution_ms=execution_ms,

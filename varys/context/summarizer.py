@@ -37,7 +37,8 @@ log = logging.getLogger(__name__)
 # ── Constants ──────────────────────────────────────────────────────────────────
 
 SNIPPET_CHARS              = 300    # source_snippet length cap
-OUTPUT_SUMMARY_CHARS       = 1_000  # output stored in summary
+OUTPUT_SUMMARY_CHARS       = 1_000  # output stored in summary (hard cap / LLM trigger)
+OUTPUT_LLM_INPUT_CHARS     = 4_000  # cap on output text sent to the LLM for summarization
 MARKDOWN_THRESHOLD         = 2_000  # chars before LLM/truncation path activates
 LLM_SUMMARY_MAX_INPUT_CHARS = 6_000  # cap on markdown text sent to the LLM
 SYMBOL_VALUE_MAX           = 500    # max serialized length for symbol_values entries
@@ -47,6 +48,12 @@ _MARKDOWN_SUMMARY_SYSTEM = (
     "Produce a concise prose summary (2–4 sentences) that captures the main topic, "
     "key concepts, and any important context or decisions. "
     "Output ONLY the summary text — no preamble, no labels, no markdown formatting."
+)
+
+_OUTPUT_SUMMARY_SYSTEM = (
+    "You are summarizing the terminal output of a Jupyter notebook cell execution. "
+    "Produce a concise 1–2 sentence summary capturing the key result, metric, or message. "
+    "Output ONLY the summary — no preamble, no labels, no markdown formatting."
 )
 
 # ── Builtins set (excluded from consumed to reduce noise) ─────────────────────
@@ -415,6 +422,64 @@ async def build_markdown_summary_async(
             exc,
         )
         return _build_markdown_summary(source, tags)
+
+
+# ── Output pre-processing ─────────────────────────────────────────────────────
+
+
+def _lines_similar(a: str, b: str) -> bool:
+    """True when two lines differ only in digit/percentage sequences.
+
+    Matches tqdm progress bars, Keras epoch logs, numbered iterations, etc.
+    """
+    return re.sub(r'\d+\.?\d*%?', '#', a) == re.sub(r'\d+\.?\d*%?', '#', b)
+
+
+def collapse_output(text: str) -> str:
+    """Collapse runs of similar lines (tqdm bars, epoch logs, numbered iterations).
+
+    Runs of more than 3 similar lines become:
+        <first line>
+        [N similar lines omitted]
+        <last line>
+
+    Lines are considered similar when they differ only in numeric/percentage values.
+    """
+    lines = text.splitlines()
+    result: list[str] = []
+    i = 0
+    while i < len(lines):
+        j = i + 1
+        while j < len(lines) and _lines_similar(lines[i], lines[j]):
+            j += 1
+        run = j - i
+        if run > 3:
+            result.append(lines[i])
+            result.append(f"    [{run - 2} similar lines omitted]")
+            result.append(lines[j - 1])
+        else:
+            result.extend(lines[i:j])
+        i = j
+    return '\n'.join(result)
+
+
+async def summarize_output_async(output: str, provider: Any) -> str:
+    """Summarize long cell output via the Background model.
+
+    Expects ``output`` to have already been collapsed by ``collapse_output()``.
+    Falls back to hard truncation at OUTPUT_SUMMARY_CHARS on any LLM failure.
+    """
+    capped   = output[:OUTPUT_LLM_INPUT_CHARS]
+    user_msg = f"Summarize this Jupyter notebook cell output:\n\n{capped}"
+    try:
+        result = await provider.chat(system=_OUTPUT_SUMMARY_SYSTEM, user=user_msg)
+        return result.strip() if result else output[:OUTPUT_SUMMARY_CHARS]
+    except Exception as exc:
+        _model = getattr(getattr(provider, "_chat_client", None), "model", "?")
+        log.warning(
+            "summarize_output_async: LLM call failed (model=%s): %s", _model, exc
+        )
+        return output[:OUTPUT_SUMMARY_CHARS]
 
 
 # ── Utility ────────────────────────────────────────────────────────────────────
