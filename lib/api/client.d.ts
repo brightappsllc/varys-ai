@@ -443,6 +443,7 @@ export declare class APIClient {
         error_text: string | null;
         cell_type: string;
         kernel_snapshot: Record<string, unknown>;
+        tags: string[];
     }): void;
     /**
      * Fire-and-forget: notify the backend of a cell lifecycle event.
