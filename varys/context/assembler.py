@@ -134,6 +134,19 @@ def assemble_context(
         or kernel_name.startswith("rnk_")
     )
     dlog("assembler", "remote_kernel_detected", {"is_remote": is_remote, "kernel": kernel_name})
+    # Load live kernel state once — used to overlay current variable types/values
+    # on top of the (potentially stale) SummaryStore entries.
+    live_vars: Dict[str, Any] = {}
+    if nb_base is not None:
+        try:
+            import json as _json
+            _ks_path = nb_base / "context" / "kernel_state.json"
+            if _ks_path.exists():
+                _ks_data = _json.loads(_ks_path.read_text(encoding="utf-8"))
+                live_vars = _ks_data.get("variables") or {}
+        except Exception:
+            live_vars = {}
+
     norm   = _normalize_cells(cell_order)
     active = [c for c in norm if not _is_deleted(c["cell_id"], summary_store)]
 
@@ -214,7 +227,7 @@ def assemble_context(
             if cell.get("cell_id") == focal_cid:
                 focal_parts.append(_format_focal_cell(cell, focal_cell_full_output))
             else:
-                summary_parts.append(_format_summary_cell(cell, summary_store))
+                summary_parts.append(_format_summary_cell(cell, summary_store, live_vars))
 
     # ── Phase 4: local import enrichment (independently shippable) ───────────
     focal_cell_dict = next(
@@ -242,7 +255,7 @@ def assemble_context(
             if downstream_ref and downstream_ref.get("cell_id") not in kept_ids:
                 parts.append(
                     "(downstream cell referenced in query)\n"
-                    + _format_summary_cell(downstream_ref, summary_store)
+                    + _format_summary_cell(downstream_ref, summary_store, live_vars)
                 )
 
     # ── Step 7b: downstream skeleton (cells beyond the visible window) ───────────
@@ -419,7 +432,11 @@ def _format_agent_cell(cell: Dict[str, Any], store: SummaryStore) -> str:
     return "\n".join(lines)
 
 
-def _format_summary_cell(cell: Dict[str, Any], store: SummaryStore) -> str:
+def _format_summary_cell(
+    cell: Dict[str, Any],
+    store: SummaryStore,
+    live_vars: Optional[Dict[str, Any]] = None,
+) -> str:
     """Compact summary block for a pre-focal cell."""
     position = cell["index"] + 1   # 1-based for the LLM
     cell_id  = cell["cell_id"]
@@ -448,6 +465,18 @@ def _format_summary_cell(cell: Dict[str, Any], store: SummaryStore) -> str:
         sym_types = summary.get("symbol_types", {})
         output    = summary.get("output")
         ec        = summary.get("execution_count")
+
+        # Overlay live kernel state for defined variables when available.
+        # This corrects stale shapes from the SummaryStore (e.g. df mutated
+        # by a later cell without re-running this one).
+        if live_vars and defined:
+            live_types = {
+                name: live_vars[name]["type"]
+                for name in defined
+                if name in live_vars and live_vars[name].get("type")
+            }
+            if live_types:
+                sym_types = {**sym_types, **live_types}
 
         if defined:
             lines.append(f"Defines: {', '.join(defined)}")
