@@ -343,6 +343,10 @@ def _build_code_summary(
             symbol_types[name] = "function"
         else:
             symbol_types[name] = vtype
+            # sklearn estimator: store hyperparameters in symbol_meta
+            params = snap.get("params")
+            if isinstance(params, dict) and params:
+                symbol_meta[name] = {"params": params}
 
         # symbol_values — only compact, serializable types (spec §2.5)
         if vtype in ("int", "float", "bool"):
