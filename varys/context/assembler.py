@@ -464,7 +464,6 @@ def _format_summary_cell(
         sym_vals  = summary.get("symbol_values", {})
         sym_types = summary.get("symbol_types", {})
         output    = summary.get("output")
-        ec        = summary.get("execution_count")
 
         symbol_meta = summary.get("symbol_meta", {})
 
@@ -512,8 +511,6 @@ def _format_summary_cell(
         if summary.get("is_mutation_only"):
             snip = summary.get("source_snippet", "")[:200]
             lines.append(f"Source: {snip}")
-        if ec is not None:
-            lines.append(f"Execution: [{ec}]")
     else:
         # Markdown / raw: prefer auto summary (TextRank or LLM) when available
         auto_summary = summary.get("auto_summary")
