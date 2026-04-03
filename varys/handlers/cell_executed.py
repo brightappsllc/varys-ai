@@ -125,6 +125,10 @@ async def _summarize_and_store(
     After a successful write, checks the inference counter and fires the
     long-term memory inference pipeline when the threshold is reached.
     """
+    # Empty cells produce hash(b"") ghost entries — skip them entirely.
+    if not source.strip():
+        return
+
     try:
         from ..context.summarizer    import (
             build_summary,
