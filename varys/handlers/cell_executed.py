@@ -136,8 +136,10 @@ async def _summarize_and_store(
         from ..context.summarizer    import (
             build_summary,
             build_markdown_summary_async,
+            patch_code_summary_comments_async,
             summarize_output_async,
             collapse_output,
+            _extract_comments,
             MARKDOWN_THRESHOLD,
             OUTPUT_SUMMARY_CHARS,
         )
@@ -147,6 +149,9 @@ async def _summarize_and_store(
         stem_loader = ActionStemLoader()
         stems = await asyncio.to_thread(stem_loader.load)
 
+        # Create the background provider once — shared by all async LLM paths below.
+        bg_provider = create_bg_task_provider(settings)
+
         # ── Output pre-processing: collapse repetitive lines, then LLM-summarize
         # if still over the storage threshold.  LLM is only invoked when the
         # collapsed output is genuinely large (>1 000 chars) so the extra latency
@@ -155,7 +160,6 @@ async def _summarize_and_store(
         if output:
             collapsed = await asyncio.to_thread(collapse_output, output)
             if len(collapsed) > OUTPUT_SUMMARY_CHARS:
-                bg_provider = create_bg_task_provider(settings)
                 if bg_provider:
                     processed_output = await summarize_output_async(collapsed, bg_provider)
                 else:
@@ -166,19 +170,7 @@ async def _summarize_and_store(
         # For large markdown cells, try the LLM prose-summary path first (it is
         # already async and yields the event loop between network calls).
         if cell_type == "markdown" and len(source) > MARKDOWN_THRESHOLD:
-            simple_provider = create_bg_task_provider(settings)
-            if simple_provider:
-                summary = await build_markdown_summary_async(source, simple_provider, tags=tags)
-            else:
-                # build_summary is CPU-only; run in thread to avoid blocking.
-                summary = await asyncio.to_thread(
-                    build_summary,
-                    cell_id=cell_id, source=source, cell_type=cell_type,
-                    output=processed_output, execution_count=execution_count,
-                    had_error=had_error, error_text=error_text,
-                    kernel_snapshot=kernel_snapshot, tags=tags, stems=stems,
-                    execution_ms=execution_ms,
-                )
+            summary = await build_markdown_summary_async(source, bg_provider, tags=tags)
         else:
             # build_summary does AST parsing + string work — run in thread.
             summary = await asyncio.to_thread(
@@ -189,6 +181,13 @@ async def _summarize_and_store(
                 kernel_snapshot=kernel_snapshot, tags=tags, stems=stems,
                 execution_ms=execution_ms,
             )
+
+        # ── Code cell: LLM fallback for long comment blocks where TextRank
+        # returned None (too few prose sentences to rank).
+        if cell_type == "code" and summary.get("auto_summary") is None and bg_provider:
+            comments = await asyncio.to_thread(_extract_comments, source)
+            if len(comments) > MARKDOWN_THRESHOLD:
+                summary = await patch_code_summary_comments_async(summary, comments, bg_provider)
 
         # Persist summary to disk in a thread.
         # The SummaryStore constructor calls mkdir() on the HDD (expensive seek),
