@@ -9,7 +9,7 @@ Summary object schema (spec §2.3):
   {
     "cell_type":        "code | markdown | raw",
     "source_snippet":   "<first 300 chars of source>",
-    "llm_summary":      "<LLM-generated prose summary | null>",
+    "auto_summary":     "<TextRank or LLM-generated prose summary | null>",
     "output":           "<output string, up to 1000 chars | null>",
     "symbols_defined":  ["model", "X_train"],
     "symbols_consumed": ["df", "THRESHOLD"],
@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import ast
 import logging
+import math
 import re
 from typing import Any, Dict, List, Optional
 
@@ -55,6 +56,67 @@ _OUTPUT_SUMMARY_SYSTEM = (
     "Produce a concise 1–2 sentence summary capturing the key result, metric, or message. "
     "Output ONLY the summary — no preamble, no labels, no markdown formatting."
 )
+
+_MD_NOISE_RE = re.compile(r'[#*`_\[\]()>~|]')
+
+# ── TextRank summarizer ────────────────────────────────────────────────────────
+
+
+def _textrank_summary(text: str, n_sentences: int = 3) -> Optional[str]:
+    """Extract the most central sentences using a lightweight TextRank algorithm.
+
+    Strips markdown syntax markers before scoring so headers/bullets don't
+    distort word-overlap similarity.  Original sentence text is preserved in
+    the output.
+
+    Returns None when the text has fewer than n_sentences + 1 scoreable
+    sentences — the caller should fall back to LLM or truncation in that case.
+    """
+    # Split at sentence-ending punctuation or blank lines (paragraph breaks)
+    raw = re.split(r'(?<=[.!?])\s+|\n{2,}', text.strip())
+    sentences = [s.strip() for s in raw if len(s.strip()) > 10]
+
+    if len(sentences) <= n_sentences:
+        return None  # too few sentences to meaningfully rank
+
+    def word_set(s: str) -> set:
+        return set(re.findall(r'\b\w{3,}\b', _MD_NOISE_RE.sub(' ', s).lower()))
+
+    cleaned = [word_set(s) for s in sentences]
+    n = len(sentences)
+
+    # Sentence-to-sentence similarity: word-overlap / log(|A| + 1) + log(|B| + 1)
+    sim: List[List[float]] = [[0.0] * n for _ in range(n)]
+    for i in range(n):
+        for j in range(i + 1, n):
+            wi, wj = cleaned[i], cleaned[j]
+            if not wi or not wj:
+                continue
+            overlap = len(wi & wj)
+            if overlap:
+                val = overlap / (math.log(len(wi) + 1) + math.log(len(wj) + 1))
+                sim[i][j] = sim[j][i] = val
+
+    # PageRank iteration (20 steps is sufficient for convergence on short texts)
+    damping = 0.85
+    scores = [1.0 / n] * n
+    for _ in range(20):
+        new_scores = [(1 - damping) / n] * n
+        for i in range(n):
+            col_sum = sum(sim[j][i] for j in range(n))
+            if col_sum == 0:
+                continue
+            for j in range(n):
+                if sim[j][i] > 0:
+                    new_scores[i] += damping * scores[j] * sim[j][i] / col_sum
+        scores = new_scores
+
+    # Pick top n_sentences; restore original document order
+    top = sorted(
+        sorted(range(n), key=lambda i: scores[i], reverse=True)[:n_sentences]
+    )
+    return ' '.join(sentences[idx] for idx in top)
+
 
 # ── Builtins set (excluded from consumed to reduce noise) ─────────────────────
 
@@ -207,7 +269,7 @@ def _build_code_summary(
         return {
             "cell_type":        "code",
             "source_snippet":   source[:SNIPPET_CHARS].strip(),
-            "llm_summary":      None,
+            "auto_summary":      None,
             "output":           None,
             "symbols_defined":  defined,
             "symbols_consumed": [],
@@ -289,7 +351,7 @@ def _build_code_summary(
     return {
         "cell_type":        "code",
         "source_snippet":   source[:SNIPPET_CHARS].strip(),
-        "llm_summary":      None,
+        "auto_summary":      None,
         "output":           summary_output,
         "symbols_defined":  defined,
         "symbols_consumed": consumed,
@@ -314,11 +376,13 @@ def _build_markdown_summary(
     tags: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     truncated = len(source) > MARKDOWN_THRESHOLD
-    snippet = _truncate_at_sentence(source, MARKDOWN_THRESHOLD) if truncated else source
+    auto_summary: Optional[str] = None
+    if truncated:
+        auto_summary = _textrank_summary(source) or _truncate_at_sentence(source, MARKDOWN_THRESHOLD)
     return {
         "cell_type":        "markdown",
-        "source_snippet":   snippet.strip(),
-        "llm_summary":      None,
+        "source_snippet":   source[:SNIPPET_CHARS].strip(),
+        "auto_summary":     auto_summary,
         "output":           None,
         "symbols_defined":  [],
         "symbols_consumed": [],
@@ -343,7 +407,7 @@ def _build_raw_summary(
     return {
         "cell_type":        "raw",
         "source_snippet":   source[:SNIPPET_CHARS].strip(),
-        "llm_summary":      None,
+        "auto_summary":      None,
         "output":           None,
         "symbols_defined":  [],
         "symbols_consumed": [],
@@ -369,34 +433,31 @@ async def build_markdown_summary_async(
     provider: Any,
     tags: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    """Summarise a large markdown cell via the Simple Tasks LLM.
+    """Summarise a large markdown cell.
 
-    Calls ``provider.chat()`` with a concise instruction prompt and stores the
-    result in the ``llm_summary`` field.  Falls back gracefully to
-    ``_build_markdown_summary()`` (sentence-boundary truncation) when:
-      - ``len(source) <= MARKDOWN_THRESHOLD`` (not large enough to need LLM)
-      - the LLM call raises any exception
+    Priority:
+      1. TextRank extractive summary (fast, free, no network).
+      2. LLM prose summary via the Background model — only when TextRank returns
+         None (too few scoreable sentences, e.g. the cell is mostly code blocks).
+      3. ``_build_markdown_summary()`` (sentence-boundary truncation) as final
+         fallback when the LLM call fails or no provider is configured.
 
     Args:
         source:   Full markdown source text.
-        provider: A configured ``BaseLLMProvider`` instance (Simple Tasks model).
+        provider: A configured ``BaseLLMProvider`` instance (Background model).
+                  May be None — TextRank still runs; only the LLM step is skipped.
         tags:     Cell metadata tags (passed through to the summary dict).
     """
     if len(source) <= MARKDOWN_THRESHOLD:
         return _build_markdown_summary(source, tags)
 
-    capped   = source[:LLM_SUMMARY_MAX_INPUT_CHARS]
-    user_msg = f"Summarize this Jupyter notebook markdown cell:\n\n{capped}"
-
-    try:
-        summary_text = await provider.chat(
-            system=_MARKDOWN_SUMMARY_SYSTEM,
-            user=user_msg,
-        )
+    # ── Pass 1: TextRank ──────────────────────────────────────────────────────
+    tr = _textrank_summary(source)
+    if tr:
         return {
             "cell_type":        "markdown",
             "source_snippet":   source[:SNIPPET_CHARS].strip(),
-            "llm_summary":      summary_text.strip() if summary_text else None,
+            "auto_summary":     tr,
             "output":           None,
             "symbols_defined":  [],
             "symbols_consumed": [],
@@ -412,16 +473,47 @@ async def build_markdown_summary_async(
             "tags":             tags or [],
             "cell_action":      [],
         }
-    except Exception as exc:
-        _model = getattr(getattr(provider, "_chat_client", None), "model", "?")
-        log.warning(
-            "build_markdown_summary_async: LLM call failed (model=%s). "
-            "Check ANTHROPIC_BG_TASK_MODEL / DS_BG_TASK_PROVIDER in varys.env. "
-            "Error: %s",
-            _model,
-            exc,
-        )
-        return _build_markdown_summary(source, tags)
+
+    # ── Pass 2: LLM fallback (cell has too few prose sentences for TextRank) ──
+    if provider:
+        capped   = source[:LLM_SUMMARY_MAX_INPUT_CHARS]
+        user_msg = f"Summarize this Jupyter notebook markdown cell:\n\n{capped}"
+        try:
+            summary_text = await provider.chat(
+                system=_MARKDOWN_SUMMARY_SYSTEM,
+                user=user_msg,
+            )
+            return {
+                "cell_type":        "markdown",
+                "source_snippet":   source[:SNIPPET_CHARS].strip(),
+                "auto_summary":     summary_text.strip() if summary_text else None,
+                "output":           None,
+                "symbols_defined":  [],
+                "symbols_consumed": [],
+                "symbol_values":    {},
+                "symbol_types":     {},
+                "execution_count":  None,
+                "had_error":        False,
+                "error_text":       None,
+                "is_mutation_only": False,
+                "is_import_cell":   False,
+                "truncated":        False,
+                "deleted":          False,
+                "tags":             tags or [],
+                "cell_action":      [],
+            }
+        except Exception as exc:
+            _model = getattr(getattr(provider, "_chat_client", None), "model", "?")
+            log.warning(
+                "build_markdown_summary_async: LLM call failed (model=%s). "
+                "Check ANTHROPIC_BG_TASK_MODEL / DS_BG_TASK_PROVIDER in varys.env. "
+                "Error: %s",
+                _model,
+                exc,
+            )
+
+    # ── Pass 3: sentence-boundary truncation ─────────────────────────────────
+    return _build_markdown_summary(source, tags)
 
 
 # ── Output pre-processing ─────────────────────────────────────────────────────

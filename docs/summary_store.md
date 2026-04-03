@@ -163,7 +163,7 @@ This is the main payload — everything Varys knows about the cell.
 "summary": {
   "cell_type":        "code",
   "source_snippet":   "df = pd.read_csv('titanic.csv')",
-  "llm_summary":      null,
+  "auto_summary":      null,
   "output":           null,
   "symbols_defined":  ["df"],
   "symbols_consumed": [],
@@ -187,7 +187,7 @@ This is the main payload — everything Varys knows about the cell.
 |-------|------|---------|
 | `cell_type` | string | `"code"`, `"markdown"`, or `"raw"` |
 | `source_snippet` | string | First 300 characters of the cell source, stripped of leading/trailing whitespace |
-| `llm_summary` | string\|null | LLM-generated prose summary (only for long markdown cells). `null` for code cells. |
+| `auto_summary` | string\|null | TextRank extractive summary for large markdown cells (LLM fallback when text has too few prose sentences). `null` for code cells and short markdown. |
 | `output` | string\|null | Plain-text cell output, up to 1 000 characters. `null` if no output. |
 | `symbols_defined` | list[str] | Variable/function/class names assigned in this cell |
 | `symbols_consumed` | list[str] | Names read from other cells (not defined here, not Python builtins) |

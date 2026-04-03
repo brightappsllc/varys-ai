@@ -358,7 +358,7 @@ def _format_skeleton_cell(cell: Dict[str, Any], store: SummaryStore) -> str:
         return f"  Cell {position} [{ctype}, not executed]: {snippet}"
 
     if ctype == "markdown":
-        label = summary.get("llm_summary") or summary.get("source_snippet", "")
+        label = summary.get("auto_summary") or summary.get("source_snippet", "")
         label = label[:60] if label else "(markdown)"
         return f"  Cell {position} [markdown]: {label}"
 
@@ -473,11 +473,10 @@ def _format_summary_cell(cell: Dict[str, Any], store: SummaryStore) -> str:
         if ec is not None:
             lines.append(f"Execution: [{ec}]")
     else:
-        # Markdown / raw: prefer LLM prose summary when available
-        llm_summary = summary.get("llm_summary")
-        if llm_summary:
-            lines.append(llm_summary)
-            lines.append("[LLM-generated summary]")
+        # Markdown / raw: prefer auto summary (TextRank or LLM) when available
+        auto_summary = summary.get("auto_summary")
+        if auto_summary:
+            lines.append(auto_summary)
         else:
             snippet = summary.get("source_snippet", "")
             if snippet:
