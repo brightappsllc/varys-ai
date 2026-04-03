@@ -186,8 +186,13 @@ class SummaryStore:
         data = self._load()
         versions: List[Dict] = data.get(cell_id, [])
 
-        # No-op if source is unchanged
+        # No-op if source is unchanged — but still keep _cells index current
         if versions and versions[-1].get("hash") == new_hash:
+            cells_index = data.get("_cells") if isinstance(data.get("_cells"), dict) else {}
+            if cell_id not in cells_index:
+                cells_index[cell_id] = self._cell_snippet(source)
+                data["_cells"] = cells_index
+                self._save(data)
             return False
 
         entry: Dict[str, Any] = {
