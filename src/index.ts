@@ -25,6 +25,7 @@ import { reproStore } from './reproducibility/store';
 import { dsAssistantIcon } from './icon';
 import { initCellTagOverlay } from './tags/cellTagOverlay';
 import { initOutputOverlay } from './outputs/outputOverlay';
+import { extractAssignedNames, buildKernelSnapshot } from './context/kernelSnapshot';
 
 const PLUGIN_ID = 'varys:plugin';
 const COMPLETION_PLUGIN_ID = 'varys:inline-completion';
@@ -578,61 +579,77 @@ const plugin: JupyterFrontEndPlugin<void> = {
       }
 
       // ── Smart Cell Context — fire-and-forget SummaryStore update ──
-      try {
-        if (!cell) return;
-        const model     = cell.model;
-        const cellId: string =
-          (model as any).id ?? (model as any).sharedModel?.id ?? '';
-        if (!cellId) return;
+      // Wrapped in an async IIFE so we can await kernel introspection before
+      // posting, without blocking the synchronous signal handler.
+      (async () => {
+        try {
+          if (!cell) return;
+          const model     = cell.model;
+          const cellId: string =
+            (model as any).id ?? (model as any).sharedModel?.id ?? '';
+          if (!cellId) return;
 
-        const notebookPath = panel.context.path;
-        const source       = model.sharedModel.getSource();
-        const cellType     = model.type as string;
+          const notebookPath = panel.context.path;
+          const source       = model.sharedModel.getSource();
+          const cellType     = model.type as string;
 
-        let   output: string | null     = null;
-        let   hadError                  = false;
-        let   errorText: string | null  = null;
-        const execCount: number | null  =
-          cellType === 'code' ? ((model as any).executionCount ?? null) : null;
+          let   output: string | null     = null;
+          let   hadError                  = false;
+          let   errorText: string | null  = null;
+          const execCount: number | null  =
+            cellType === 'code' ? ((model as any).executionCount ?? null) : null;
 
-        if (cellType === 'code') {
-          const outputs = (model as any).outputs;
-          if (outputs && outputs.length > 0) {
-            const parts: string[] = [];
-            for (let i = 0; i < outputs.length; i++) {
-              const out = outputs.get ? outputs.get(i) : outputs[i];
-              if (!out) continue;
-              const raw: any = typeof out.toJSON === 'function' ? out.toJSON() : out;
-              const otype    = raw.output_type ?? '';
-              if (otype === 'error') {
-                hadError  = true;
-                errorText = `${raw.ename ?? 'Error'}: ${raw.evalue ?? ''}`;
-              } else if (otype === 'stream') {
-                const t = raw.text ?? '';
-                parts.push(Array.isArray(t) ? t.join('') : String(t));
-              } else if (otype === 'execute_result' || otype === 'display_data') {
-                const plain = (raw.data ?? {})['text/plain'] ?? '';
-                parts.push(Array.isArray(plain) ? plain.join('') : String(plain));
+          if (cellType === 'code') {
+            const outputs = (model as any).outputs;
+            if (outputs && outputs.length > 0) {
+              const parts: string[] = [];
+              for (let i = 0; i < outputs.length; i++) {
+                const out = outputs.get ? outputs.get(i) : outputs[i];
+                if (!out) continue;
+                const raw: any = typeof out.toJSON === 'function' ? out.toJSON() : out;
+                const otype    = raw.output_type ?? '';
+                if (otype === 'error') {
+                  hadError  = true;
+                  errorText = `${raw.ename ?? 'Error'}: ${raw.evalue ?? ''}`;
+                } else if (otype === 'stream') {
+                  const t = raw.text ?? '';
+                  parts.push(Array.isArray(t) ? t.join('') : String(t));
+                } else if (otype === 'execute_result' || otype === 'display_data') {
+                  const plain = (raw.data ?? {})['text/plain'] ?? '';
+                  parts.push(Array.isArray(plain) ? plain.join('') : String(plain));
+                }
+              }
+              output = parts.join('\n').trim() || null;
+            }
+          }
+
+          // ── Kernel snapshot — introspect variables assigned in this cell ──
+          let kernelSnapshot: Record<string, unknown> = {};
+          if (cellType === 'code' && !hadError) {
+            const kernel = panel.sessionContext.session?.kernel;
+            if (kernel) {
+              const names = extractAssignedNames(source);
+              if (names.length > 0) {
+                kernelSnapshot = await buildKernelSnapshot(kernel, names);
               }
             }
-            output = parts.join('\n').trim() || null;
           }
-        }
 
-        apiClient.cellExecuted({
-          cell_id:         cellId,
-          notebook_path:   notebookPath,
-          source,
-          output,
-          execution_count: execCount,
-          had_error:       hadError,
-          error_text:      errorText,
-          cell_type:       cellType,
-          kernel_snapshot: {},
-        });
-      } catch {
-        // Non-fatal: SummaryStore update is best-effort
-      }
+          apiClient.cellExecuted({
+            cell_id:         cellId,
+            notebook_path:   notebookPath,
+            source,
+            output,
+            execution_count: execCount,
+            had_error:       hadError,
+            error_text:      errorText,
+            cell_type:       cellType,
+            kernel_snapshot: kernelSnapshot,
+          });
+        } catch {
+          // Non-fatal: SummaryStore update is best-effort
+        }
+      })();
     });
 
     // ── Cell lifecycle listener — delete / restore ────────────────────────────
