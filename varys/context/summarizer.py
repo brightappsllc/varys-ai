@@ -297,6 +297,7 @@ def _build_code_summary(
             "symbols_consumed": [],
             "symbol_values":    {},
             "symbol_types":     {},
+            "symbol_meta":      {},
             "execution_count":  execution_count,
             "had_error":        False,
             "error_text":       None,
@@ -305,7 +306,7 @@ def _build_code_summary(
             "truncated":        False,
             "deleted":          False,
             "tags":             tags or [],
-            "cell_action":      detect_actions(source, True, stems or DEFAULT_STEMS, tags=normalised_tags),
+            "cell_action":      detect_actions(source, True, stems or DEFAULT_STEMS, tags=tags),
             "execution_ms":     execution_ms,
         }
 
