@@ -21,17 +21,28 @@ _DATA_SOURCE_RE = re.compile(
     r'|open\s*\(\s*[rf]?([\'"])([^\'"]+)\3',
 )
 
+_EXPORT_FILE_RE = re.compile(
+    r'\.to_(?:csv|excel|parquet|json|pickle|hdf)\s*\(\s*[rf]?([\'"])([^\'"]+)\1'
+)
+
 
 def _extract_data_source_file(source: str) -> Optional[str]:
     """Return the basename of the first data file path found in *source*, or None."""
     m = _DATA_SOURCE_RE.search(source)
     if not m:
         return None
-    # Groups 2 or 4 hold the path string depending on which branch matched.
     path = m.group(2) or m.group(4)
     if not path:
         return None
     return os.path.basename(path)
+
+
+def _extract_export_file(source: str) -> Optional[str]:
+    """Return the basename of the first export file path found in *source*, or None."""
+    m = _EXPORT_FILE_RE.search(source)
+    if not m:
+        return None
+    return os.path.basename(m.group(2))
 
 
 # Matches top-level import statements to detect reimports across cells.
@@ -189,6 +200,29 @@ def _extract_primary_method(source: str) -> Optional[str]:
     return None
 
 
+_FILE_EXTS = frozenset(
+    ('csv', 'xlsx', 'xls', 'parquet', 'json', 'feather',
+     'orc', 'tsv', 'txt', 'hdf', 'h5', 'pkl', 'pickle')
+)
+
+
+def _data_var(
+    effective_defines: List[str],
+    symbol_types: Dict[str, str],
+) -> Optional[str]:
+    """Return the most meaningful result variable: prefer DataFrame/array over scalars."""
+    for sym in effective_defines:
+        if symbol_types.get(sym, "").startswith(("DataFrame", "ndarray", "Series")):
+            return sym
+    return effective_defines[0] if effective_defines else None
+
+
+def _var_part(sym: str, symbol_types: Dict[str, str]) -> str:
+    """Format 'var (Type)' or just 'var' when no type known."""
+    typ = symbol_types.get(sym, "")
+    return f"{sym} ({typ})" if typ else sym
+
+
 def _build_action_context(
     cell_action: List[str],
     source: str,
@@ -198,68 +232,64 @@ def _build_action_context(
 ) -> str:
     """Build the sublabel for action-labeled nodes.
 
-    Returns a concise context string based on the primary action.
+    Pattern: <operation> · <result>
+      operation = what was done  (filename, method name, plot title, subjects shown)
+      result    = what came out  (var (Type))
     """
     primary = cell_action[0] if cell_action else ""
 
+    # ── data-loading: "filename · var (Type)" ────────────────────────────────
     if primary == "data-loading":
-        # "{data_var} · {filename} · {shape}"
-        # Prefer the DataFrame/array variable over scalar variables (e.g. FILENAME constant)
-        data_var: Optional[str] = None
-        for sym in effective_defines:
-            typ = symbol_types.get(sym, "")
-            if typ.startswith(("DataFrame", "ndarray", "Series")):
-                data_var = sym
-                break
-        if data_var is None and effective_defines:
-            data_var = effective_defines[0]
+        var = _data_var(effective_defines, symbol_types)
 
-        # Try string literal in source first, then scan symbol_values for file-like strings
         data_file = _extract_data_source_file(source)
         if not data_file:
-            _file_exts = frozenset(
-                ('csv', 'xlsx', 'xls', 'parquet', 'json', 'feather',
-                 'orc', 'tsv', 'txt', 'hdf', 'h5', 'pkl', 'pickle')
-            )
             for val in symbol_values.values():
                 if isinstance(val, str) and '.' in val:
-                    ext = val.rsplit('.', 1)[-1].lower()
-                    if ext in _file_exts:
+                    if val.rsplit('.', 1)[-1].lower() in _FILE_EXTS:
                         data_file = os.path.basename(val)
                         break
 
-        # Format: "filename · var (Type)"
         parts: List[str] = []
         if data_file:
             parts.append(data_file.lower())
-        if data_var:
-            typ = symbol_types.get(data_var, "")
-            parts.append(f"{data_var} ({typ})" if typ else data_var)
-
+        if var:
+            parts.append(_var_part(var, symbol_types))
         return " · ".join(parts)
 
+    # ── export: "method · filename" or "method · var (Type)" ─────────────────
+    if primary == "export":
+        method = _extract_primary_method(source) or "export"
+        export_file = _extract_export_file(source)
+        if export_file:
+            return f"{method} · {export_file.lower()}"
+        var = _data_var(effective_defines, symbol_types)
+        return f"{method} · {_var_part(var, symbol_types)}" if var else method
+
+    # ── Define: name already in label ────────────────────────────────────────
     if primary.startswith("Define"):
-        # Name already in label — no sublabel needed
         return ""
 
+    # ── figure: plot title (operation IS the title) or plot function name ────
     if primary == "figure":
         titles = _extract_plot_titles(source)
         if titles:
             return titles[0]
-        return effective_defines[0] if effective_defines else ""
+        method = _extract_primary_method(source)
+        return method if method else ""
 
+    # ── display: what was shown ───────────────────────────────────────────────
     if primary == "display":
         subjects = _extract_display_subjects(source)
         return " · ".join(subjects) if subjects else ""
 
-    # All other actions: "method · var (Type)"
-    if effective_defines:
-        sym = effective_defines[0]
-        typ = symbol_types.get(sym, "")
-        method = _extract_primary_method(source)
-        var_part = f"{sym} ({typ})" if typ else sym
-        return f"{method} · {var_part}" if method else var_part
-    return ""
+    # ── all others (preprocessing, feature-engineering, training, …) ─────────
+    # "method · var (Type)"
+    var = _data_var(effective_defines, symbol_types)
+    method = _extract_primary_method(source)
+    if var:
+        return f"{method} · {_var_part(var, symbol_types)}" if method else _var_part(var, symbol_types)
+    return method if method else ""
 
 
 def _build_label(
@@ -306,31 +336,13 @@ def _build_label(
         typ = symbol_types.get(primary, "")
         val = symbol_values.get(primary)
 
-        if typ == "DataFrame":
-            if isinstance(val, str):
-                base_sub = f"DataFrame · {val}"
-            elif isinstance(val, dict):
-                rows = val.get("rows", "?")
-                cols = val.get("cols", "?")
-                base_sub = (
-                    f"DataFrame · {rows:,} × {cols}"
-                    if isinstance(rows, int)
-                    else f"DataFrame · {rows} × {cols}"
-                )
-            else:
-                base_sub = "DataFrame"
-        elif typ == "ndarray":
-            base_sub = f"ndarray · {val}" if isinstance(val, str) else "ndarray"
-        elif typ in ("str", "int", "float", "bool"):
+        # For scalar types include the value; for all others the type string
+        # already contains shape/class info (e.g. "DataFrame(891, 12)").
+        if typ in ("str", "int", "float", "bool"):
             val_str = str(val) if val is not None else ""
             base_sub = f"{typ} · {val_str}" if val_str and len(val_str) <= 20 else typ
         else:
             base_sub = typ
-
-        # Append the source filename when this cell loads data from a file.
-        data_file = _extract_data_source_file(source)
-        if data_file:
-            base_sub = f"{base_sub} · {data_file}" if base_sub else data_file
 
         sublabel = f"{base_sub} · not executed" if unexecuted and base_sub else (
             "not executed" if unexecuted else base_sub
