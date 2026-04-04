@@ -151,10 +151,6 @@ def _build_action_context(
         if data_var is None and effective_defines:
             data_var = effective_defines[0]
 
-        parts: List[str] = []
-        if data_var:
-            parts.append(data_var)
-
         # Try string literal in source first, then scan symbol_values for file-like strings
         data_file = _extract_data_source_file(source)
         if not data_file:
@@ -168,13 +164,14 @@ def _build_action_context(
                     if ext in _file_exts:
                         data_file = os.path.basename(val)
                         break
+
+        # Format: "filename · var (Type)"
+        parts: List[str] = []
         if data_file:
             parts.append(data_file.lower())
-
         if data_var:
             typ = symbol_types.get(data_var, "")
-            if typ:
-                parts.append(typ)
+            parts.append(f"{data_var} ({typ})" if typ else data_var)
 
         return " · ".join(parts)
 
