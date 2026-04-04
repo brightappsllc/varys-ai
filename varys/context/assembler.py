@@ -513,6 +513,10 @@ def _format_summary_cell(
                 rendered = _render_symbol_meta(name, meta)
                 if rendered:
                     lines.append(rendered)
+        # Comment-based description (extracted by summarizer; may be LLM-compressed)
+        auto_summary = summary.get("auto_summary")
+        if auto_summary:
+            lines.append(f"Notes: {auto_summary[:300]}")
         if output:
             snippet = output[:200] + (" […]" if len(output) > 200 else "")
             lines.append(f'Output: "{snippet}"')
@@ -523,6 +527,9 @@ def _format_summary_cell(
         if summary.get("is_mutation_only"):
             snip = summary.get("source_snippet", "")[:200]
             lines.append(f"Source: {snip}")
+        tags = summary.get("tags") or []
+        if tags:
+            lines.append(f"Tags: {', '.join(tags)}")
     else:
         # Markdown / raw: prefer auto summary (TextRank or LLM) when available
         auto_summary = summary.get("auto_summary")
