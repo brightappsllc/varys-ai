@@ -126,7 +126,15 @@ def _extract_plot_titles(source: str) -> List[str]:
     return titles
 
 
-_FSTRING_EXPR_RE = re.compile(r'\{([^{}:!=][^{}]*?)\}')
+_FSTRING_EXPR_RE  = re.compile(r'\{([^{}:!=][^{}]*?)\}')
+_METHOD_CALL_RE   = re.compile(r'\.([A-Za-z_]\w*)\s*\(')
+
+# Method names too generic to be useful as a sublabel
+_SKIP_METHODS = frozenset({
+    'get', 'set', 'items', 'values', 'keys', 'append', 'extend',
+    'format', 'join', 'split', 'strip', 'lower', 'upper',
+    'head', 'tail', 'copy', 'reset_index', 'set_index',
+})
 _DIRECT_ARG_RE   = re.compile(r'(?:print|display)\s*\(\s*([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)')
 _STRING_PREFIX   = frozenset('frbuFRBU')
 
@@ -167,6 +175,18 @@ def _extract_display_subjects(source: str) -> List[str]:
             _add(arg)
 
     return subjects
+
+
+def _extract_primary_method(source: str) -> Optional[str]:
+    """Return the first meaningful method name called in source.
+
+    Skips dunder methods and generic names that add no information.
+    """
+    for m in _METHOD_CALL_RE.finditer(source):
+        name = m.group(1)
+        if not name.startswith('_') and name not in _SKIP_METHODS:
+            return name
+    return None
 
 
 def _build_action_context(
@@ -232,11 +252,13 @@ def _build_action_context(
         subjects = _extract_display_subjects(source)
         return " · ".join(subjects) if subjects else ""
 
-    # All other actions: first defined or consumed symbol
+    # All other actions: "method · var (Type)"
     if effective_defines:
         sym = effective_defines[0]
         typ = symbol_types.get(sym, "")
-        return f"{sym} · {typ}" if typ else sym
+        method = _extract_primary_method(source)
+        var_part = f"{sym} ({typ})" if typ else sym
+        return f"{method} · {var_part}" if method else var_part
     return ""
 
 
