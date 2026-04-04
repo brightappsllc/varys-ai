@@ -27,6 +27,25 @@ import logging
 from jupyter_server.base.handlers import JupyterHandler
 from tornado.web import authenticated
 
+# These imports are at module level so they happen at server startup, not on
+# the first cell execution.  Inline imports inside _summarize_and_store (an
+# async coroutine) run on the Tornado event loop and block it, which prevents
+# the kernel's execute_reply WebSocket frame from being forwarded to the
+# browser — making the first cell appear to hang for several seconds.
+from ..context.summarizer import (
+    build_summary,
+    build_markdown_summary_async,
+    patch_code_summary_comments_async,
+    summarize_output_async,
+    collapse_output,
+    _extract_comments,
+    MARKDOWN_THRESHOLD,
+    OUTPUT_SUMMARY_CHARS,
+)
+from ..llm.factory import create_bg_task_provider
+from ..context.action_stems import ActionStemLoader
+from ..memory.inference import run_inference
+
 log = logging.getLogger(__name__)
 
 
@@ -160,19 +179,6 @@ async def _summarize_and_store(
         return
 
     try:
-        from ..context.summarizer    import (
-            build_summary,
-            build_markdown_summary_async,
-            patch_code_summary_comments_async,
-            summarize_output_async,
-            collapse_output,
-            _extract_comments,
-            MARKDOWN_THRESHOLD,
-            OUTPUT_SUMMARY_CHARS,
-        )
-        from ..llm.factory import create_bg_task_provider
-
-        from ..context.action_stems import ActionStemLoader
         stem_loader = ActionStemLoader()
         stems = await asyncio.to_thread(stem_loader.load)
 
@@ -225,7 +231,6 @@ async def _summarize_and_store(
         )
 
         if trigger_inference:
-            from ..memory.inference import run_inference
             asyncio.create_task(run_inference(root_dir, notebook_path, settings))
             log.debug("Inference pipeline triggered for %s", notebook_path)
         else:
