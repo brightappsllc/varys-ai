@@ -126,6 +126,49 @@ def _extract_plot_titles(source: str) -> List[str]:
     return titles
 
 
+_FSTRING_EXPR_RE = re.compile(r'\{([^{}:!=][^{}]*?)\}')
+_DIRECT_ARG_RE   = re.compile(r'(?:print|display)\s*\(\s*([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)')
+_STRING_PREFIX   = frozenset('frbuFRBU')
+
+
+def _extract_display_subjects(source: str) -> List[str]:
+    """Return concise labels for what each print/display call is showing.
+
+    Handles:
+      print(f"Shape: {df.shape}")  → "df shape"
+      print(df.dtypes)             → "df dtypes"
+      print("literal")             → skipped (not informative)
+    Converts attribute access dots to spaces: df.shape → "df shape".
+    Deduplicates while preserving order.
+    """
+    seen:     set  = set()
+    subjects: List[str] = []
+
+    def _add(expr: str) -> None:
+        label = expr.strip().replace('.', ' ')
+        if label and label not in seen:
+            seen.add(label)
+            subjects.append(label)
+
+    for m in _DIRECT_ARG_RE.finditer(source):
+        arg = m.group(1)
+        # Single-char f/r/b/u means this is a prefixed string — mine it for
+        # f-string expressions instead of using the prefix letter as a label.
+        if len(arg) == 1 and arg in _STRING_PREFIX:
+            # Extract {expr} from the rest of the argument text
+            rest = source[m.end():]
+            brace_end = rest.find(')')
+            fstr_body = rest[:brace_end] if brace_end != -1 else rest[:200]
+            for fm in _FSTRING_EXPR_RE.finditer(fstr_body):
+                expr = fm.group(1).split()[0]   # drop format spec words
+                if re.match(r'^[A-Za-z_]\w*[\w.]*$', expr):
+                    _add(expr)
+        else:
+            _add(arg)
+
+    return subjects
+
+
 def _build_action_context(
     cell_action: List[str],
     source: str,
@@ -186,11 +229,8 @@ def _build_action_context(
         return effective_defines[0] if effective_defines else ""
 
     if primary == "display":
-        # Try to extract first argument to print() / display()
-        m = re.search(r'(?:print|display)\s*\(\s*([A-Za-z_]\w*)', source)
-        if m:
-            return m.group(1)
-        return ""
+        subjects = _extract_display_subjects(source)
+        return " · ".join(subjects) if subjects else ""
 
     # All other actions: first defined or consumed symbol
     if effective_defines:
