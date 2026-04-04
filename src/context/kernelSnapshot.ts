@@ -79,19 +79,22 @@ _skl = _sys.modules.get('sklearn.base')
 def _col_profile(_s):
     """Return a profile dict for one pandas Series column."""
     _p = {'dtype': str(_s.dtype)}
-    try:
-        _p['n_unique'] = int(_s.nunique())
-    except Exception:
-        pass
+    _k = _s.dtype.kind
+    # n_unique only for non-numeric types (assembler only shows it for object/bool)
+    if _k not in ('i', 'u', 'f', 'M'):
+        try:
+            _p['n_unique'] = int(_s.nunique())
+        except Exception:
+            pass
     _nc = int(_s.isna().sum())
     if _nc:
         _p['n_null'] = _nc
-    _k = _s.dtype.kind
     if _k in ('i', 'u', 'f'):
         try:
-            _p['min']  = (None if _math.isnan(float(_s.min()))  else float(_s.min()))
-            _p['max']  = (None if _math.isnan(float(_s.max()))  else float(_s.max()))
-            _p['mean'] = (None if _math.isnan(float(_s.mean())) else round(float(_s.mean()), 4))
+            _mn = float(_s.min()); _mx = float(_s.max()); _mu = float(_s.mean())
+            _p['min']  = None if _math.isnan(_mn) else _mn
+            _p['max']  = None if _math.isnan(_mx) else _mx
+            _p['mean'] = None if _math.isnan(_mu) else round(_mu, 4)
         except Exception:
             pass
     elif _k == 'M':
@@ -153,7 +156,7 @@ export async function buildKernelSnapshot(
 
   const code = SNAPSHOT_PY.replace('NAMES_PLACEHOLDER', JSON.stringify(names));
 
-  return new Promise(resolve => {
+  const snapshotPromise = new Promise<Record<string, unknown>>(resolve => {
     let stdout = '';
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -191,4 +194,11 @@ export async function buildKernelSnapshot(
       })
       .catch(() => resolve({}));
   });
+
+  // Safety net: if the kernel is slow or unresponsive, don't block indefinitely.
+  const timeoutPromise = new Promise<Record<string, unknown>>(resolve =>
+    setTimeout(() => resolve({}), 5000)
+  );
+
+  return Promise.race([snapshotPromise, timeoutPromise]);
 }
