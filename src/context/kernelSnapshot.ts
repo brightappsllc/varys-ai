@@ -154,6 +154,13 @@ export async function buildKernelSnapshot(
 ): Promise<Record<string, unknown>> {
   if (!names.length) return {};
 
+  // Small delay before sending the silent execute request.
+  // After a cell completes, the kernel may still be running deferred work
+  // (e.g. numpy/BLAS thread-pool init on first use, pandas memory layout).
+  // The delay also lets any cell the user queues immediately after go first,
+  // keeping the interactive experience responsive.
+  await new Promise(resolve => setTimeout(resolve, 150));
+
   const code = SNAPSHOT_PY.replace('NAMES_PLACEHOLDER', JSON.stringify(names));
 
   const snapshotPromise = new Promise<Record<string, unknown>>(resolve => {
