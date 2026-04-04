@@ -140,18 +140,42 @@ def _build_action_context(
     primary = cell_action[0] if cell_action else ""
 
     if primary == "data-loading":
-        # "{var} · {filename} · {shape}"
-        parts: List[str] = []
-        if effective_defines:
-            parts.append(effective_defines[0])
-        data_file = _extract_data_source_file(source)
-        if data_file:
-            parts.append(data_file)
-        if effective_defines:
-            sym = effective_defines[0]
+        # "{data_var} · {filename} · {shape}"
+        # Prefer the DataFrame/array variable over scalar variables (e.g. FILENAME constant)
+        data_var: Optional[str] = None
+        for sym in effective_defines:
             typ = symbol_types.get(sym, "")
+            if typ.startswith(("DataFrame", "ndarray", "Series")):
+                data_var = sym
+                break
+        if data_var is None and effective_defines:
+            data_var = effective_defines[0]
+
+        parts: List[str] = []
+        if data_var:
+            parts.append(data_var)
+
+        # Try string literal in source first, then scan symbol_values for file-like strings
+        data_file = _extract_data_source_file(source)
+        if not data_file:
+            _file_exts = frozenset(
+                ('csv', 'xlsx', 'xls', 'parquet', 'json', 'feather',
+                 'orc', 'tsv', 'txt', 'hdf', 'h5', 'pkl', 'pickle')
+            )
+            for val in symbol_values.values():
+                if isinstance(val, str) and '.' in val:
+                    ext = val.rsplit('.', 1)[-1].lower()
+                    if ext in _file_exts:
+                        data_file = os.path.basename(val)
+                        break
+        if data_file:
+            parts.append(data_file.lower())
+
+        if data_var:
+            typ = symbol_types.get(data_var, "")
             if typ:
                 parts.append(typ)
+
         return " · ".join(parts)
 
     if primary.startswith("Define"):
