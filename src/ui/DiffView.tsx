@@ -53,6 +53,12 @@ export interface DiffViewProps {
   onUndo:   (operationId: string) => void;
   /** When set, the diff is resolved and rendered collapsed (no action buttons). */
   resolved?: 'accepted' | 'undone';
+  /**
+   * When false (default), the code has already been inserted and executed —
+   * only the Reject button is shown.  When true (reorder ops), execution is
+   * gated on approval so both Accept and Reject are shown.
+   */
+  requiresApproval?: boolean;
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -179,6 +185,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
   onAccept,
   onUndo,
   resolved,
+  requiresApproval = false,
 }) => {
   const totalCells   = diffs.length;
   const isReorder    = totalCells === 0;
@@ -242,16 +249,17 @@ export const DiffView: React.FC<DiffViewProps> = ({
             >{expanded ? '⌃ Hide' : '⌄ Show'}</button>
           ) : (
             <>
-              <button
-                className="ds-assistant-btn ds-assistant-btn-accept"
-                onClick={() => onAccept(operationId)}
-                title="Accept all changes in all cells"
-              >✓ Accept</button>
-
+              {requiresApproval && (
+                <button
+                  className="ds-assistant-btn ds-assistant-btn-accept"
+                  onClick={() => onAccept(operationId)}
+                  title="Accept changes and run cells"
+                >✓ Accept</button>
+              )}
               <button
                 className="ds-assistant-btn ds-assistant-btn-undo"
                 onClick={() => onUndo(operationId)}
-                title="Reject all changes"
+                title="Reject changes and undo"
               >✕ Reject</button>
             </>
           )}
@@ -263,7 +271,9 @@ export const DiffView: React.FC<DiffViewProps> = ({
         <div className="ds-diff-hint">
           {isReorder
             ? <>Cells have been rearranged in the notebook. Use <strong>✓ Accept</strong> to keep the new order or <strong>✕ Reject</strong> to undo.</>
-            : <>Review the changes below, then use <strong>✓ Accept</strong> or <strong>✕ Reject</strong> above.</>
+            : requiresApproval
+              ? <>Review the changes below, then use <strong>✓ Accept</strong> to run or <strong>✕ Reject</strong> to undo.</>
+              : <>Changes applied. Click <strong>✕ Reject</strong> to undo.</>
           }
         </div>
       )}
