@@ -5158,6 +5158,13 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   ): Promise<void> => {
     const typedText = (overrideText ?? input).trim();
     if (!typedText || isLoading) return;
+
+    // Auto-accept any unresolved ops that don't require explicit approval —
+    // the user moving on is implicit acceptance (code is already running).
+    pendingOps
+      .filter(o => !o.requiresApproval && !o.resolved)
+      .forEach(o => handleAccept(o.operationId));
+
     if (!chatProvider) {
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
@@ -6023,7 +6030,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
       // Append step summary + review prompt to the streamed explanation bubble
       const reviewPrompt = response.requiresApproval
         ? '\n\n⚠️ This operation requires approval before execution.'
-        : '\n\nReview the highlighted cell(s) then Accept or Undo.';
+        : '\n\nChanges applied. Click Reject below to undo.';
       appendToStream(`\n\n${stepSummary}${reviewPrompt}`);
 
       // Execute cells flagged for auto-run — after the diff block is already visible.
@@ -7262,6 +7269,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                 onAccept={handleAccept}
                 onUndo={handleUndo}
                 resolved={resolvedStatus}
+                requiresApproval={op?.requiresApproval ?? false}
               />
             );
           })()}
