@@ -21,7 +21,6 @@ from .handlers.report import ReportHandler
 from .handlers.wiki import WikiHandler
 from .handlers.magic_task import MagicTaskHandler
 from .handlers.chat_history import ChatHistoryHandler
-from .handlers.rag import RAGLearnHandler, RAGStatusHandler, RAGForgetHandler, RAGAskHandler
 from .modules.reproducibility_guardian.handler import (
     ReproAnalyzeHandler,
     ReproDismissHandler,
@@ -43,6 +42,7 @@ from .handlers.usage import UsageHandler
 from .handlers.graph import GraphHandler
 from .handlers.version_check import VersionCheckHandler
 from .handlers.changelog import ChangelogHandler
+from .handlers.nb_move import NbMoveHandler
 
 
 class DSAssistantExtension(ExtensionApp):
@@ -98,14 +98,14 @@ class DSAssistantExtension(ExtensionApp):
         # ----------------------------------------------------------------
         chat_provider         = os.environ.get("DS_CHAT_PROVIDER", "").upper()
         completion_provider   = os.environ.get("DS_COMPLETION_PROVIDER", "").upper()
-        simple_tasks_provider = os.environ.get("DS_SIMPLE_TASKS_PROVIDER", "").upper()
+        bg_task_provider = (os.environ.get("DS_BG_TASK_PROVIDER") or os.environ.get("DS_SIMPLE_TASKS_PROVIDER", "")).upper()
 
-        providers_in_use = {chat_provider, completion_provider, simple_tasks_provider}
+        providers_in_use = {chat_provider, completion_provider, bg_task_provider}
         settings_patch: dict = {
             "ds_assistant_root_dir":              self.serverapp.root_dir,
             "ds_assistant_chat_provider":         chat_provider.lower(),
             "ds_assistant_completion_provider":   completion_provider.lower(),
-            "ds_assistant_simple_tasks_provider": simple_tasks_provider.lower(),
+            "ds_assistant_bg_task_provider": bg_task_provider.lower(),
         }
 
         # ----------------------------------------------------------------
@@ -150,14 +150,10 @@ class DSAssistantExtension(ExtensionApp):
             "ds_assistant_openrouter_site_name":    os.environ.get("OPENROUTER_SITE_NAME", "Varys"),
         })
 
-        # Embedding provider routing
-        embed_provider = os.environ.get("DS_EMBED_PROVIDER", "").upper()
-        settings_patch["ds_assistant_embed_provider"] = embed_provider.lower()
-
         # Collect {PROVIDER}_{TASK}_MODEL for every provider and task type
         all_providers = {"ANTHROPIC", "OLLAMA", "OPENAI", "GOOGLE", "BEDROCK", "AZURE", "OPENROUTER"}
         for provider in all_providers:
-            for task in ("chat", "completion", "embed", "simple_tasks"):
+            for task in ("chat", "completion", "bg_task"):
                 env_key  = f"{provider}_{task.upper()}_MODEL"
                 sett_key = f"ds_assistant_{provider.lower()}_{task}_model"
                 settings_patch[sett_key] = os.environ.get(env_key, "")
@@ -219,8 +215,7 @@ class DSAssistantExtension(ExtensionApp):
         self.log.info(
             f"Varys: "
             f"chat={chat_provider or '(not set)'}  "
-            f"completion={completion_provider or '(not set)'}  "
-            f"embed={embed_provider or '(not set)'}"
+            f"completion={completion_provider or '(not set)'}"
         )
 
         # ----------------------------------------------------------------
@@ -366,11 +361,6 @@ class DSAssistantExtension(ExtensionApp):
             (url_path_join(base, "reproducibility", "analyze"), ReproAnalyzeHandler),
             (url_path_join(base, "reproducibility", "dismiss"), ReproDismissHandler),
             (url_path_join(base, "reproducibility"),            ReproIssuesHandler),
-            # RAG knowledge base
-            (url_path_join(base, "rag", "learn"),  RAGLearnHandler),
-            (url_path_join(base, "rag", "status"), RAGStatusHandler),
-            (url_path_join(base, "rag", "forget"), RAGForgetHandler),
-            (url_path_join(base, "rag", "ask"),    RAGAskHandler),
             # MCP server management
             (url_path_join(base, "mcp"),           MCPStatusHandler),
             (url_path_join(base, "mcp", "reload"), MCPReloadHandler),
@@ -398,4 +388,6 @@ class DSAssistantExtension(ExtensionApp):
             (url_path_join(base, "version-check"),          VersionCheckHandler),
             # Changelog (serves local CHANGELOG.md, optionally sliced)
             (url_path_join(base, "changelog"),              ChangelogHandler),
+            # Notebook move — relocates .ipynb + UUID-scoped Varys data atomically
+            (url_path_join(base, "nb", "move"),             NbMoveHandler),
         ])

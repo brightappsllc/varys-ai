@@ -179,6 +179,7 @@ class AnthropicProvider(BaseLLMProvider):
         system: str,
         user: Any,  # str or List[content blocks] (e.g. from _build_content_blocks_from_text)
         chat_history: Optional[List[Dict[str, str]]] = None,
+        temperature: Optional[float] = None,
     ) -> str:
         import anthropic as _anthropic
         _OverloadedErr = getattr(_anthropic, "OverloadedError", _anthropic.InternalServerError)
@@ -187,14 +188,17 @@ class AnthropicProvider(BaseLLMProvider):
         messages = self._chat_client._prepend_history(chat_history, user)
         max_retries = 3
         base_delay  = 2.0
+        create_kwargs: dict = dict(
+            model=self._chat_client.model,
+            max_tokens=8192,
+            system=system,
+            messages=messages,
+        )
+        if temperature is not None:
+            create_kwargs["temperature"] = temperature
         for attempt in range(max_retries):
             try:
-                resp = await self._chat_client._aclient.messages.create(
-                    model=self._chat_client.model,
-                    max_tokens=8192,
-                    system=system,
-                    messages=messages,
-                )
+                resp = await self._chat_client._aclient.messages.create(**create_kwargs)
                 if hasattr(resp, "usage") and resp.usage:
                     self._set_usage(
                         getattr(resp.usage, "input_tokens", 0),

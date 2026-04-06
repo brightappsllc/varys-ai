@@ -178,8 +178,8 @@ async def _generate_preference_entries(
 
     # Try LLM-enhanced generation
     try:
-        from ..llm.factory import create_simple_task_provider
-        provider = create_simple_task_provider(settings)
+        from ..llm.factory import create_bg_task_provider
+        provider = create_bg_task_provider(settings)
         if provider is None:
             raise ValueError("No Simple Tasks model configured")
 
@@ -246,8 +246,8 @@ async def migrate_preferences_llm(
             pref_store.clear_migration_sentinel()
             return
 
-        from ..llm.factory import create_simple_task_provider
-        provider = create_simple_task_provider(settings)
+        from ..llm.factory import create_bg_task_provider
+        provider = create_bg_task_provider(settings)
         if provider is None:
             # Fall back to sync wrap
             pref_store.migrate_sync()
@@ -298,9 +298,8 @@ def _load_and_detect(root_dir: str, notebook_path: str):
     """Sync helper — runs in a thread.
 
     Constructs stores, loads summaries, and runs pattern detection.
-    Returns (patterns, store, pref_store, nb_base) or None when nothing to do.
-    All disk I/O (mkdir, stat, read) stays in the thread and never touches
-    Tornado's event loop.
+    Returns (patterns, store, pref_store, nb_base, all_summaries) or None when
+    nothing to do.  All disk I/O stays in the thread.
     """
     from ..context.summary_store import SummaryStore
     from ..utils.paths import nb_base as _nb_base
@@ -331,7 +330,7 @@ def _load_and_detect(root_dir: str, notebook_path: str):
         store.reset_inference_counter()
         return None
 
-    return patterns, store, pref_store, nb_base_path
+    return patterns, store, pref_store, nb_base_path, all_summaries
 
 
 def _save_inference_results(
@@ -361,6 +360,139 @@ def _save_inference_results(
     store.reset_inference_counter()
 
 
+# ---------------------------------------------------------------------------
+# Action stem updater
+# ---------------------------------------------------------------------------
+
+def _detect_unmatched_cells(summaries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Return code-cell summaries where cell_action is missing or ["Compute"]."""
+    return [
+        s for s in summaries
+        if s.get("cell_type") == "code"
+        and not s.get("is_import_cell")
+        and (not s.get("cell_action") or s["cell_action"] == ["Compute"])
+        and s.get("source_snippet")
+    ]
+
+
+_STEM_SYSTEM = (
+    "You are a code classifier for Jupyter notebook cells. "
+    "Given a Python code snippet and the current action_stems.json vocabulary, "
+    "identify the best matching action stem. "
+    "If the snippet fits an existing category, use that name EXACTLY as it appears "
+    "in the vocabulary. Only propose a new category if nothing fits at all. "
+    "Reply with ONLY a JSON object with keys: "
+    "\"stem\" (the exact Python token that indicates this action, e.g. \".query(\"), "
+    "\"action\" (the action category name), "
+    "\"new_category\" (true or false)."
+)
+
+_STEM_MERGE_SYSTEM = (
+    "You are a code taxonomy reviewer. "
+    "Given an existing list of action categories and a proposed new category, "
+    "decide whether the new category is truly distinct or should merge with an existing one. "
+    "Reply with ONLY a JSON object with keys: "
+    "\"final_action\" (the definitive category name to use), "
+    "\"merged_with\" (the existing category name it merged with, or null if kept as new)."
+)
+
+_FEW_SHOT_EXAMPLES = """Examples:
+1. source: "fig = px.scatter(df, x='age', y='fare')"
+   → {"stem": "px.", "action": "Visualize", "new_category": false}
+
+2. source: "df.to_sql('users', engine, if_exists='replace')"
+   → {"stem": ".to_sql(", "action": "Export data", "new_category": false}
+
+3. source: "X_scaled = scaler.fit_transform(X)"
+   → {"stem": ".fit_transform(", "action": "Train model", "new_category": false}
+
+"""
+
+
+async def _update_action_stems(
+    unmatched: List[Dict[str, Any]],
+    stems: Dict[str, List[str]],
+    provider: Any,
+    loader: Any,
+) -> None:
+    """Two-pass LLM update of action_stems.json for unrecognised cell patterns.
+
+    Pass 1: classify each unmatched cell → proposed {stem, action, new_category}
+    Programmatic gate: discard if proposed stem is NOT in the source snippet.
+    Pass 2: only for new_category=True — check whether it truly differs from
+            existing categories (may merge it with an existing one).
+    """
+    existing_categories = list(stems.keys())
+    stems_json = json.dumps(stems, indent=2)
+    new_entries: Dict[str, List[str]] = {}
+
+    for cell in unmatched:
+        snippet = cell.get("source_snippet", "")
+        if not snippet:
+            continue
+
+        user_msg = (
+            f"{_FEW_SHOT_EXAMPLES}"
+            f"Current action_stems.json:\n{stems_json}\n\n"
+            f"Classify this cell:\n```python\n{snippet[:800]}\n```"
+        )
+
+        try:
+            raw = await provider.chat(
+                system=_STEM_SYSTEM,
+                user=user_msg,
+                temperature=0.1,
+            )
+            m = re.search(r"\{.*?\}", raw, re.DOTALL)
+            if not m:
+                continue
+            result = json.loads(m.group())
+        except Exception as exc:
+            log.debug("_update_action_stems pass-1 failed: %s", exc)
+            continue
+
+        stem   = result.get("stem", "")
+        action = result.get("action", "")
+        is_new = bool(result.get("new_category", False))
+
+        # Programmatic gate: the proposed stem must appear in the snippet
+        if not stem or stem not in snippet:
+            log.debug("_update_action_stems: discarding '%s' (stem '%s' not in source)", action, stem)
+            continue
+        if not action:
+            continue
+
+        # Pass 2: for truly new categories, ask the LLM if it should merge
+        if is_new:
+            merge_user = (
+                f"Existing categories: {json.dumps(existing_categories)}\n"
+                f"Proposed new category: \"{action}\"\n"
+                f"Should it merge with an existing category or stay new?"
+            )
+            try:
+                raw2 = await provider.chat(
+                    system=_STEM_MERGE_SYSTEM,
+                    user=merge_user,
+                    temperature=0.1,
+                )
+                m2 = re.search(r"\{.*?\}", raw2, re.DOTALL)
+                if m2:
+                    merge_result = json.loads(m2.group())
+                    action = merge_result.get("final_action", action)
+            except Exception as exc:
+                log.debug("_update_action_stems pass-2 failed: %s", exc)
+
+        # Accumulate the proposed stem under its action
+        if action not in new_entries:
+            new_entries[action] = []
+        if stem not in new_entries[action]:
+            new_entries[action].append(stem)
+
+    if new_entries:
+        log.info("Varys inference: updating action stems — %s", list(new_entries.keys()))
+        loader.update(new_entries)
+
+
 async def run_inference(root_dir: str, notebook_path: str, settings: dict) -> None:
     """Full inference pipeline: load summaries → detect patterns → generate preferences.
 
@@ -374,16 +506,30 @@ async def run_inference(root_dir: str, notebook_path: str, settings: dict) -> No
         if result is None:
             return
 
-        patterns, store, pref_store, nb_base_path = result
+        patterns, store, pref_store, nb_base_path, all_summaries = result
 
         # Phase 2 — LLM preference generation (async, non-blocking)
         new_entries = await _generate_preference_entries(patterns, settings)
 
-        # Phase 3 — persist results (sync disk I/O) in a thread
+        # Phase 3 — persist preference results (sync disk I/O) in a thread
         await asyncio.to_thread(
             _save_inference_results,
             store, pref_store, new_entries, len(patterns), notebook_path, nb_base_path,
         )
+
+        # Phase 4 — update action stems for unmatched cells (async LLM, capped at 5)
+        try:
+            from ..llm.factory import create_bg_task_provider
+            from ..context.action_stems import ActionStemLoader
+            provider = create_bg_task_provider(settings)
+            if provider is not None:
+                unmatched = _detect_unmatched_cells(all_summaries)
+                if unmatched:
+                    loader = ActionStemLoader()
+                    stems  = await asyncio.to_thread(loader.load)
+                    await _update_action_stems(unmatched[:5], stems, provider, loader)
+        except Exception as exc:
+            log.debug("Varys inference: action stem update skipped — %s", exc)
 
     except Exception as exc:
         log.warning("Varys inference run failed: %s", exc)

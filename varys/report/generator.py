@@ -37,9 +37,9 @@ def _find_skill_file(root_dir: str, notebook_path: str = "") -> str | None:
     Searches the notebook's own .jupyter-assistant directory first, then the
     root-level directory as a fallback (backward compat).
     """
-    from ..utils.paths import nb_base
+    from ..utils.paths import project_base
     candidates = [
-        nb_base(root_dir, notebook_path) / "skills" / "notebook-report-generation" / "SKILL.md",
+        project_base(root_dir, notebook_path) / "skills" / "notebook-report-generation" / "SKILL.md",
         Path(root_dir) / ".jupyter-assistant" / "skills" / "notebook-report-generation" / "SKILL.md",
     ]
     for p in candidates:

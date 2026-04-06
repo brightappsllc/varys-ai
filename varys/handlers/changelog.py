@@ -64,11 +64,15 @@ def _semver_tuple(v: str) -> tuple:
         return (0, 0, 0)
 
 
-def _slice_since(content: str, since: str) -> str:
-    """Return only the changelog sections for versions strictly newer than *since*.
+def _slice_since(content: str, since: str, inclusive: bool = False) -> str:
+    """Return changelog sections newer than *since* (or from *since* when inclusive=True).
 
     Sections are identified by lines starting with '## ['.
     If *since* is not found, the entire content is returned.
+
+    inclusive=True  → include the section whose version == since (used by "What's New"
+                       so the current version's own changes are always visible).
+    inclusive=False → strictly newer (used by the update-available badge path).
     """
     if not since:
         return content
@@ -89,14 +93,14 @@ def _slice_since(content: str, since: str) -> str:
                 ver_t = (0, 0, 0)
 
             in_header_block = False
-            if ver_t > since_t:
+            keep = (ver_t >= since_t) if inclusive else (ver_t > since_t)
+            if keep:
                 result_lines.append(line)
             else:
-                # We've hit the since-version or older — stop
+                # We've hit a version older than the cutoff — stop
                 break
         elif in_header_block:
-            # Keep the preamble (title + description lines before first ## section)
-            pass  # drop the preamble for the "since" view; start fresh at sections
+            pass  # drop the preamble for the sliced view
         else:
             result_lines.append(line)
 
@@ -108,11 +112,16 @@ class ChangelogHandler(JupyterHandler):
 
     @authenticated
     def get(self) -> None:
-        since = self.get_argument("since", "")
-        content = _read_changelog()
+        since     = self.get_argument("since", "")      # exclusive: newer than VERSION
+        from_ver  = self.get_argument("from",  "")      # inclusive: VERSION and newer
+        content   = _read_changelog()
 
-        if since:
-            content = _slice_since(content, since)
+        if from_ver:
+            content = _slice_since(content, from_ver, inclusive=True)
+            if not content:
+                content = "_No changelog entries found for version " + from_ver + " or newer._"
+        elif since:
+            content = _slice_since(content, since, inclusive=False)
             if not content:
                 content = "_No changelog entries found for versions newer than " + since + "._"
 

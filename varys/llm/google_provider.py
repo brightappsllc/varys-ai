@@ -575,6 +575,7 @@ class GoogleProvider(BaseLLMProvider):
         system: str,
         user: str,
         chat_history: Optional[List[Dict[str, str]]] = None,
+        temperature: Optional[float] = None,
     ) -> str:
         client = self._client()
         types  = self._types()

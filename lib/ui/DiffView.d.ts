@@ -37,6 +37,12 @@ export interface DiffViewProps {
     onUndo: (operationId: string) => void;
     /** When set, the diff is resolved and rendered collapsed (no action buttons). */
     resolved?: 'accepted' | 'undone';
+    /**
+     * When false (default), the code has already been inserted and executed —
+     * only the Reject button is shown.  When true (reorder ops), execution is
+     * gated on approval so both Accept and Reject are shown.
+     */
+    requiresApproval?: boolean;
 }
 export declare const DiffView: React.FC<DiffViewProps>;
 //# sourceMappingURL=DiffView.d.ts.map

@@ -68,6 +68,8 @@ def _node(n: NodeData) -> dict:
         "externalLoads": n.external_loads,
         "executionCount": n.execution_count,
         "anomalies":     n.anomalies,
+        "nodeRole":      n.node_role,
+        "cellAction":    n.cell_action,
     }
 
 
@@ -77,4 +79,5 @@ def _edge(e: EdgeData) -> dict:
         "targetUuid": e.target_uuid,
         "symbol":     e.symbol,
         "anomaly":    e.anomaly,
+        "edgeType":   e.edge_type,
     }

@@ -10,7 +10,7 @@ import { NODE_WIDTH, NODE_HEIGHT } from './graphTypes';
 // ── Synchronous layout (fallback / shared logic) ──────────────────────────────
 
 export function computeLayoutSync(data: GraphData): LayoutResult {
-  const g = new dagre.graphlib.Graph();
+  const g = new dagre.graphlib.Graph({ multigraph: true });
   g.setGraph({
     rankdir: 'TB',
     nodesep: 40,
@@ -24,8 +24,12 @@ export function computeLayoutSync(data: GraphData): LayoutResult {
     g.setNode(node.cellUuid, { width: NODE_WIDTH, height: NODE_HEIGHT });
   }
   for (const edge of data.edges) {
-    g.setEdge(edge.sourceUuid, edge.targetUuid);
+    // Use the symbol as the edge name so multiple edges between the same
+    // pair of nodes (e.g. one dependency + one redefines) each get their
+    // own slot in dagre rather than overwriting each other.
+    g.setEdge(edge.sourceUuid, edge.targetUuid, {}, edge.symbol);
   }
+
 
   dagre.layout(g);
 

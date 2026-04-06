@@ -142,6 +142,7 @@ class BaseLLMProvider(ABC):
         system: str,
         user: Any,  # str or List[content blocks] for vision-capable providers
         chat_history: Optional[List[Dict[str, str]]] = None,
+        temperature: Optional[float] = None,
     ) -> str:
         """Free-form chat: send a system + user message and return raw text.
 

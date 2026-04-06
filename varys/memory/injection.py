@@ -163,8 +163,8 @@ async def _llm_select(
     Falls back to the keyword order when the LLM call fails or returns garbage.
     """
     try:
-        from ..llm.factory import create_simple_task_provider
-        provider = create_simple_task_provider(settings)
+        from ..llm.factory import create_bg_task_provider
+        provider = create_bg_task_provider(settings)
         if provider is None:
             return candidates[:limit]
 
@@ -230,7 +230,7 @@ async def select_preferences(
     ranked = select_by_keywords(query, eligible)
 
     # LLM re-rank when list is large and Simple Tasks model is configured
-    if len(ranked) > _LLM_SELECT_THRESHOLD and settings.get("ds_assistant_simple_tasks_provider"):
+    if len(ranked) > _LLM_SELECT_THRESHOLD and settings.get("ds_assistant_bg_task_provider"):
         ranked = await _llm_select(query, ranked, settings, limit=_MAX_INJECTED)
 
     # Combine: always-inject first, then ranked (up to cap)

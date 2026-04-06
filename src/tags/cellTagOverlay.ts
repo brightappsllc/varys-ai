@@ -72,12 +72,42 @@ const TAG_PALETTE = [
   '#06b6d4', '#f97316', '#ec4899', '#14b8a6', '#6366f1',
 ];
 
-const BUILT_IN_PRESETS: { category: string; tags: string[] }[] = [
-  { category: 'ML Pipeline', tags: ['data-loading', 'preprocessing', 'feature-engineering', 'training', 'evaluation', 'inference'] },
+// Fallback used before the library is fetched and whenever the fetch fails.
+const _FALLBACK_PRESETS: { category: string; tags: string[] }[] = [
+  { category: 'ML Pipeline', tags: ['data-loading', 'preprocessing', 'feature-engineering', 'training', 'evaluation', 'inference', 'export'] },
   { category: 'Quality',     tags: ['todo', 'reviewed', 'needs-refactor', 'slow', 'broken', 'tested'] },
-  { category: 'Report',      tags: ['report', 'figure', 'table', 'key-finding', 'report-exclude'] },
+  { category: 'Report',      tags: ['report', 'figure', 'display', 'table', 'key-finding', 'report-exclude'] },
   { category: 'Status',      tags: ['draft', 'stable', 'deprecated', 'sensitive'] },
 ];
+
+let _cachedPresets: { category: string; tags: string[] }[] | null = null;
+
+function _buildPresetsFromLibrary(library: {
+  tags: { value: string; topic: string; llm_eligible?: boolean }[];
+}): { category: string; tags: string[] }[] {
+  const byTopic: Record<string, string[]> = {};
+  for (const tag of library.tags) {
+    if (!byTopic[tag.topic]) byTopic[tag.topic] = [];
+    byTopic[tag.topic].push(tag.value);
+  }
+  return Object.entries(byTopic).map(([category, tags]) => ({ category, tags }));
+}
+
+async function _fetchPresets(baseUrl: string): Promise<{ category: string; tags: string[] }[]> {
+  if (_cachedPresets) return _cachedPresets;
+  try {
+    const xsrf = (document.cookie.match('(?:^|;)\\s*_xsrf=([^;]*)') ?? [])[1] ?? '';
+    const resp  = await fetch(`${baseUrl}/auto-tag`, {
+      headers: { 'X-XSRFToken': decodeURIComponent(xsrf) },
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const library = await resp.json();
+    _cachedPresets = _buildPresetsFromLibrary(library);
+    return _cachedPresets;
+  } catch {
+    return _FALLBACK_PRESETS;
+  }
+}
 
 function tagColor(tag: string): string {
   let h = 0;
@@ -173,6 +203,7 @@ function showAddTagDropdown(
   currentTags: string[],
   refresh: () => void,
   onTagsChanged?: TagsChangedFn,
+  presets: { category: string; tags: string[] }[] = _FALLBACK_PRESETS,
 ): void {
   closeDropdown();
 
@@ -252,7 +283,7 @@ function showAddTagDropdown(
   }
 
   // ── Preset groups ─────────────────────────────────────────────────────────
-  for (const preset of BUILT_IN_PRESETS) {
+  for (const preset of presets) {
     const available = preset.tags.filter(t => !currentTags.includes(t));
     if (available.length > 0) {
       dropdown.appendChild(buildTagSection(preset.category, available, applyTag));
@@ -334,6 +365,7 @@ function renderOverlays(
   refresh: () => void,
   onAutoTag?: AutoTagFn,
   onTagsChanged?: TagsChangedFn,
+  baseUrl: string = '/varys',
 ): void {
   // Suppress re-render while user is interacting (dropdown open or pill pending)
   if (isDropdownOpen()) return;
@@ -429,7 +461,12 @@ function renderOverlays(
     const cellIdx = i;
     addBtn.addEventListener('click', e => {
       e.stopPropagation();
-      showAddTagDropdown(addBtn, tracker, cellIdx, [...tags], refresh, onTagsChanged);
+      // Presets may already be cached; fetch returns immediately in that case.
+      _fetchPresets(baseUrl).then(presets => {
+        showAddTagDropdown(addBtn, tracker, cellIdx, [...tags], refresh, onTagsChanged, presets);
+      }).catch(() => {
+        showAddTagDropdown(addBtn, tracker, cellIdx, [...tags], refresh, onTagsChanged, _FALLBACK_PRESETS);
+      });
     });
 
     leftGroup.appendChild(addBtn);
@@ -525,8 +562,12 @@ export function initCellTagOverlay(
   tracker:        INotebookTracker,
   onAutoTag?:     AutoTagFn,
   onTagsChanged?: TagsChangedFn,
+  baseUrl:        string = '/varys',
 ): () => void {
-  const refresh = () => renderOverlays(tracker, refresh, onAutoTag, onTagsChanged);
+  // Pre-fetch the tag library so the dropdown is ready on first open.
+  _fetchPresets(baseUrl).catch(() => { /* non-fatal; fallback used */ });
+
+  const refresh = () => renderOverlays(tracker, refresh, onAutoTag, onTagsChanged, baseUrl);
 
   const onNotebookChanged = () => {
     closeDropdown();

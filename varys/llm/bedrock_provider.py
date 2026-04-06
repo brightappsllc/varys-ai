@@ -4,6 +4,7 @@ import base64
 import configparser
 import json
 import logging
+import os
 import re
 import subprocess
 import uuid
@@ -210,6 +211,36 @@ class BedrockProvider(BaseLLMProvider):
                 return await loop.run_in_executor(None, fn)
             raise
 
+    async def _retry_on_expired_token(self, coro_fn: Callable[[], Awaitable]):
+        """Run a streaming coroutine; on ExpiredTokenException refresh and retry once.
+
+        Streaming paths cannot use _call_with_auto_refresh (which wraps sync
+        callables in run_in_executor).  This wrapper catches the RuntimeError
+        that _stream_invoke_model / _stream_converse raise when they receive an
+        ExpiredTokenException from the boto3 response queue, refreshes creds,
+        and replays the coroutine from the beginning.
+
+        Safe to retry because ExpiredTokenException is always raised before any
+        response chunks are delivered (the token is checked server-side before
+        the stream opens), so the on_chunk callback has not been called yet.
+        """
+        try:
+            return await coro_fn()
+        except RuntimeError as exc:
+            if "ExpiredTokenException" not in str(exc):
+                raise
+            if not self.aws_auth_refresh:
+                raise RuntimeError(
+                    "AWS credentials expired. Configure 'AWS Auth Refresh Command' "
+                    "in Bedrock settings to enable automatic token refresh."
+                ) from exc
+            log.warning(
+                "Bedrock: ExpiredTokenException during streaming — "
+                "refreshing credentials and retrying"
+            )
+            await asyncio.get_running_loop().run_in_executor(None, self._run_auth_refresh)
+            return await coro_fn()
+
     def _max_chat_tokens(self) -> int:
         """Return the effective max-output-token limit for the active chat model.
 
@@ -282,7 +313,7 @@ class BedrockProvider(BaseLLMProvider):
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": max_tokens,
             "thinking": {"type": "enabled", "budget_tokens": self.thinking_budget},
-            "system": system,
+            "system": self._to_invoke_model_system(system),
             "messages": messages,
         }
         if tools:
@@ -298,6 +329,7 @@ class BedrockProvider(BaseLLMProvider):
         result = json.loads(resp["body"].read())
         usage = result.get("usage", {})
         self._set_usage(usage.get("input_tokens", 0), usage.get("output_tokens", 0))
+        self._log_cache_usage(usage, "invoke_model_raw", converse=False)
         return result
 
     def _invoke_with_thinking(
@@ -407,6 +439,75 @@ class BedrockProvider(BaseLLMProvider):
     def _build_system(self, skills: List[Dict[str, str]], memory: str, reasoning_mode: str = "off") -> str:
         return _build_system_prompt_shared(skills, memory, reasoning_mode=reasoning_mode)
 
+    # ── Prompt caching helpers ────────────────────────────────────────────────
+
+    # Semantic split point — matches the boundary used in client.py (ClaudeClient).
+    _CACHE_BOUNDARY = "\n## Skills Context\n"
+
+    @staticmethod
+    def _prompt_caching_enabled() -> bool:
+        return os.environ.get("VARYS_PROMPT_CACHING", "true").strip().lower() not in (
+            "false", "0", "no"
+        )
+
+    def _is_claude_model(self) -> bool:
+        """True when the active model is an Anthropic Claude model (supports caching)."""
+        name = self.chat_model.lower()
+        return "anthropic" in name or "claude" in name
+
+    def _to_converse_system_blocks(self, system: str) -> List[Dict[str, Any]]:
+        """Build Bedrock Converse API system array with optional prompt caching.
+
+        When caching is enabled for a Claude model, a cachePoint marker is
+        inserted after the static prefix (persona + core rules) so that
+        content before the marker is served from cache on subsequent requests.
+        Non-Claude models and disabled caching fall back to a single text block.
+        """
+        if not self._prompt_caching_enabled() or not self._is_claude_model():
+            return [{"text": system}]
+
+        idx = system.find(self._CACHE_BOUNDARY)
+        if idx == -1:
+            # Boundary not found — cache the entire system prompt.
+            return [{"text": system}, {"cachePoint": {"type": "default"}}]
+
+        return [
+            {"text": system[:idx]},
+            {"cachePoint": {"type": "default"}},
+            {"text": system[idx:]},
+        ]
+
+    def _to_invoke_model_system(self, system: str) -> Any:
+        """Build system value for invoke_model body with optional prompt caching.
+
+        Returns a list of Anthropic-format content blocks with cache_control
+        on the static prefix.  Falls back to a plain string when caching is
+        disabled or the model doesn't support it.
+        """
+        if not self._prompt_caching_enabled() or not self._is_claude_model():
+            return system
+
+        idx = system.find(self._CACHE_BOUNDARY)
+        if idx == -1:
+            return [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+
+        return [
+            {"type": "text", "text": system[:idx], "cache_control": {"type": "ephemeral"}},
+            {"type": "text", "text": system[idx:]},
+        ]
+
+    @staticmethod
+    def _log_cache_usage(usage: Dict[str, Any], label: str, converse: bool) -> None:
+        """Log Bedrock prompt-cache hit/miss at DEBUG level."""
+        if converse:
+            created = usage.get("cacheWriteInputTokens", 0) or 0
+            read    = usage.get("cacheReadInputTokens",  0) or 0
+        else:
+            created = usage.get("cache_creation_input_tokens", 0) or 0
+            read    = usage.get("cache_read_input_tokens",     0) or 0
+        if created or read:
+            log.debug("Bedrock cache (%s): created=%d read=%d", label, created, read)
+
     # ── Operation-plan tool in Anthropic Messages API format ─────────────────
     # Used by stream_plan_task when thinking is enabled (invoke_model path).
     _PLAN_TOOL_ANTHROPIC: Dict[str, Any] = {
@@ -507,12 +608,15 @@ class BedrockProvider(BaseLLMProvider):
 
             try:
                 thinking_text, _resp_text, _full_blocks, tool_use_blocks = (
-                    await self._stream_invoke_model(
-                        system,
-                        anthropic_msgs,
-                        on_text_chunk or _noop,
-                        on_thought=_thought_proxy,
-                        tools=[self._PLAN_TOOL_ANTHROPIC],
+                    await self._retry_on_expired_token(
+                        lambda: self._stream_invoke_model(
+                            system,
+                            anthropic_msgs,
+                            on_text_chunk or _noop,
+                            on_thought=_thought_proxy,
+                            tools=[self._PLAN_TOOL_ANTHROPIC],
+                            force_tool_name="create_operation_plan",
+                        )
                     )
                 )
             except Exception as e:
@@ -536,9 +640,18 @@ class BedrockProvider(BaseLLMProvider):
                     break
 
             if plan_data is None:
-                raise RuntimeError(
-                    "Bedrock stream_plan_task did not return a create_operation_plan tool call"
+                # Fallback: model responded with text only despite force_tool_name.
+                # Treat the text response as an informational answer with no steps.
+                log.warning(
+                    "Bedrock stream_plan_task: no create_operation_plan tool call "
+                    "returned; synthesising empty-step plan from text response."
                 )
+                plan_data = {
+                    "steps": [],
+                    "requiresApproval": False,
+                    "summary": _resp_text or "Done.",
+                    "clarificationNeeded": None,
+                }
 
             plan_data.setdefault("operationId", op_id)
             plan_data.setdefault("clarificationNeeded", None)
@@ -606,16 +719,19 @@ class BedrockProvider(BaseLLMProvider):
         messages = [{"role": h["role"], "content": [{"text": h["content"]}]} for h in history]
         messages.append({"role": "user", "content": content})
 
+        system_blocks = self._to_converse_system_blocks(system)
+
         def _call():
             resp = self._boto_client.converse(
                 modelId=self.chat_model,
-                system=[{"text": system}],
+                system=system_blocks,
                 messages=messages,
                 toolConfig=_TOOL_CONFIG,
                 inferenceConfig={"maxTokens": self._max_tokens_override or 4096, "temperature": 0.2},
             )
             u = resp.get("usage", {})
             self._set_usage(u.get("inputTokens", 0), u.get("outputTokens", 0))
+            self._log_cache_usage(u, "plan_task", converse=True)
             for block in resp.get("output", {}).get("message", {}).get("content", []):
                 if "toolUse" in block and block["toolUse"]["name"] == "create_operation_plan":
                     data = block["toolUse"]["input"]
@@ -697,6 +813,7 @@ class BedrockProvider(BaseLLMProvider):
         system: str,
         user: str,
         chat_history: Optional[List[Dict[str, str]]] = None,
+        temperature: Optional[float] = None,
     ) -> str:
         await self._ensure_credentials()
         history = list(chat_history or [])
@@ -730,15 +847,18 @@ class BedrockProvider(BaseLLMProvider):
 
         self._last_thinking = ""
 
+        system_blocks = self._to_converse_system_blocks(system)
+
         def _call():
             resp = self._boto_client.converse(
                 modelId=self.chat_model,
-                system=[{"text": system}],
+                system=system_blocks,
                 messages=messages,
                 inferenceConfig={"maxTokens": self._max_chat_tokens(), "temperature": 0.3},
             )
             u = resp.get("usage", {})
             self._set_usage(u.get("inputTokens", 0), u.get("outputTokens", 0))
+            self._log_cache_usage(u, "chat", converse=True)
             for block in resp.get("output", {}).get("message", {}).get("content", []):
                 if "text" in block:
                     return block["text"]
@@ -758,6 +878,7 @@ class BedrockProvider(BaseLLMProvider):
         on_chunk,
         on_thought=None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        force_tool_name: Optional[str] = None,
     ) -> tuple:
         """Stream via invoke_model_with_response_stream (Anthropic Messages API).
 
@@ -780,12 +901,20 @@ class BedrockProvider(BaseLLMProvider):
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": max_tokens,
             "thinking": {"type": "enabled", "budget_tokens": self.thinking_budget},
-            "system": system,
+            "system": self._to_invoke_model_system(system),
             "messages": messages,
         }
         if tools:
             body["tools"] = tools
-            body["tool_choice"] = {"type": "auto"}
+            # Bedrock raises ValidationException if tool_choice forces a specific
+            # tool while extended thinking is also enabled in the same request.
+            # When thinking is active we fall back to "auto"; the caller's fallback
+            # path already handles text-only responses gracefully.
+            thinking_active = body.get("thinking", {}).get("type") == "enabled"
+            if force_tool_name and not thinking_active:
+                body["tool_choice"] = {"type": "tool", "name": force_tool_name}
+            else:
+                body["tool_choice"] = {"type": "auto"}
 
         def _run() -> None:
             seen_types: list = []
@@ -919,6 +1048,7 @@ class BedrockProvider(BaseLLMProvider):
             elif etype == "message_start":
                 usage = evt.get("message", {}).get("usage", {})
                 input_tokens += usage.get("input_tokens", 0)
+                self._log_cache_usage(usage, "stream_invoke_model", converse=False)
 
         await executor_future
         self._set_usage(input_tokens, output_tokens)
@@ -964,11 +1094,13 @@ class BedrockProvider(BaseLLMProvider):
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue = asyncio.Queue()
 
+        system_blocks = self._to_converse_system_blocks(system)
+
         def _run() -> None:
             try:
                 resp = self._boto_client.converse_stream(
                     modelId=self.chat_model,
-                    system=[{"text": system}],
+                    system=system_blocks,
                     messages=messages,
                     inferenceConfig={
                         "maxTokens": self._max_chat_tokens(),
@@ -1234,11 +1366,13 @@ class BedrockProvider(BaseLLMProvider):
 
             try:
                 thinking_text, _resp_text, _full_blocks, _tool_use = (
-                    await self._stream_invoke_model(
-                        system,
-                        anthropic_msgs,
-                        on_chunk,
-                        on_thought=_thought_proxy,
+                    await self._retry_on_expired_token(
+                        lambda: self._stream_invoke_model(
+                            system,
+                            anthropic_msgs,
+                            on_chunk,
+                            on_thought=_thought_proxy,
+                        )
                     )
                 )
             except Exception as e:
@@ -1265,7 +1399,9 @@ class BedrockProvider(BaseLLMProvider):
             msgs.append({"role": "user", "content": user})
 
         try:
-            await self._stream_converse(system=system, messages=msgs, on_chunk=on_chunk)
+            await self._retry_on_expired_token(
+                lambda: self._stream_converse(system=system, messages=msgs, on_chunk=on_chunk)
+            )
         except Exception as e:
             log.error("Bedrock stream_chat (converse_stream) error: %s", e)
             raise RuntimeError(f"AWS Bedrock error: {e}") from e

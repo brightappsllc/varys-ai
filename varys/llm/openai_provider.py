@@ -213,13 +213,14 @@ class OpenAIProvider(BaseLLMProvider):
         system: str,
         user: str,
         chat_history: Optional[List[Dict[str, str]]] = None,
+        temperature: Optional[float] = None,
     ) -> str:
         messages = self._build_messages(user, chat_history)
         resp = await self._aclient.chat.completions.create(
             model=self.chat_model,
             messages=[{"role": "system", "content": system}] + messages,
             max_tokens=8192,
-            temperature=0.3,
+            temperature=temperature if temperature is not None else 0.3,
         )
         if resp.usage:
             self._set_usage(resp.usage.prompt_tokens, resp.usage.completion_tokens)

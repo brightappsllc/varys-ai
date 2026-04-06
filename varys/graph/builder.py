@@ -1,16 +1,66 @@
 """GraphBuilder — produces GraphData from SummaryStore + AST fallback."""
 from __future__ import annotations
 
+import os
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from ..context.summary_store import SummaryStore
 from .ast_fallback import ASTParser
 
 
 # ── Constants ─────────────────────────────────────────────────────────────────
+
+# Matches data-loading calls to extract the source filename for node labels.
+# Captures the first string argument of common pandas/builtins read functions.
+_DATA_SOURCE_RE = re.compile(
+    r'(?:(?:pd|pandas)\.)?'
+    r'read_(?:csv|excel|parquet|json|table|feather|orc|sas|spss|stata|html|pickle|hdf)\s*\(\s*[rf]?([\'"])([^\'"]+)\1'
+    r'|open\s*\(\s*[rf]?([\'"])([^\'"]+)\3',
+)
+
+_EXPORT_FILE_RE = re.compile(
+    r'\.to_(?:csv|excel|parquet|json|pickle|hdf)\s*\(\s*[rf]?([\'"])([^\'"]+)\1'
+)
+
+
+def _extract_data_source_file(source: str) -> Optional[str]:
+    """Return the basename of the first data file path found in *source*, or None."""
+    m = _DATA_SOURCE_RE.search(source)
+    if not m:
+        return None
+    path = m.group(2) or m.group(4)
+    if not path:
+        return None
+    return os.path.basename(path)
+
+
+def _extract_export_file(source: str) -> Optional[str]:
+    """Return the basename of the first export file path found in *source*, or None."""
+    m = _EXPORT_FILE_RE.search(source)
+    if not m:
+        return None
+    return os.path.basename(m.group(2))
+
+
+# Matches top-level import statements to detect reimports across cells.
+_IMPORT_RE = re.compile(
+    r'^(?:import\s+(\w+)|from\s+(\w+)\s+import)',
+    re.MULTILINE,
+)
+
+
+def _extract_imports(source: str) -> Set[str]:
+    """Return the set of top-level module names imported in *source*."""
+    mods: Set[str] = set()
+    for m in _IMPORT_RE.finditer(source):
+        mod = m.group(1) or m.group(2)
+        if mod:
+            mods.add(mod)
+    return mods
+
 
 # Matplotlib / seaborn state handles that are not data artifacts.
 # Filtered from defines, loads, and external_loads at graph-build time;
@@ -40,6 +90,8 @@ class NodeData:
     external_loads: List[str]
     execution_count: Optional[int]
     anomalies: List[str] = field(default_factory=list)
+    node_role: str = 'empty'   # 'defines' | 'redefines' | 'consumes' | 'empty'
+    cell_action: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -48,6 +100,7 @@ class EdgeData:
     target_uuid: str
     symbol: str
     anomaly: Optional[str] = None   # SKIP_LINK | OUT_OF_ORDER | None
+    edge_type: str = 'dependency'   # 'dependency' | 'redefines' | 'reimport'
 
 
 @dataclass
@@ -84,24 +137,191 @@ def _extract_plot_titles(source: str) -> List[str]:
     return titles
 
 
+_FSTRING_EXPR_RE  = re.compile(r'\{([^{}:!=][^{}]*?)\}')
+_METHOD_CALL_RE   = re.compile(r'\.([A-Za-z_]\w*)\s*\(')
+
+# Method names too generic to be useful as a sublabel
+_SKIP_METHODS = frozenset({
+    'get', 'set', 'items', 'values', 'keys', 'append', 'extend',
+    'format', 'join', 'split', 'strip', 'lower', 'upper',
+    'head', 'tail', 'copy', 'reset_index', 'set_index',
+})
+_DIRECT_ARG_RE   = re.compile(r'(?:print|display)\s*\(\s*([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)')
+_STRING_PREFIX   = frozenset('frbuFRBU')
+
+
+def _extract_display_subjects(source: str) -> List[str]:
+    """Return concise labels for what each print/display call is showing.
+
+    Handles:
+      print(f"Shape: {df.shape}")  → "df shape"
+      print(df.dtypes)             → "df dtypes"
+      print("literal")             → skipped (not informative)
+    Converts attribute access dots to spaces: df.shape → "df shape".
+    Deduplicates while preserving order.
+    """
+    seen:     set  = set()
+    subjects: List[str] = []
+
+    def _add(expr: str) -> None:
+        label = expr.strip().replace('.', ' ')
+        if label and label not in seen:
+            seen.add(label)
+            subjects.append(label)
+
+    for m in _DIRECT_ARG_RE.finditer(source):
+        arg = m.group(1)
+        # Single-char f/r/b/u means this is a prefixed string — mine it for
+        # f-string expressions instead of using the prefix letter as a label.
+        if len(arg) == 1 and arg in _STRING_PREFIX:
+            # Extract {expr} from the rest of the argument text
+            rest = source[m.end():]
+            brace_end = rest.find(')')
+            fstr_body = rest[:brace_end] if brace_end != -1 else rest[:200]
+            for fm in _FSTRING_EXPR_RE.finditer(fstr_body):
+                expr = fm.group(1).split()[0]   # drop format spec words
+                if re.match(r'^[A-Za-z_]\w*[\w.]*$', expr):
+                    _add(expr)
+        else:
+            _add(arg)
+
+    return subjects
+
+
+def _extract_primary_method(source: str) -> Optional[str]:
+    """Return the first meaningful method name called in source.
+
+    Skips dunder methods and generic names that add no information.
+    """
+    for m in _METHOD_CALL_RE.finditer(source):
+        name = m.group(1)
+        if not name.startswith('_') and name not in _SKIP_METHODS:
+            return name
+    return None
+
+
+_FILE_EXTS = frozenset(
+    ('csv', 'xlsx', 'xls', 'parquet', 'json', 'feather',
+     'orc', 'tsv', 'txt', 'hdf', 'h5', 'pkl', 'pickle')
+)
+
+
+def _data_var(
+    effective_defines: List[str],
+    symbol_types: Dict[str, str],
+) -> Optional[str]:
+    """Return the most meaningful result variable: prefer DataFrame/array over scalars."""
+    for sym in effective_defines:
+        if symbol_types.get(sym, "").startswith(("DataFrame", "ndarray", "Series")):
+            return sym
+    return effective_defines[0] if effective_defines else None
+
+
+def _var_part(sym: str, symbol_types: Dict[str, str]) -> str:
+    """Format 'var (Type)' or just 'var' when no type known."""
+    typ = symbol_types.get(sym, "")
+    return f"{sym} ({typ})" if typ else sym
+
+
+def _build_action_context(
+    cell_action: List[str],
+    source: str,
+    effective_defines: List[str],
+    symbol_types: Dict[str, str],
+    symbol_values: Dict[str, Any],
+) -> str:
+    """Build the sublabel for action-labeled nodes.
+
+    Pattern: <operation> · <result>
+      operation = what was done  (filename, method name, plot title, subjects shown)
+      result    = what came out  (var (Type))
+    """
+    primary = cell_action[0] if cell_action else ""
+
+    # ── data-loading: "filename · var (Type)" ────────────────────────────────
+    if primary == "data-loading":
+        var = _data_var(effective_defines, symbol_types)
+
+        data_file = _extract_data_source_file(source)
+        if not data_file:
+            for val in symbol_values.values():
+                if isinstance(val, str) and '.' in val:
+                    if val.rsplit('.', 1)[-1].lower() in _FILE_EXTS:
+                        data_file = os.path.basename(val)
+                        break
+
+        parts: List[str] = []
+        if data_file:
+            parts.append(data_file.lower())
+        if var:
+            parts.append(_var_part(var, symbol_types))
+        return " · ".join(parts)
+
+    # ── export: "method · filename" or "method · var (Type)" ─────────────────
+    if primary == "export":
+        method = _extract_primary_method(source) or "export"
+        export_file = _extract_export_file(source)
+        if export_file:
+            return f"{method} · {export_file.lower()}"
+        var = _data_var(effective_defines, symbol_types)
+        return f"{method} · {_var_part(var, symbol_types)}" if var else method
+
+    # ── Define: name already in label ────────────────────────────────────────
+    if primary.startswith("Define"):
+        return ""
+
+    # ── figure: plot title (operation IS the title) or plot function name ────
+    if primary == "figure":
+        titles = _extract_plot_titles(source)
+        if titles:
+            return titles[0]
+        method = _extract_primary_method(source)
+        return method if method else ""
+
+    # ── display: what was shown ───────────────────────────────────────────────
+    if primary == "display":
+        subjects = _extract_display_subjects(source)
+        return " · ".join(subjects) if subjects else ""
+
+    # ── all others (preprocessing, feature-engineering, training, …) ─────────
+    # "method · var (Type)"
+    var = _data_var(effective_defines, symbol_types)
+    method = _extract_primary_method(source)
+    if var:
+        return f"{method} · {_var_part(var, symbol_types)}" if method else _var_part(var, symbol_types)
+    return method if method else ""
+
+
 def _build_label(
     effective_defines: List[str],
     symbol_types: Dict[str, str],
     symbol_values: Dict[str, Any],
     source: str,
     unexecuted: bool,
+    cell_action: Optional[List[str]] = None,
 ) -> tuple[str, str]:
-    """Return ``(label, sublabel)`` using the unified four-priority cascade.
+    """Return ``(label, sublabel)`` using the unified five-priority cascade.
 
     ``effective_defines`` must already have ``VIZ_HANDLE_SYMBOLS`` removed.
     If ``unexecuted`` is True, ``" · not executed"`` is appended to the sublabel.
 
     Priority:
+      0. Semantic action label (cell_action != ["Compute"] and not empty)
       1. First define with a ``symbol_types`` entry  → symbol name / type shape
       2. First define with no type info              → symbol name / ""
       3. Plot title extraction                       → joined titles / "plot"
       4. Source truncation                           → first 40 chars / ""
     """
+    # ── Priority 0: semantic action label ─────────────────────────────────────
+    if cell_action and cell_action != ["Compute"]:
+        label = " + ".join(cell_action)
+        sublabel = _build_action_context(
+            cell_action, source, effective_defines, symbol_types, symbol_values
+        )
+        if unexecuted:
+            sublabel = f"{sublabel} · not executed" if sublabel else "not executed"
+        return label, sublabel
+
     # ── Priority 1 & 2: symbol-based label ────────────────────────────────────
     primary: Optional[str] = None
     for sym in effective_defines:
@@ -116,22 +336,9 @@ def _build_label(
         typ = symbol_types.get(primary, "")
         val = symbol_values.get(primary)
 
-        if typ == "DataFrame":
-            if isinstance(val, str):
-                base_sub = f"DataFrame · {val}"
-            elif isinstance(val, dict):
-                rows = val.get("rows", "?")
-                cols = val.get("cols", "?")
-                base_sub = (
-                    f"DataFrame · {rows:,} × {cols}"
-                    if isinstance(rows, int)
-                    else f"DataFrame · {rows} × {cols}"
-                )
-            else:
-                base_sub = "DataFrame"
-        elif typ == "ndarray":
-            base_sub = f"ndarray · {val}" if isinstance(val, str) else "ndarray"
-        elif typ in ("str", "int", "float", "bool"):
+        # For scalar types include the value; for all others the type string
+        # already contains shape/class info (e.g. "DataFrame(891, 12)").
+        if typ in ("str", "int", "float", "bool"):
             val_str = str(val) if val is not None else ""
             base_sub = f"{typ} · {val_str}" if val_str and len(val_str) <= 20 else typ
         else:
@@ -172,11 +379,24 @@ class GraphBuilder:
                    already filtered to code cells only by the frontend.
                    Empty-source cells are also dropped here.
         """
+        from ..context.action_stems import ActionStemLoader, DEFAULT_STEMS, detect_actions
+        try:
+            stem_loader = ActionStemLoader()
+            default_stems = stem_loader.load()
+        except Exception:
+            default_stems = DEFAULT_STEMS
+
         sorted_cells = sorted(
             (c for c in cells if c.get("source", "").strip()),
             key=lambda c: c["index"],
         )
         store_data = self._store.get_all_current()
+
+        # Source text keyed by cell_id — needed for reimport detection.
+        source_map: Dict[str, str] = {
+            c.get("cell_id", ""): c.get("source", "")
+            for c in sorted_cells
+        }
 
         nodes: List[NodeData] = []
 
@@ -198,6 +418,7 @@ class GraphBuilder:
                 symbol_types: Dict[str, str] = summary.get("symbol_types") or {}
                 symbol_values: Dict[str, Any] = summary.get("symbol_values") or {}
                 execution_count: Optional[int] = summary.get("execution_count")
+                cell_action: List[str] = summary.get("cell_action") or []
                 data_source = "store"
                 unexecuted = False
             else:
@@ -207,6 +428,8 @@ class GraphBuilder:
                 symbol_types = {}
                 symbol_values = {}
                 execution_count = None
+                is_import = summary.get("is_import_cell", False) if summary else False
+                cell_action = detect_actions(source, is_import, default_stems)
                 data_source = "ast"
                 unexecuted = True
 
@@ -215,7 +438,8 @@ class GraphBuilder:
             effective_loads = [s for s in raw_loads if s not in VIZ_HANDLE_SYMBOLS]
 
             label, sublabel = _build_label(
-                effective_defines, symbol_types, symbol_values, source, unexecuted
+                effective_defines, symbol_types, symbol_values, source, unexecuted,
+                cell_action=cell_action,
             )
 
             nodes.append(NodeData(
@@ -230,6 +454,7 @@ class GraphBuilder:
                 external_loads=[],
                 execution_count=execution_count,
                 anomalies=[],
+                cell_action=cell_action,
             ))
 
         # ── Edge construction ─────────────────────────────────────────────────
@@ -258,6 +483,68 @@ class GraphBuilder:
                     resolved.add(sym)
 
             node.external_loads = [s for s in node.loads if s not in resolved]
+
+        # ── Redefine edge pass ────────────────────────────────────────────────
+        # When a symbol is defined by multiple cells (e.g. df = df.dropna()),
+        # the SummaryStore often records no loads for the reassignment cell,
+        # leaving the graph disconnected.  We connect consecutive definers of
+        # the same symbol with an explicit "redefines" edge.
+        existing_keys: Set[Tuple[str, str, str]] = {
+            (e.source_uuid, e.target_uuid, e.symbol) for e in edges
+        }
+        symbol_definers: Dict[str, List[NodeData]] = {}
+        for node in nodes:
+            for sym in node.defines:
+                symbol_definers.setdefault(sym, []).append(node)
+
+        for sym, definers in symbol_definers.items():
+            if len(definers) < 2:
+                continue
+            sorted_definers = sorted(definers, key=lambda n: n.cell_index)
+            for i in range(1, len(sorted_definers)):
+                prev = sorted_definers[i - 1]
+                curr = sorted_definers[i]
+                key = (prev.cell_uuid, curr.cell_uuid, sym)
+                if key not in existing_keys:
+                    edges.append(EdgeData(
+                        source_uuid=prev.cell_uuid,
+                        target_uuid=curr.cell_uuid,
+                        symbol=sym,
+                        edge_type='redefines',
+                    ))
+                    existing_keys.add(key)
+
+        # ── Node role computation ─────────────────────────────────────────────
+        seen_syms: Set[str] = set()
+        for node in sorted(nodes, key=lambda n: n.cell_index):
+            is_redefine  = any(s in seen_syms for s in node.defines)
+            is_new_define = any(s not in seen_syms for s in node.defines)
+            seen_syms.update(node.defines)
+            if is_redefine:
+                node.node_role = 'redefines'
+            elif is_new_define:
+                node.node_role = 'defines'
+            elif node.loads:
+                node.node_role = 'consumes'
+            # else: stays 'empty'
+
+        # ── Reimport edge pass ────────────────────────────────────────────────
+        first_importer: Dict[str, str] = {}   # module → cell_uuid
+        for node in nodes:
+            cell_imports = _extract_imports(source_map.get(node.cell_uuid, ''))
+            for mod in sorted(cell_imports):
+                if mod in first_importer:
+                    key = (first_importer[mod], node.cell_uuid, mod)
+                    if key not in existing_keys:
+                        edges.append(EdgeData(
+                            source_uuid=first_importer[mod],
+                            target_uuid=node.cell_uuid,
+                            symbol=mod,
+                            edge_type='reimport',
+                        ))
+                        existing_keys.add(key)
+                else:
+                    first_importer[mod] = node.cell_uuid
 
         return GraphData(
             notebook_path=self._notebook_path,
