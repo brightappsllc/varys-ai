@@ -71,10 +71,10 @@ Each provider is selected **per task role**. There are four independent role slo
 
 - `DS_CHAT_PROVIDER` — the main conversational model used in the chat sidebar
 - `DS_COMPLETION_PROVIDER` — the model used for inline tab-completion suggestions
-- `DS_SIMPLE_TASKS_PROVIDER` — a lighter, faster model for quick internal tasks such as auto-tagging, markdown summarization, and preference inference
+- `DS_BG_TASK_PROVIDER` — a lighter, faster model for quick internal tasks such as auto-tagging, markdown summarization, and preference inference
 - `DS_EMBED_PROVIDER` — the model used to generate embeddings for the RAG knowledge base
 
-This means you can, for example, run Claude Sonnet for chat, use a local Ollama model for completions to save cost, and use Gemini Flash for simple tasks.
+This means you can, for example, run Claude Sonnet for chat, use a local Ollama model for completions to save cost, and use Gemini Flash for background task.
 
 ---
 
@@ -276,9 +276,9 @@ Varys builds a long-term model of a user's coding patterns by observing notebook
 
 - **Import frequency:** If the same library alias (e.g., `pd`, `np`, `sns`) appears in three or more distinct import cells across different notebooks, it is recorded as a library preference.
 
-**Preference generation:** Detected patterns are sent to the Simple Tasks LLM model with a prompt asking it to generate structured preference entries. Each preference has a type (`coding_style` or `library`), content (a natural language description), and keywords for matching. If the LLM is unavailable, deterministic template-based preferences are generated instead. Preferences are stored in a `PreferenceStore` at the project scope.
+**Preference generation:** Detected patterns are sent to the Background Task LLM model with a prompt asking it to generate structured preference entries. Each preference has a type (`coding_style` or `library`), content (a natural language description), and keywords for matching. If the LLM is unavailable, deterministic template-based preferences are generated instead. Preferences are stored in a `PreferenceStore` at the project scope.
 
-**Legacy migration:** The system can migrate older text-based `preferences.md` files from earlier Varys versions into the structured preference format automatically using the Simple Tasks model, with a fallback to a synchronous text-parsing approach.
+**Legacy migration:** The system can migrate older text-based `preferences.md` files from earlier Varys versions into the structured preference format automatically using the Background Task model, with a fallback to a synchronous text-parsing approach.
 
 **Usage:** Preferences are injected into the system prompt for every chat message, so over time the assistant starts to reflect the user's actual patterns — using `pd.read_csv`, `sns.set_style`, `random_state=42`, etc., without being told.
 
@@ -332,7 +332,7 @@ JupyterLab cells support metadata tags. Varys integrates with this system in two
 
 **Manual tags:** Tags set via JupyterLab's built-in tag UI are read by Varys and stored in the summary store (without triggering a new version bump, since tags are independent of cell source). The `patch_tags()` method in the summary store allows tag updates in-place.
 
-**Auto-tagging:** The `/varys/auto-tag` endpoint accepts a cell's source code and optional output and returns up to three suggested tags from a predefined library. The tag library is defined in `varys/tags/library.yaml`. Tags are categorized by topic. The Simple Tasks LLM model is used to pick appropriate tags from the eligible set only — no hallucinated tags can be returned.
+**Auto-tagging:** The `/varys/auto-tag` endpoint accepts a cell's source code and optional output and returns up to three suggested tags from a predefined library. The tag library is defined in `varys/tags/library.yaml`. Tags are categorized by topic. The Background Task LLM model is used to pick appropriate tags from the eligible set only — no hallucinated tags can be returned.
 
 **`skip-execution` tag:** Cells tagged with `skip-execution` are excluded from automatic execution in plan workflows, allowing users to mark cells that should never be auto-run.
 
@@ -374,7 +374,7 @@ All configuration lives in a plain `.env` file. The default path is `~/.jupyter/
 
 Settings are organized into the following groups:
 
-**Provider routing:** Which provider to use for each of the four task roles (chat, completion, simple tasks, embed).
+**Provider routing:** Which provider to use for each of the four task roles (chat, completion, background task, embed).
 
 **API credentials:** Keys for Anthropic, OpenAI, Google, AWS Bedrock, Azure OpenAI, and OpenRouter. Sensitive values are masked in the UI.
 

@@ -48,7 +48,7 @@ class AnthropicAgentProvider(AgentProvider):
         self._api_key = api_key
         self._model = model
         self._prompt_caching = (
-            os.environ.get("VARYS_AGENT_PROMPT_CACHING", "true").lower()
+            os.environ.get("VARYS_PROMPT_CACHING", "true").strip().lower()
             not in ("false", "0", "no")
         )
         # Lazily built on first stream_turn() call; reused every subsequent call

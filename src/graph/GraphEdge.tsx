@@ -14,15 +14,29 @@ interface Props {
   dimmed:      boolean;
 }
 
-const EDGE_COLORS: Record<string, string> = {
-  SKIP_LINK:   '#E8891A',
+const ANOMALY_COLORS: Record<string, string> = {
+  SKIP_LINK:    '#E8891A',
   OUT_OF_ORDER: '#D94040',
+};
+
+const EDGE_TYPE_COLORS: Record<string, string> = {
+  dependency: 'var(--jp-border-color2)',
+  redefines:  '#d97706',
+  reimport:   '#ef4444',
 };
 
 const ARROW_ID_PREFIX = 'varys-graph-arrow-';
 
-function getEdgeColor(anomaly: string | null): string {
-  return anomaly ? (EDGE_COLORS[anomaly] ?? 'var(--jp-border-color2)') : 'var(--jp-border-color2)';
+function getEdgeColor(edge: EdgeData): string {
+  if (edge.anomaly) return ANOMALY_COLORS[edge.anomaly] ?? 'var(--jp-border-color2)';
+  return EDGE_TYPE_COLORS[edge.edgeType ?? 'dependency'] ?? 'var(--jp-border-color2)';
+}
+
+function getArrowId(edge: EdgeData): string {
+  if (edge.anomaly) return `${ARROW_ID_PREFIX}${edge.anomaly}`;
+  if (edge.edgeType === 'redefines') return `${ARROW_ID_PREFIX}redefines`;
+  if (edge.edgeType === 'reimport')  return `${ARROW_ID_PREFIX}reimport`;
+  return `${ARROW_ID_PREFIX}normal`;
 }
 
 function cubicBezierPath(
@@ -31,14 +45,12 @@ function cubicBezierPath(
   tgt: { x: number; y: number },
 ): string {
   if (points.length >= 2) {
-    // Use dagre waypoints as bezier control points
     const all = points;
     const p0 = all[0];
     const pN = all[all.length - 1];
     if (all.length === 2) {
       return `M ${p0.x} ${p0.y} L ${pN.x} ${pN.y}`;
     }
-    // Build a smooth polyline through the waypoints
     let d = `M ${p0.x} ${p0.y}`;
     for (let i = 1; i < all.length - 1; i++) {
       const cp = all[i];
@@ -50,7 +62,7 @@ function cubicBezierPath(
     d += ` L ${pN.x} ${pN.y}`;
     return d;
   }
-  // Fallback: direct cubic bezier from source center to target center
+  // Fallback: direct cubic bezier
   const dx = tgt.x - src.x;
   const dy = tgt.y - src.y;
   const cx1 = src.x + dx * 0.1;
@@ -68,9 +80,11 @@ export const GraphEdge: React.FC<Props> = ({ edge, layout, nodeLayouts, zoom, di
   const src = { x: srcLayout.x, y: srcLayout.y + srcLayout.height / 2 };
   const tgt = { x: tgtLayout.x, y: tgtLayout.y - tgtLayout.height / 2 };
 
-  const color    = getEdgeColor(edge.anomaly);
+  const color    = getEdgeColor(edge);
+  const arrowId  = getArrowId(edge);
   const pathData = cubicBezierPath(layout.points, src, tgt);
-  const arrowId  = `${ARROW_ID_PREFIX}${edge.anomaly ?? 'normal'}`;
+  const isDashed = edge.edgeType === 'reimport';
+  const isThick  = !!(edge.anomaly) || edge.edgeType === 'redefines';
 
   // Midpoint for label
   const midPts = layout.points.length > 0 ? layout.points : [src, tgt];
@@ -87,9 +101,9 @@ export const GraphEdge: React.FC<Props> = ({ edge, layout, nodeLayouts, zoom, di
         d={pathData}
         fill="none"
         stroke={color}
-        strokeWidth={edge.anomaly ? 2 : 1.5}
+        strokeWidth={isThick ? 2 : 1.5}
         markerEnd={`url(#${arrowId})`}
-        strokeDasharray={undefined}
+        strokeDasharray={isDashed ? '6,4' : undefined}
       />
       {showLabel && (
         <text
@@ -112,9 +126,11 @@ export const GraphEdge: React.FC<Props> = ({ edge, layout, nodeLayouts, zoom, di
 export const GraphEdgeDefs: React.FC = () => (
   <defs>
     {[
-      { id: `${ARROW_ID_PREFIX}normal`,      color: 'var(--jp-border-color2)' },
-      { id: `${ARROW_ID_PREFIX}SKIP_LINK`,   color: '#E8891A' },
+      { id: `${ARROW_ID_PREFIX}normal`,       color: 'var(--jp-border-color2)' },
+      { id: `${ARROW_ID_PREFIX}SKIP_LINK`,    color: '#E8891A' },
       { id: `${ARROW_ID_PREFIX}OUT_OF_ORDER`, color: '#D94040' },
+      { id: `${ARROW_ID_PREFIX}redefines`,    color: '#d97706' },
+      { id: `${ARROW_ID_PREFIX}reimport`,     color: '#ef4444' },
     ].map(({ id, color }) => (
       <marker
         key={id}

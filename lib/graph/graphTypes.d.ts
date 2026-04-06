@@ -4,6 +4,8 @@
  */
 export type AnomalyId = 'SKIP_LINK' | 'DEAD_SYMBOL' | 'OUT_OF_ORDER' | 'UNEXECUTED_IN_CHAIN';
 export type DataSource = 'store' | 'ast';
+export type NodeRole = 'defines' | 'redefines' | 'consumes' | 'empty';
+export type EdgeType = 'dependency' | 'redefines' | 'reimport';
 export interface NodeData {
     cellUuid: string;
     cellIndex: number;
@@ -16,12 +18,15 @@ export interface NodeData {
     externalLoads: string[];
     executionCount: number | null;
     anomalies: AnomalyId[];
+    nodeRole: NodeRole;
+    cellAction: string[];
 }
 export interface EdgeData {
     sourceUuid: string;
     targetUuid: string;
     symbol: string;
     anomaly: 'SKIP_LINK' | 'OUT_OF_ORDER' | null;
+    edgeType: EdgeType;
 }
 export interface GraphData {
     notebookPath: string;

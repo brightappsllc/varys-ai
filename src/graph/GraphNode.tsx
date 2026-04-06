@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import type { NodeData, AnomalyId } from './graphTypes';
+import type { NodeData, AnomalyId, NodeRole } from './graphTypes';
 import type { NodeLayout } from './graphTypes';
 import { NODE_WIDTH, NODE_HEIGHT } from './graphTypes';
 
@@ -31,6 +31,21 @@ const BADGE_COLORS: Record<AnomalyId, string> = {
   DEAD_SYMBOL:         '#9CA3AF',
 };
 
+// Role-based node fill and border colours
+const ROLE_BG: Record<NodeRole, string> = {
+  defines:   '#d1fae5',
+  redefines: '#fed7aa',
+  consumes:  '#ede9fe',
+  empty:     'var(--jp-layout-color2, #f3f3f3)',
+};
+
+const ROLE_BORDER: Record<NodeRole, string> = {
+  defines:   '#059669',
+  redefines: '#d97706',
+  consumes:  '#7c3aed',
+  empty:     'var(--jp-border-color1)',
+};
+
 function getBadgeColor(anomalies: AnomalyId[]): string {
   for (const id of BADGE_PRIORITY) {
     if (anomalies.includes(id)) return BADGE_COLORS[id];
@@ -39,6 +54,7 @@ function getBadgeColor(anomalies: AnomalyId[]): string {
 }
 
 function nodeBackground(
+  nodeRole: NodeRole,
   anomalies: AnomalyId[],
   selected: boolean,
   upstream: boolean,
@@ -46,9 +62,21 @@ function nodeBackground(
 ): string {
   if (selected)    return 'var(--jp-brand-color4, #dbeafe)';
   if (upstream)    return '#dbeafe';
-  if (downstream)  return '#fef3c7';
+  if (downstream)  return '#fef9c3';
   if (anomalies.length > 0) return '#fef9c3';
-  return 'var(--jp-layout-color2, #f3f3f3)';
+  return ROLE_BG[nodeRole] ?? 'var(--jp-layout-color2, #f3f3f3)';
+}
+
+function nodeBorder(
+  nodeRole: NodeRole,
+  anomalies: AnomalyId[],
+  selected: boolean,
+): { color: string; width: number; dash?: string } {
+  if (selected) return { color: '#3B82F6', width: 2 };
+  const hasUnexecuted = anomalies.includes('UNEXECUTED_IN_CHAIN');
+  if (hasUnexecuted)
+    return { color: '#E8891A', width: 2, dash: '5,3' };
+  return { color: ROLE_BORDER[nodeRole] ?? 'var(--jp-border-color1)', width: 1.5 };
 }
 
 export const GraphNode: React.FC<Props> = ({
@@ -57,12 +85,12 @@ export const GraphNode: React.FC<Props> = ({
   const x = layout.x - NODE_WIDTH  / 2;
   const y = layout.y - NODE_HEIGHT / 2;
 
-  const hasUnexecutedBorder = node.anomalies.includes('UNEXECUTED_IN_CHAIN');
   const hasBadge = node.anomalies.length > 0;
   const badgeColor = hasBadge ? getBadgeColor(node.anomalies) : '';
 
-  const bg = nodeBackground(node.anomalies, selected, upstream, downstream);
-  const ringColor = selected ? '#3B82F6' : 'transparent';
+  const role = (node.nodeRole ?? 'empty') as NodeRole;
+  const bg   = nodeBackground(role, node.anomalies, selected, upstream, downstream);
+  const bdr  = nodeBorder(role, node.anomalies, selected);
 
   const opacity = dimmed ? 0.3 : 1;
 
@@ -88,9 +116,9 @@ export const GraphNode: React.FC<Props> = ({
         height={NODE_HEIGHT}
         rx={8}
         fill={bg}
-        stroke={selected ? ringColor : hasUnexecutedBorder ? '#E8891A' : 'var(--jp-border-color1)'}
-        strokeWidth={selected ? 2 : hasUnexecutedBorder ? 2 : 1}
-        strokeDasharray={hasUnexecutedBorder && !selected ? '5,3' : undefined}
+        stroke={bdr.color}
+        strokeWidth={bdr.width}
+        strokeDasharray={bdr.dash}
       />
 
       {/* Content via foreignObject */}
@@ -100,34 +128,16 @@ export const GraphNode: React.FC<Props> = ({
           style={{
             width:    NODE_WIDTH,
             height:   NODE_HEIGHT,
-            padding:  '6px 10px',
+            padding:  '5px 10px 5px',
             boxSizing: 'border-box',
             display:  'flex',
             flexDirection: 'column',
             justifyContent: 'center',
+            alignItems: 'center',
             overflow: 'hidden',
             position: 'relative',
           }}
         >
-          {/* Cell index badge top-left */}
-          <span
-            className="ds-graph-cell-badge"
-            style={{
-              position:   'absolute',
-              top:        4,
-              left:       6,
-              fontSize:   9,
-              fontWeight: 600,
-              color:      'var(--jp-ui-font-color2)',
-              background: 'var(--jp-layout-color3, #e0e0e0)',
-              borderRadius: 3,
-              padding:    '1px 4px',
-              lineHeight: 1.4,
-            }}
-          >
-            #{node.cellIndex + 1}
-          </span>
-
           {/* Anomaly badge top-right */}
           {hasBadge && (
             <span
@@ -154,32 +164,54 @@ export const GraphNode: React.FC<Props> = ({
             </span>
           )}
 
-          {/* Label */}
+          {/* "Cell N" — small muted tag */}
+          <span
+            className="ds-graph-node-cell-tag"
+            style={{
+              fontSize:   9,
+              fontWeight: 400,
+              color:      'var(--jp-ui-font-color2)',
+              letterSpacing: '0.04em',
+              lineHeight: 1,
+              marginBottom: 3,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Cell {node.cellIndex + 1}
+          </span>
+
+          {/* Variable name — hero text */}
           <span
             className="ds-graph-node-label"
             style={{
-              fontSize:   13,
-              fontWeight: 500,
+              fontSize:   14,
+              fontWeight: 700,
               color:      'var(--jp-ui-font-color0)',
               whiteSpace: 'nowrap',
               overflow:   'hidden',
               textOverflow: 'ellipsis',
-              marginTop:  hasBadge || true ? 10 : 0,
+              maxWidth:   NODE_WIDTH - 20,
+              textAlign:  'center',
+              lineHeight: 1.2,
             }}
           >
             {node.label}
           </span>
 
-          {/* Sublabel */}
+          {/* Sublabel — type / shape / filename */}
           {node.sublabel && (
             <span
               className="ds-graph-node-sublabel"
               style={{
-                fontSize:   11,
+                fontSize:   9,
                 color:      'var(--jp-ui-font-color2)',
                 whiteSpace: 'nowrap',
                 overflow:   'hidden',
                 textOverflow: 'ellipsis',
+                maxWidth:   NODE_WIDTH - 20,
+                textAlign:  'center',
+                marginTop:  3,
+                lineHeight: 1,
               }}
             >
               {node.sublabel}

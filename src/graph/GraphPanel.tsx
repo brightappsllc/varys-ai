@@ -11,22 +11,33 @@ import { GraphEdge, GraphEdgeDefs } from './GraphEdge';
 
 // ── Legend ────────────────────────────────────────────────────────────────────
 
+const LegendBox: React.FC<{ bg: string; border: string }> = ({ bg, border }) => (
+  <span style={{
+    display: 'inline-block', width: 14, height: 14, borderRadius: 3,
+    background: bg, border: `1.5px solid ${border}`, flexShrink: 0,
+  }} />
+);
+
 const Legend: React.FC = () => (
   <div className="ds-graph-legend">
     <span className="ds-graph-legend-item">
-      <span className="ds-graph-legend-line ds-graph-legend-normal" /> Normal flow
+      <LegendBox bg="#d1fae5" border="#059669" /> defines symbol
     </span>
     <span className="ds-graph-legend-item">
-      <span className="ds-graph-legend-line ds-graph-legend-skip" /> Skip-link
+      <LegendBox bg="#ede9fe" border="#7c3aed" /> consumes only
     </span>
     <span className="ds-graph-legend-item">
-      <span className="ds-graph-legend-line ds-graph-legend-order" /> Out-of-order
+      <LegendBox bg="#fed7aa" border="#d97706" /> redefines symbol
     </span>
     <span className="ds-graph-legend-item">
-      <span className="ds-graph-legend-dot ds-graph-legend-dead" />Dead symbol
+      <LegendBox bg="var(--jp-layout-color2,#f3f3f3)" border="var(--jp-border-color1)" /> empty cell
     </span>
     <span className="ds-graph-legend-item">
-      <span className="ds-graph-legend-dashed" /> Unexecuted
+      <span style={{
+        display: 'inline-block', width: 22, height: 0,
+        borderTop: '2px dashed #ef4444', flexShrink: 0,
+      }} />
+      reimport
     </span>
   </div>
 );

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "varys"
-version = "0.7.2"
+version = "0.8.0"
 description = "Varys — your DS assistant for Jupyter Notebook"
 license = { file = "LICENSE" }
 requires-python = ">=3.9"
@@ -31,21 +31,11 @@ openai    = ["openai"]
 # will satisfy it without the artificially narrow <0.28 upper bound.
 ollama    = []
 bedrock   = ["boto3"]
-# google-genai covers both chat and RAG embeddings (migrated from google-generativeai).
 google    = ["google-genai"]
-rag       = ["chromadb"]
-# sentence-transformers is the DEFAULT local embedding backend for RAG.
-# It pulls torch + transformers (~1-2 GB) — install only when using local embeddings.
-rag-local = ["sentence-transformers"]
-# PyMuPDF enables PDF chunking in the RAG pipeline.  Pinned to >=1.26.7 which
-# fixes CVE-2026-3029 (path traversal / arbitrary file write).
-rag-pdf   = ["pymupdf>=1.26.7"]
 mcp       = ["mcp>=1.0"]
 images    = ["Pillow>=10.0"]
-# Install all LLM providers + RAG + MCP + image processing at once.
-# NOTE: does NOT include rag-local (torch) or rag-pdf to avoid surprise installs.
-# Add varys[rag-local] or varys[rag-pdf] explicitly when needed.
-all = ["anthropic", "openai", "boto3", "google-genai", "chromadb", "mcp>=1.0", "Pillow>=10.0"]
+# Install all LLM providers + MCP + image processing at once.
+all = ["anthropic", "openai", "boto3", "google-genai", "mcp>=1.0", "Pillow>=10.0"]
 
 [project.urls]
 Homepage = "https://github.com/brightappsllc/varys-ai"

@@ -350,6 +350,24 @@ export class CellEditor {
   }
 
   /**
+   * Sends a kernel interrupt request.  Safe to call while a cell is running —
+   * the kernel will raise KeyboardInterrupt in the running cell and become idle.
+   * No-op if no kernel is attached.
+   */
+  async interruptKernel(): Promise<void> {
+    const panel = this.tracker.currentWidget;
+    if (!panel) return;
+    const kernel = panel.sessionContext.session?.kernel;
+    if (kernel) {
+      try {
+        await kernel.interrupt();
+      } catch {
+        // Interrupt errors (e.g. kernel already idle) are non-fatal.
+      }
+    }
+  }
+
+  /**
    * Adds the pending-highlight CSS class to a cell node.
    */
   highlightCell(index: number): void {

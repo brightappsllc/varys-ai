@@ -792,7 +792,7 @@ interface TabGroup {
   label: string;
   providerKey: string | null;
   zooKey: string | null;
-  fields: { key: string; label: string; type: string; placeholder?: string; description?: string }[];
+  fields: { key: string; label: string; type: string; placeholder?: string; description?: string; sectionHeader?: string; disabledWhen?: string }[];
 }
 
 const TAB_GROUPS: TabGroup[] = [
@@ -802,10 +802,11 @@ const TAB_GROUPS: TabGroup[] = [
     providerKey: null,
     zooKey: null,
     fields: [
-      { key: 'DS_CHAT_PROVIDER',           label: 'Chat',         type: 'select' },
-      { key: 'DS_COMPLETION_PROVIDER',     label: 'Completion',   type: 'select' },
-      { key: 'DS_EMBED_PROVIDER',          label: 'Embedding',    type: 'select' },
-      { key: 'DS_SIMPLE_TASKS_PROVIDER',   label: 'Simple tasks', type: 'select' },
+      { key: 'DS_CHAT_PROVIDER',       label: 'Chat',            type: 'select' },
+      { key: 'DS_COMPLETION_PROVIDER', label: 'Completion',      type: 'select' },
+      { key: 'DS_BG_TASK_PROVIDER',    label: 'Background Task', type: 'select' },
+      { key: 'VARYS_PROMPT_CACHING',   label: 'Prompt caching',  type: 'toggle', sectionHeader: 'Features',
+        description: 'Cache the static portion of the system prompt between requests. Reduces token cost ~70% on long sessions. Applies to Anthropic and Bedrock (explicit cache markers); OpenAI and Google cache automatically.' },
     ]
   },
   {
@@ -814,13 +815,10 @@ const TAB_GROUPS: TabGroup[] = [
     providerKey: 'ANTHROPIC',
     zooKey: 'ANTHROPIC_MODELS',
     fields: [
-      { key: 'ANTHROPIC_API_KEY',              label: 'API key',                type: 'password' },
-      { key: 'ANTHROPIC_CHAT_MODEL',           label: 'Chat & Agent model',     type: 'model-select' },
-      { key: 'VARYS_AGENT_PROMPT_CACHING',     label: 'Prompt caching',         type: 'toggle',
-        description: 'Cache prompt context between turns — cuts cost ~70% on long sessions. Supported on claude-3+ models.' },
+      { key: 'ANTHROPIC_API_KEY',              label: 'API key',                type: 'password',     sectionHeader: 'Credentials' },
+      { key: 'ANTHROPIC_CHAT_MODEL',           label: 'Chat & Agent model',     type: 'model-select', sectionHeader: 'Models' },
       { key: 'ANTHROPIC_COMPLETION_MODEL',     label: 'Completion model',       type: 'model-select' },
-      { key: 'ANTHROPIC_SIMPLE_TASKS_MODEL',   label: 'Simple tasks model',     type: 'model-select' },
-      { key: 'ANTHROPIC_EMBED_MODEL',          label: 'Embedding model',        type: 'model-select' },
+      { key: 'ANTHROPIC_BG_TASK_MODEL',        label: 'Background model',       type: 'model-select' },
       { key: 'ANTHROPIC_EXTENDED_THINKING',    label: 'Extended thinking',      type: 'toggle',
         description: 'Enable Anthropic native extended thinking (claude-3-7+ / claude-4+). The LLM reasons internally before answering — visible in the 🧠 panel. Higher token cost.' },
     ]
@@ -831,13 +829,10 @@ const TAB_GROUPS: TabGroup[] = [
     providerKey: 'OPENAI',
     zooKey: 'OPENAI_MODELS',
     fields: [
-      { key: 'OPENAI_API_KEY',               label: 'API key',            type: 'password' },
-      { key: 'OPENAI_CHAT_MODEL',            label: 'Chat & Agent model', type: 'model-select' },
-      { key: 'OPENAI_PROMPT_CACHING',        label: 'Prompt caching',     type: 'toggle',
-        description: 'OpenAI automatically caches repeated input prefixes for gpt-4o and newer. Enable to structure prompts for maximum cache reuse.' },
+      { key: 'OPENAI_API_KEY',               label: 'API key',            type: 'password',     sectionHeader: 'Credentials' },
+      { key: 'OPENAI_CHAT_MODEL',            label: 'Chat & Agent model', type: 'model-select', sectionHeader: 'Models' },
       { key: 'OPENAI_COMPLETION_MODEL',      label: 'Completion model',   type: 'model-select' },
-      { key: 'OPENAI_SIMPLE_TASKS_MODEL',    label: 'Simple tasks model', type: 'model-select' },
-      { key: 'OPENAI_EMBED_MODEL',           label: 'Embedding model',    type: 'model-select' },
+      { key: 'OPENAI_BG_TASK_MODEL',         label: 'Background model',   type: 'model-select' },
     ]
   },
   {
@@ -846,22 +841,19 @@ const TAB_GROUPS: TabGroup[] = [
     providerKey: 'GOOGLE',
     zooKey: 'GOOGLE_MODELS',
     fields: [
-      { key: 'GOOGLE_API_KEY',               label: 'API key',            type: 'password',
+      { key: 'GOOGLE_API_KEY',               label: 'API key',            type: 'password',     sectionHeader: 'Credentials',
         description: 'For individual developers using the Gemini API directly.' },
       { key: 'GOOGLE_SERVICE_ACCOUNT_JSON',  label: 'Service account JSON', type: 'text',
         placeholder: '/path/to/service_account.json',
         description: 'Path to a GCP service-account JSON file (project_id, private_key, client_email…). When set, takes precedence over the API key.' },
-      { key: 'GOOGLE_CHAT_MODEL',            label: 'Chat & Agent model', type: 'model-select' },
-      { key: 'GOOGLE_ENABLE_THINKING',       label: 'Enable thinking',    type: 'toggle',
+      { key: 'GOOGLE_CHAT_MODEL',            label: 'Chat & Agent model', type: 'model-select', sectionHeader: 'Models' },
+      { key: 'GOOGLE_ENABLE_THINKING',       label: 'Enable thinking',    type: 'toggle',       sectionHeader: 'Features',
         description: 'Allow Gemini 2.5+ models to use extended reasoning (thinkingBudget). The reasoning trace appears as a collapsible thinking bubble in chat.' },
-      { key: 'GOOGLE_THINKING_BUDGET',       label: 'Thinking token budget', type: 'text',
+      { key: 'GOOGLE_THINKING_BUDGET',       label: 'Thinking token budget', type: 'text',      disabledWhen: 'GOOGLE_ENABLE_THINKING',
         placeholder: '8192  (use -1 for dynamic)',
         description: 'Max tokens the model may use for internal reasoning. Set to -1 to let the model decide. Only effective when Enable thinking is on and a Gemini 2.5+ model is selected.' },
-      { key: 'GOOGLE_PROMPT_CACHING',        label: 'Prompt caching',     type: 'toggle',
-        description: 'Context caching for Gemini 1.5+ models. Reduces cost when the same large context is reused across turns.' },
       { key: 'GOOGLE_COMPLETION_MODEL',      label: 'Completion model',   type: 'model-select' },
-      { key: 'GOOGLE_SIMPLE_TASKS_MODEL',    label: 'Simple tasks model', type: 'model-select' },
-      { key: 'GOOGLE_EMBED_MODEL',           label: 'Embedding model',    type: 'model-select' },
+      { key: 'GOOGLE_BG_TASK_MODEL',         label: 'Background model',   type: 'model-select' },
     ]
   },
   {
@@ -870,22 +862,21 @@ const TAB_GROUPS: TabGroup[] = [
     providerKey: 'BEDROCK',
     zooKey: 'BEDROCK_MODELS',
     fields: [
-      { key: 'AWS_PROFILE',                   label: 'AWS profile',           type: 'text', placeholder: 'e.g. default, np  (leave blank for explicit keys)' },
-      { key: 'AWS_AUTH_REFRESH',              label: 'Auth refresh command',  type: 'text', placeholder: 'e.g. aws-azure-login --profile ITOSS --no-prompt  (runs only when token is expired)' },
+      { key: 'AWS_PROFILE',                   label: 'AWS profile',           type: 'text',     sectionHeader: 'Authentication', placeholder: 'e.g. default, np  (leave blank for explicit keys)' },
+      { key: 'AWS_AUTH_REFRESH',              label: 'Auth refresh command',  type: 'text',     placeholder: 'e.g. aws-azure-login --profile ITOSS --no-prompt  (runs only when token is expired)' },
       { key: 'AWS_ACCESS_KEY_ID',             label: 'Access key ID',         type: 'password', placeholder: '(leave blank when using AWS_PROFILE)' },
       { key: 'AWS_SECRET_ACCESS_KEY',         label: 'Secret access key',     type: 'password', placeholder: '(leave blank when using AWS_PROFILE)' },
       { key: 'AWS_SESSION_TOKEN',             label: 'Session token',         type: 'password', placeholder: '(optional)' },
-      { key: 'AWS_REGION',                    label: 'Region',                type: 'text', placeholder: 'us-east-1' },
-      { key: 'BEDROCK_CHAT_MODEL',            label: 'Chat & Agent model',    type: 'model-select' },
-      { key: 'BEDROCK_PROMPT_CACHING',        label: 'Prompt caching',        type: 'toggle',
+      { key: 'AWS_REGION',                    label: 'Region',                type: 'text',     placeholder: 'us-east-1' },
+      { key: 'BEDROCK_CHAT_MODEL',            label: 'Chat & Agent model',    type: 'model-select', sectionHeader: 'Models' },
+      { key: 'BEDROCK_PROMPT_CACHING',        label: 'Prompt caching',        type: 'toggle',       sectionHeader: 'Features',
         description: 'Prompt caching for Anthropic Claude models on Bedrock. Reduces cost on long multi-turn sessions.' },
       { key: 'BEDROCK_COMPLETION_MODEL',      label: 'Completion model',      type: 'model-select' },
-      { key: 'BEDROCK_SIMPLE_TASKS_MODEL',    label: 'Simple tasks model',    type: 'model-select' },
-      { key: 'BEDROCK_EMBED_MODEL',           label: 'Embedding model',       type: 'model-select' },
+      { key: 'BEDROCK_BG_TASK_MODEL',         label: 'Background model',      type: 'model-select' },
       { key: 'BEDROCK_ENABLE_THINKING',       label: 'Extended thinking',     type: 'toggle',
         description: 'Enable extended thinking for Anthropic Claude Sonnet and Opus models. Improves reasoning on complex tasks at the cost of higher latency and token usage.' },
-      { key: 'BEDROCK_THINKING_BUDGET',       label: 'Thinking token budget', type: 'text',
-        placeholder: '8000  (min 1024, used only when extended thinking is on)' },
+      { key: 'BEDROCK_THINKING_BUDGET',       label: 'Thinking token budget', type: 'text',     disabledWhen: 'BEDROCK_ENABLE_THINKING',
+        placeholder: '8000  (min 1024)' },
       { key: 'BEDROCK_MAX_TOKENS',            label: 'Max output tokens',     type: 'text',
         placeholder: 'leave blank for auto (4096 Haiku 4.5 · 8192 others)' },
     ]
@@ -896,15 +887,14 @@ const TAB_GROUPS: TabGroup[] = [
     providerKey: 'AZURE',
     zooKey: 'AZURE_MODELS',
     fields: [
-      { key: 'AZURE_OPENAI_API_KEY',          label: 'API key',                    type: 'password' },
-      { key: 'AZURE_OPENAI_ENDPOINT',         label: 'Endpoint URL',               type: 'text', placeholder: 'https://YOUR-RESOURCE.openai.azure.com/' },
-      { key: 'AZURE_OPENAI_API_VERSION',      label: 'API version',                type: 'text', placeholder: '2024-02-01' },
-      { key: 'AZURE_CHAT_MODEL',              label: 'Chat & Agent deployment',    type: 'model-select' },
-      { key: 'AZURE_PROMPT_CACHING',          label: 'Prompt caching',             type: 'toggle',
+      { key: 'AZURE_OPENAI_API_KEY',          label: 'API key',                    type: 'password',     sectionHeader: 'Credentials' },
+      { key: 'AZURE_OPENAI_ENDPOINT',         label: 'Endpoint URL',               type: 'text',         placeholder: 'https://YOUR-RESOURCE.openai.azure.com/' },
+      { key: 'AZURE_OPENAI_API_VERSION',      label: 'API version',                type: 'text',         placeholder: '2024-02-01' },
+      { key: 'AZURE_CHAT_MODEL',              label: 'Chat & Agent deployment',    type: 'model-select', sectionHeader: 'Models' },
+      { key: 'AZURE_PROMPT_CACHING',          label: 'Prompt caching',             type: 'toggle',       sectionHeader: 'Features',
         description: 'Enable prompt prefix caching for deployments that support it.' },
       { key: 'AZURE_COMPLETION_MODEL',        label: 'Completion deployment',      type: 'model-select' },
-      { key: 'AZURE_SIMPLE_TASKS_MODEL',      label: 'Simple tasks deployment',    type: 'model-select' },
-      { key: 'AZURE_EMBED_MODEL',             label: 'Embedding deployment',       type: 'model-select' },
+      { key: 'AZURE_BG_TASK_MODEL',           label: 'Background model',           type: 'model-select' },
     ]
   },
   {
@@ -913,15 +903,14 @@ const TAB_GROUPS: TabGroup[] = [
     providerKey: 'OPENROUTER',
     zooKey: 'OPENROUTER_MODELS',
     fields: [
-      { key: 'OPENROUTER_API_KEY',             label: 'API key',              type: 'password' },
-      { key: 'OPENROUTER_SITE_URL',            label: 'Site URL (optional)',  type: 'text', placeholder: 'https://your-app.com' },
-      { key: 'OPENROUTER_SITE_NAME',           label: 'Site name (optional)', type: 'text', placeholder: 'Varys' },
-      { key: 'OPENROUTER_CHAT_MODEL',          label: 'Chat & Agent model',   type: 'model-select' },
-      { key: 'OPENROUTER_PROMPT_CACHING',      label: 'Prompt caching',       type: 'toggle',
+      { key: 'OPENROUTER_API_KEY',             label: 'API key',              type: 'password',     sectionHeader: 'Credentials' },
+      { key: 'OPENROUTER_SITE_URL',            label: 'Site URL (optional)',  type: 'text',         placeholder: 'https://your-app.com' },
+      { key: 'OPENROUTER_SITE_NAME',           label: 'Site name (optional)', type: 'text',         placeholder: 'Varys' },
+      { key: 'OPENROUTER_CHAT_MODEL',          label: 'Chat & Agent model',   type: 'model-select', sectionHeader: 'Models' },
+      { key: 'OPENROUTER_PROMPT_CACHING',      label: 'Prompt caching',       type: 'toggle',       sectionHeader: 'Features',
         description: 'Pass caching hints to providers that support it (e.g., Anthropic models via OpenRouter).' },
       { key: 'OPENROUTER_COMPLETION_MODEL',    label: 'Completion model',     type: 'model-select' },
-      { key: 'OPENROUTER_SIMPLE_TASKS_MODEL',  label: 'Simple tasks model',   type: 'model-select' },
-      { key: 'OPENROUTER_EMBED_MODEL',         label: 'Embedding model',      type: 'model-select' },
+      { key: 'OPENROUTER_BG_TASK_MODEL',       label: 'Background model',     type: 'model-select' },
     ]
   },
   {
@@ -930,102 +919,17 @@ const TAB_GROUPS: TabGroup[] = [
     providerKey: 'OLLAMA',
     zooKey: 'OLLAMA_MODELS',
     fields: [
-      { key: 'OLLAMA_URL',                     label: 'Server URL',         type: 'text', placeholder: 'http://localhost:11434' },
-      { key: 'OLLAMA_CHAT_MODEL',              label: 'Chat & Agent model', type: 'model-select' },
-      { key: 'OLLAMA_PROMPT_CACHING',          label: 'Prompt caching',     type: 'toggle',
+      { key: 'OLLAMA_URL',                     label: 'Server URL',         type: 'text',         sectionHeader: 'Connection', placeholder: 'http://localhost:11434' },
+      { key: 'OLLAMA_CHAT_MODEL',              label: 'Chat & Agent model', type: 'model-select', sectionHeader: 'Models' },
+      { key: 'OLLAMA_PROMPT_CACHING',          label: 'Prompt caching',     type: 'toggle',       sectionHeader: 'Features',
         description: 'Ollama caches KV context natively. Enable to keep the system prompt resident between requests.' },
       { key: 'OLLAMA_COMPLETION_MODEL',        label: 'Completion model',   type: 'model-select' },
-      { key: 'OLLAMA_SIMPLE_TASKS_MODEL',      label: 'Simple tasks model', type: 'model-select' },
-      { key: 'OLLAMA_EMBED_MODEL',             label: 'Embedding model',    type: 'model-select' },
+      { key: 'OLLAMA_BG_TASK_MODEL',           label: 'Background model',   type: 'model-select' },
     ]
   },
 ];
 
 // ---------------------------------------------------------------------------
-// RAGStatusSection — live knowledge-base stats shown on the Knowledge tab
-// ---------------------------------------------------------------------------
-
-interface RAGStatusSectionProps {
-  apiClient: APIClient;
-  notebookPath?: string;
-}
-
-const RAGStatusSection: React.FC<RAGStatusSectionProps> = ({ apiClient, notebookPath = '' }) => {
-  const [status, setStatus] = useState<{
-    available: boolean;
-    total_chunks: number;
-    indexed_files: number;
-    files: string[];
-    hint?: string;
-  } | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  const refresh = async () => {
-    setLoading(true);
-    try {
-      const s = await apiClient.ragStatus(notebookPath);
-      setStatus(s);
-    } catch {
-      setStatus(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { void refresh(); }, []);
-
-  if (loading) {
-    return (
-      <div className="ds-rag-status">
-        <span className="ds-rag-status-loading">Checking index…</span>
-      </div>
-    );
-  }
-
-  if (!status) return null;
-
-  if (!status.available) {
-    return (
-      <div className="ds-rag-status ds-rag-status--unavailable">
-        <p>⚠️ RAG dependencies not installed.</p>
-        <code>{status.hint ?? 'pip install chromadb sentence-transformers'}</code>
-      </div>
-    );
-  }
-
-  return (
-    <div className="ds-rag-status">
-      <div className="ds-rag-status-header">
-        <span className="ds-rag-status-title">📚 Knowledge base</span>
-        <button className="ds-rag-status-refresh" onClick={() => void refresh()} title="Refresh">↻</button>
-      </div>
-      <div className="ds-rag-status-stats">
-        <span><strong>{status.total_chunks}</strong> chunks</span>
-        <span><strong>{status.indexed_files}</strong> files indexed</span>
-      </div>
-      {status.indexed_files > 0 && (
-        <div className="ds-rag-status-files">
-          {status.files.slice(0, 8).map((f: string) => (
-            <div key={f} className="ds-rag-status-file" title={f}>
-              {f.split('/').pop()}
-            </div>
-          ))}
-          {status.files.length > 8 && (
-            <div className="ds-rag-status-file ds-rag-status-file--more">
-              +{status.files.length - 8} more…
-            </div>
-          )}
-        </div>
-      )}
-      {status.indexed_files === 0 && status.available && (
-        <div className="ds-rag-status-empty">
-          No files indexed yet. Drop files in <code>.jupyter-assistant/knowledge/</code> then run <code>/index</code> in chat.
-        </div>
-      )}
-    </div>
-  );
-};
-
 // ---------------------------------------------------------------------------
 // MCPPanel — MCP server management shown on the MCP settings tab
 // ---------------------------------------------------------------------------
@@ -1048,6 +952,7 @@ const MCPPanel: React.FC<{ apiClient: APIClient }> = ({ apiClient }) => {
   const [pasteError, setPasteError] = useState('');
   const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
   const [statusMsg, setStatusMsg] = useState<{type: 'ok'|'err'; text: string} | null>(null);
+  const [configOpen, setConfigOpen] = useState(false);
 
   const refresh = async () => {
     setLoading(true);
@@ -1208,7 +1113,9 @@ const MCPPanel: React.FC<{ apiClient: APIClient }> = ({ apiClient }) => {
     <div className="ds-mcp-panel">
       <div className="ds-mcp-header">
         <span className="ds-mcp-summary">
-          {Object.keys(servers).length} server(s) · {totalTools} tool(s)
+          <span className="ds-mcp-count">{Object.keys(servers).length}</span> servers
+          {' · '}
+          <span className="ds-mcp-count">{totalTools}</span> tools
         </span>
         <button className="ds-mcp-reload-btn" onClick={() => void handleReload()} disabled={loading}>
           {loading ? '…' : '↺ Reload'}
@@ -1236,10 +1143,12 @@ const MCPPanel: React.FC<{ apiClient: APIClient }> = ({ apiClient }) => {
               <span className="ds-mcp-server-dot" title={info.status}>
                 {STATUS_DOT[info.status] ?? '⚫'}
               </span>
-              <span className={`ds-mcp-server-name${isDisabled ? ' ds-mcp-server-name--disabled' : ''}`}>{name}</span>
-              <span className="ds-mcp-server-cmd" title={`${info.config.command} ${info.config.args.join(' ')}`}>
-                {info.config.command} {info.config.args.join(' ')}
-              </span>
+              <div className="ds-mcp-server-info">
+                <span className={`ds-mcp-server-name${isDisabled ? ' ds-mcp-server-name--disabled' : ''}`}>{name}</span>
+                <span className="ds-mcp-server-cmd" title={`${info.config.command} ${info.config.args.join(' ')}`}>
+                  {info.config.command} {info.config.args.join(' ')}
+                </span>
+              </div>
               {/* Enable / disable toggle */}
               <label
                 className="ds-mcp-server-toggle"
@@ -1278,16 +1187,16 @@ const MCPPanel: React.FC<{ apiClient: APIClient }> = ({ apiClient }) => {
                   className="ds-mcp-tools-toggle"
                   onClick={() => setExpandedTools(p => ({ ...p, [name]: !p[name] }))}
                 >
-                  {expandedTools[name] ? '▾' : '▸'} {info.tools.length} tool(s)
+                  {expandedTools[name] ? '▾' : '▸'} {info.tools.length} tool{info.tools.length !== 1 ? 's' : ''}
                 </button>
                 {expandedTools[name] && (
-                  <ul className="ds-mcp-tools-list">
+                  <div className="ds-mcp-tools-chips">
                     {info.tools.map(t => (
-                      <li key={t} className="ds-mcp-tool-name">
+                      <span key={t} className="ds-mcp-tool-chip">
                         {t.replace(`${name}__`, '')}
-                      </li>
+                      </span>
                     ))}
-                  </ul>
+                  </div>
                 )}
               </div>
             )}
@@ -1308,7 +1217,7 @@ const MCPPanel: React.FC<{ apiClient: APIClient }> = ({ apiClient }) => {
           className="ds-mcp-input ds-mcp-paste-textarea"
           placeholder={`{\n  "mcpServers": {\n    "Filesystem": {\n      "command": "npx",\n      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],\n      "env": {},\n      "disabled": false\n    }\n  }\n}`}
           value={pasteJson}
-          rows={10}
+          rows={7}
           spellCheck={false}
           onChange={e => { setPasteJson(e.target.value); setPasteError(''); }}
         />
@@ -1328,17 +1237,25 @@ const MCPPanel: React.FC<{ apiClient: APIClient }> = ({ apiClient }) => {
         </p>
       </div>
 
-      {/* Read-only config viewer */}
+      {/* Read-only config viewer — collapsed by default */}
       {configRaw && (
         <div className="ds-mcp-config-viewer">
-          <div className="ds-mcp-config-viewer-label">~/.jupyter/varys-mcp.json</div>
-          <textarea
-            className="ds-mcp-config-textarea"
-            value={configRaw}
-            readOnly
-            rows={Math.min(configRaw.split('\n').length + 1, 20)}
-            spellCheck={false}
-          />
+          <button
+            className="ds-mcp-config-toggle"
+            onClick={() => setConfigOpen(o => !o)}
+          >
+            {configOpen ? '▾' : '▸'} Raw config
+            <span className="ds-mcp-config-toggle-path">~/.jupyter/varys-mcp.json</span>
+          </button>
+          {configOpen && (
+            <textarea
+              className="ds-mcp-config-textarea"
+              value={configRaw}
+              readOnly
+              rows={Math.min(configRaw.split('\n').length + 1, 20)}
+              spellCheck={false}
+            />
+          )}
         </div>
       )}
     </div>
@@ -1492,15 +1409,6 @@ const SETTINGS_NAV_GROUPS: NavGroup[] = [
         ),
       },
       {
-        id: 'indexing',
-        label: 'Indexing & Docs',
-        icon: (
-          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.3">
-            <path d="M3 3h9M3 7h9M3 11h5"/>
-          </svg>
-        ),
-      },
-      {
         id: 'tags',
         label: 'Tags',
         icon: (
@@ -1551,7 +1459,6 @@ const SECTION_HEADING_MAP: Record<string, string> = {
   'mcp':             'MCP',
   'skills':          'Skills',
   'commands':        'Commands',
-  'indexing':        'Indexing & Docs',
   'tags':            'Tags',
   'memory':          'Long-term memory',
   'usage':           'Usage',
@@ -1649,8 +1556,7 @@ const SectionHeading: React.FC<{ section: string; subSection: string | null }> =
 const ROUTING_KEYS = [
   'DS_CHAT_PROVIDER',
   'DS_COMPLETION_PROVIDER',
-  'DS_EMBED_PROVIDER',
-  'DS_SIMPLE_TASKS_PROVIDER',
+  'DS_BG_TASK_PROVIDER',
 ] as const;
 
 const ModelsPanel: React.FC<{
@@ -1682,6 +1588,8 @@ const ModelsPanel: React.FC<{
   const [status, setStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [toolSupport, setToolSupport]               = useState<{ supported: boolean; reason: string | null } | null>(null);
   const [checkingToolSupport, setCheckingToolSupport] = useState(false);
+  const [saveTried, setSaveTried] = useState(false);
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     apiClient
@@ -1819,6 +1727,7 @@ const ModelsPanel: React.FC<{
   };
 
   const handleSave = async () => {
+    setSaveTried(true);
     setStatus(null);
     const validationError = _validateBeforeSave();
     if (validationError) {
@@ -1876,10 +1785,9 @@ const ModelsPanel: React.FC<{
     : (TAB_GROUPS.find(g => g.id === (subSection ?? 'anthropic')) ?? TAB_GROUPS[1]);
 
   const TASK_LABELS: Record<string, string> = {
-    DS_CHAT_PROVIDER:           'Chat',
+    DS_CHAT_PROVIDER:           'Chat / Agent',
     DS_COMPLETION_PROVIDER:     'Completion',
-    DS_EMBED_PROVIDER:          'Embedding',
-    DS_SIMPLE_TASKS_PROVIDER:   'Simple tasks',
+    DS_BG_TASK_PROVIDER:        'Background Task',
   };
 
   return (
@@ -1889,36 +1797,83 @@ const ModelsPanel: React.FC<{
         {section === 'model-routing' ? (
           <>
             <div className="ds-settings-routing-grid">
-              {currentGroup.fields.map(field => (
-                <React.Fragment key={field.key}>
-                  <label className="ds-settings-label">{TASK_LABELS[field.key] ?? field.label}</label>
-                  {field.key === 'DS_COMPLETION_PROVIDER' ? (
-                    <div className="ds-settings-routing-controls">
-                      <select
-                        className="ds-settings-select"
-                        value={values[field.key] ?? ''}
-                        onChange={e => handleChange(field.key, e.target.value)}
-                      >
-                        <option value="">— select provider —</option>
-                        {PROVIDER_LIST.map(p => (
-                          <option key={p} value={p}>{p}</option>
-                        ))}
-                      </select>
-                      <label className="ds-settings-token-label" title="Max tokens returned per completion">
-                        Tokens
-                        <input
-                          className="ds-settings-token-input"
-                          type="number"
-                          min={16}
-                          max={2048}
-                          step={16}
-                          value={values['COMPLETION_MAX_TOKENS'] ?? '128'}
-                          onChange={e => handleChange('COMPLETION_MAX_TOKENS', e.target.value)}
-                          title="Max tokens returned per completion (default: 128)"
-                        />
-                      </label>
-                    </div>
-                  ) : (
+              {currentGroup.fields.map(field => {
+                const label = TASK_LABELS[field.key] ?? field.label;
+
+                if (field.type === 'toggle') {
+                  const isOn = (values[field.key] ?? 'true') !== 'false';
+                  return (
+                    <React.Fragment key={field.key}>
+                      {field.sectionHeader && (
+                        <div className="ds-settings-routing-section-header">
+                          {field.sectionHeader}
+                        </div>
+                      )}
+                      <label className="ds-settings-label">{label}</label>
+                      <div className="ds-settings-routing-toggle-row">
+                        <label className="ds-settings-toggle-switch">
+                          <input
+                            type="checkbox"
+                            checked={isOn}
+                            onChange={() => handleChange(field.key, isOn ? 'false' : 'true')}
+                          />
+                          <span className="ds-settings-toggle-slider" />
+                        </label>
+                        {field.description && (
+                          <span className="ds-settings-routing-toggle-desc">{field.description}</span>
+                        )}
+                      </div>
+                    </React.Fragment>
+                  );
+                }
+
+                if (field.key === 'DS_COMPLETION_PROVIDER') {
+                  return (
+                    <React.Fragment key={field.key}>
+                      <label className="ds-settings-label">{label}</label>
+                      <div className="ds-settings-routing-controls">
+                        <select
+                          className="ds-settings-select"
+                          value={values[field.key] ?? ''}
+                          onChange={e => handleChange(field.key, e.target.value)}
+                        >
+                          <option value="">— select provider —</option>
+                          {PROVIDER_LIST.map(p => (
+                            <option key={p} value={p}>{p}</option>
+                          ))}
+                        </select>
+                        <label className="ds-settings-token-label" title="Max tokens returned per completion">
+                          Tokens
+                          <input
+                            className="ds-settings-token-input"
+                            type="number"
+                            min={16}
+                            max={2048}
+                            step={16}
+                            value={values['COMPLETION_MAX_TOKENS'] ?? '128'}
+                            onChange={e => handleChange('COMPLETION_MAX_TOKENS', e.target.value)}
+                            title="Max tokens returned per completion (default: 128)"
+                          />
+                        </label>
+                      </div>
+                    </React.Fragment>
+                  );
+                }
+
+                // Default: provider select + optional inline info bubble
+                const bubble = field.key === 'DS_BG_TASK_PROVIDER' ? (
+                  <span key={`bubble-${field.key}`} className="ds-settings-routing-bubble-desc">
+                    Powers background work independently of your chat model: long-term memory
+                    inference, preference extraction, and LLM summarization of large markdown
+                    cells (&gt;2 000 chars).
+                    Without a configured Background model, large markdown cells are{' '}
+                    <em>truncated at a sentence boundary</em> rather than summarized.
+                  </span>
+                ) : null;
+
+                return (
+                  <React.Fragment key={field.key}>
+                    <label className="ds-settings-label">{label}</label>
                     <select
                       className="ds-settings-select"
                       value={values[field.key] ?? ''}
@@ -1929,36 +1884,38 @@ const ModelsPanel: React.FC<{
                         <option key={p} value={p}>{p}</option>
                       ))}
                     </select>
-                  )}
-                </React.Fragment>
-              ))}
+                    {bubble}
+                  </React.Fragment>
+                );
+              })}
             </div>
-            <p className="ds-settings-simple-tasks-note">
-              <strong>Simple tasks</strong> powers background work: long-term memory
-              inference, preference extraction, and LLM prose summarization of large
-              markdown cells (&gt;2 000 chars). Without a configured Simple Tasks model,
-              large markdown cells are <em>truncated at a sentence boundary</em> rather
-              than summarized.
-            </p>
           </>
         ) : (
           <>
             {currentGroup.fields.map(field => {
+              const sectionHeaderEl = field.sectionHeader ? (
+                <div key={`sh-${field.key}`} className="ds-settings-form-section-header">
+                  {field.sectionHeader}
+                </div>
+              ) : null;
+
               if (field.type === 'model-select') {
                 const zoo = currentGroup.zooKey ? getZooModels(currentGroup.zooKey, values) : [];
                 const cur = values[field.key] ?? '';
                 const options = cur && !zoo.includes(cur) ? [cur, ...zoo] : zoo;
                 const isEmpty = !cur;
+                const showValidation = saveTried && isEmpty;
                 const isChatModel = field.key === chatModelKey;
                 return (
                   <React.Fragment key={field.key}>
+                    {sectionHeaderEl}
                     <div className="ds-settings-row">
                       <label className="ds-settings-label">
                         {field.label}
-                        {isEmpty && <span className="ds-settings-required" title="Required"> *</span>}
+                        {showValidation && <span className="ds-settings-required" title="Required"> *</span>}
                       </label>
                       <select
-                        className={`ds-settings-select${isEmpty ? ' ds-settings-select--empty' : ''}`}
+                        className={`ds-settings-select${showValidation ? ' ds-settings-select--empty' : ''}`}
                         value={cur}
                         onChange={e => handleChange(field.key, e.target.value)}
                       >
@@ -1973,12 +1930,12 @@ const ModelsPanel: React.FC<{
                     {isChatModel && cur && (
                       <div className="ds-settings-tool-indicator">
                         {checkingToolSupport ? (
-                          <span className="ds-agent-prov-tool-checking">Checking tool support…</span>
+                          <span className="ds-agent-prov-tool-checking">Checking…</span>
                         ) : toolSupport === null ? null : toolSupport.supported ? (
                           <span className="ds-agent-prov-tool-ok">✓ Tool calling supported</span>
                         ) : (
                           <span className="ds-agent-prov-tool-warn">
-                            ⚠ Tool calling not supported{toolSupport.reason ? ` — ${toolSupport.reason}` : ''}
+                            ⚠ Not supported{toolSupport.reason ? ` — ${toolSupport.reason}` : ''}
                           </span>
                         )}
                       </div>
@@ -1989,36 +1946,64 @@ const ModelsPanel: React.FC<{
               if (field.type === 'toggle') {
                 const isOn = (values[field.key] ?? 'true') !== 'false';
                 return (
-                  <div key={field.key} className="ds-settings-row ds-settings-row--toggle">
-                    <div className="ds-settings-toggle-label-group">
-                      <span className="ds-settings-label">{field.label}</span>
-                      {field.description && (
-                        <span className="ds-settings-toggle-desc">{field.description}</span>
-                      )}
+                  <React.Fragment key={field.key}>
+                    {sectionHeaderEl}
+                    <div className="ds-settings-row ds-settings-row--toggle">
+                      <div className="ds-settings-toggle-label-group">
+                        <span className="ds-settings-label">{field.label}</span>
+                        {field.description && (
+                          <span className="ds-settings-toggle-desc">{field.description}</span>
+                        )}
+                      </div>
+                      <label className="ds-settings-toggle-switch" title={isOn ? 'Click to disable' : 'Click to enable'}>
+                        <input
+                          type="checkbox"
+                          checked={isOn}
+                          onChange={e => handleChange(field.key, e.target.checked ? 'true' : 'false')}
+                        />
+                        <span className="ds-settings-toggle-slider" />
+                      </label>
                     </div>
-                    <label className="ds-settings-toggle-switch" title={isOn ? 'Click to disable' : 'Click to enable'}>
-                      <input
-                        type="checkbox"
-                        checked={isOn}
-                        onChange={e => handleChange(field.key, e.target.checked ? 'true' : 'false')}
-                      />
-                      <span className="ds-settings-toggle-slider" />
-                    </label>
-                  </div>
+                  </React.Fragment>
                 );
               }
+              const isDisabled = field.disabledWhen
+                ? (values[field.disabledWhen] ?? 'true') === 'false'
+                : false;
+              const isPassword = field.type === 'password';
+              const fieldValue = values[field.key] ?? '';
+              const isRevealed = revealed[field.key] ?? false;
               return (
-                <div key={field.key} className="ds-settings-row">
-                  <label className="ds-settings-label">{field.label}</label>
-                  <input
-                    className="ds-settings-input"
-                    type={field.type === 'password' && masked[field.key] ? 'password' : 'text'}
-                    value={values[field.key] ?? ''}
-                    onChange={e => handleChange(field.key, e.target.value)}
-                    placeholder={field.type === 'password' ? '(unchanged)' : (field.placeholder ?? '')}
-                    autoComplete="off"
-                  />
-                </div>
+                <React.Fragment key={field.key}>
+                  {sectionHeaderEl}
+                  <div className="ds-settings-row">
+                    <label className="ds-settings-label">{field.label}</label>
+                    <div className={`ds-settings-input-wrapper${isPassword ? ' ds-settings-input-wrapper--password' : ''}`}>
+                      <input
+                        className={`ds-settings-input${isDisabled ? ' ds-settings-input--disabled' : ''}`}
+                        type={isPassword && !isRevealed ? 'password' : 'text'}
+                        value={fieldValue}
+                        onChange={e => handleChange(field.key, e.target.value)}
+                        placeholder={isPassword ? '(unchanged)' : (field.placeholder ?? '')}
+                        autoComplete="off"
+                        disabled={isDisabled}
+                      />
+                      {isPassword && fieldValue !== '' && (
+                        <button
+                          className="ds-settings-input-reveal-btn"
+                          type="button"
+                          onClick={() => setRevealed(r => ({ ...r, [field.key]: !r[field.key] }))}
+                          title={isRevealed ? 'Hide' : 'Reveal'}
+                        >
+                          {isRevealed ? '⊘' : '◎'}
+                        </button>
+                      )}
+                    </div>
+                    {field.description && (
+                      <span className="ds-settings-field-desc">{field.description}</span>
+                    )}
+                  </div>
+                </React.Fragment>
               );
             })}
 
@@ -2063,6 +2048,7 @@ const ModelsPanel: React.FC<{
               className={`ds-settings-path-text${envPathIsCustom ? ' ds-settings-path-custom' : ''}`}
               title={envExists ? envPath : `Will be created: ${envPath}`}
             >
+              <span className="ds-settings-path-label">Config file:</span>
               {envExists ? envPath : `Will create: ${envPath}`}
               <button
                 className="ds-settings-path-edit-btn"
@@ -2317,7 +2303,7 @@ const SkillsPanel: React.FC<{ apiClient: APIClient; notebookPath?: string }> = (
             title="Browse factory-default skills bundled with the extension"
           >
             <span className="ds-skill-library-chevron">{libraryOpen ? '▾' : '▸'}</span>
-            <span>📦 Skill Library</span>
+            <span>Skill Library</span>
           </button>
 
           {libraryOpen && (
@@ -2344,7 +2330,7 @@ const SkillsPanel: React.FC<{ apiClient: APIClient; notebookPath?: string }> = (
                       {b.description && <span className="ds-skill-library-desc">{b.description}</span>}
                     </div>
                     {b.imported ? (
-                      <span className="ds-skill-library-check" title="Already in your project">✓</span>
+                      <span className="ds-skill-library-installed" title="Already in your skills">Installed</span>
                     ) : (
                       <button
                         className="ds-skill-library-import-btn"
@@ -2380,16 +2366,15 @@ const SkillsPanel: React.FC<{ apiClient: APIClient; notebookPath?: string }> = (
                   if (dirty && !window.confirm('Discard unsaved changes?')) return;
                   setEditorTab('skill'); setDirty(false); setSaveStatus(null); setSaveError('');
                 }}
-              >SKILL.md</button>
+              >SKILL.md{dirty && editorTab === 'skill' && <span className="ds-skill-tab-dot">●</span>}</button>
               <button
                 className={`ds-skill-editor-tab${editorTab === 'readme' ? ' ds-skill-editor-tab--active' : ''}`}
                 onClick={() => {
                   if (dirty && !window.confirm('Discard unsaved changes?')) return;
                   setEditorTab('readme'); setDirty(false); setSaveStatus(null); setSaveError('');
                 }}
-              >README.md</button>
+              >README.md{dirty && editorTab === 'readme' && <span className="ds-skill-tab-dot">●</span>}</button>
               <div className="ds-skill-editor-tabs-spacer" />
-              {dirty && <span className="ds-skill-editor-dirty" title="Unsaved changes">●</span>}
               {saveStatus === 'ok'  && <span className="ds-skill-editor-saved">✓ Saved</span>}
               {saveStatus === 'err' && <span className="ds-skill-editor-error" title={saveError}>✗ {saveError || 'Error'}</span>}
               <button
@@ -2401,7 +2386,9 @@ const SkillsPanel: React.FC<{ apiClient: APIClient; notebookPath?: string }> = (
             </div>
             {/* Filename hint */}
             <div className="ds-skill-editor-filepath">
-              {selectedName}/{editorTab === 'skill' ? 'SKILL.md' : 'README.md'}
+              <span className="ds-skill-editor-filepath-dir">{selectedName}</span>
+              <span className="ds-skill-editor-filepath-sep">/</span>
+              {editorTab === 'skill' ? 'SKILL.md' : 'README.md'}
             </div>
             <textarea
               key={`${selectedName}-${editorTab}`}
@@ -2454,7 +2441,7 @@ const CommandsPanel: React.FC<{ apiClient: APIClient }> = ({ apiClient }) => {
   return (
     <div className="ds-commands-panel">
       <div className="ds-commands-toolbar">
-        <span className="ds-commands-count">{cmds.length} commands</span>
+        <span className="ds-commands-count"><span className="ds-commands-count-num">{cmds.length}</span> commands</span>
         <button className="ds-commands-refresh-btn" onClick={refresh} title="Reload commands">
           {loading ? '…' : '↻'}
         </button>
@@ -2492,69 +2479,6 @@ const CommandsPanel: React.FC<{ apiClient: APIClient }> = ({ apiClient }) => {
           No skill commands loaded yet. Import or create a skill with a <code>/command</code> in its front matter.
         </p>
       )}
-    </div>
-  );
-};
-
-// ---------------------------------------------------------------------------
-// IndexingPanel — Indexing & Docs top-level tab
-// ---------------------------------------------------------------------------
-
-const IndexingPanel: React.FC<{ apiClient: APIClient; notebookPath: string }> = ({
-  apiClient, notebookPath,
-}) => {
-  const [embedProvider, setEmbedProvider] = useState('');
-  const [embedModel, setEmbedModel]       = useState('');
-
-  useEffect(() => {
-    apiClient.getSettings().then(raw => {
-      // Normalize: entries are {value, masked} objects
-      const s: Record<string, string> = {};
-      for (const [k, entry] of Object.entries(raw)) {
-        if (!k.startsWith('_')) s[k] = (entry as { value: string }).value ?? String(entry);
-      }
-      const p = (s['DS_EMBED_PROVIDER'] ?? '').toUpperCase();
-      setEmbedProvider(p);
-      setEmbedModel(p ? (s[`${p}_EMBED_MODEL`] ?? '') : '');
-    }).catch(() => { /* ignore */ });
-  }, []);
-
-  return (
-    <div className="ds-settings-tab-content ds-indexing-panel">
-      {/* Embed routing summary */}
-      <div className="ds-rag-routing-summary">
-        <div className="ds-rag-routing-row">
-          <span className="ds-rag-routing-label">Embedding provider</span>
-          <span className="ds-rag-routing-value">{embedProvider || '—'}</span>
-        </div>
-        <div className="ds-rag-routing-row">
-          <span className="ds-rag-routing-label">Embedding model</span>
-          <span className="ds-rag-routing-value">{embedModel || '— (use model zoo)'}</span>
-        </div>
-        <p className="ds-rag-routing-hint">
-          Configure the provider in <strong>Models → Routing → Embedding</strong> and
-          the model in the provider tab's <em>Embedding model</em> field.
-        </p>
-      </div>
-
-      {/* How-to */}
-      <div className="ds-rag-storage-hint">
-        <strong>How to add knowledge</strong>
-        <p>
-          Drop PDFs, notebooks, or markdown files into{' '}
-          <code>.jupyter-assistant/knowledge/</code>, then run{' '}
-          <code>/index</code> in the chat to index them.
-        </p>
-        <p>
-          Indexed content is stored as vectors in{' '}
-          <code>.jupyter-assistant/rag/chroma/</code> — original files are never
-          moved or copied. Only files inside the <code>knowledge/</code> folder
-          can be indexed.
-        </p>
-      </div>
-
-      {/* Live index status */}
-      <RAGStatusSection apiClient={apiClient} notebookPath={notebookPath} />
     </div>
   );
 };
@@ -2634,6 +2558,12 @@ const TagsSettingsPanel: React.FC = () => {
   const [nameErr, setNameErr]       = useState('');
   const [editIdx, setEditIdx]       = useState<number | null>(null);
 
+  // collapsible: top-level sections + each category group
+  const allGroupKeys = ['__custom__', '__builtin__', ...BUILT_IN_TAG_DEFS.map(g => g.category)];
+  const [openSections, setOpenSections] = useState<Set<string>>(new Set(allGroupKeys));
+  const toggleSection = (key: string) =>
+    setOpenSections(prev => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s; });
+
   const allBuiltInValues: string[] = ([] as string[]).concat(
     ...BUILT_IN_TAG_DEFS.map((g: { category: string; tags: { value: string; topic: string; description: string }[] }) =>
       g.tags.map((t: { value: string; topic: string; description: string }) => t.value)
@@ -2698,77 +2628,94 @@ const TagsSettingsPanel: React.FC = () => {
 
       {/* ── Custom tags ────────────────────────────────────────────────────── */}
       <div className="ds-tags-settings-section">
-        <div className="ds-tags-settings-section-header">
+        <div
+          className="ds-tags-settings-section-header ds-tags-settings-section-header--toggle"
+          onClick={() => toggleSection('__custom__')}
+        >
+          <span className={`ds-tags-settings-chevron${openSections.has('__custom__') ? ' ds-tags-settings-chevron--open' : ''}`}>›</span>
           <span className="ds-tags-settings-section-title">Custom Tags</span>
           <span className="ds-tags-settings-section-count">{customTags.length}</span>
         </div>
 
-        {customTags.length === 0 && (
-          <p className="ds-tags-settings-empty">No custom tags yet. Create one below.</p>
-        )}
+        {openSections.has('__custom__') && (<>
+          {customTags.length === 0 && (
+            <p className="ds-tags-settings-empty">No custom tags yet. Create one below.</p>
+          )}
 
-        {customTags.map((tag, idx) => (
-          <div key={tag.value} className="ds-tags-settings-row">
-            <span
-              className="ds-tags-settings-pill"
-              style={{ '--pill-color': tagColorTs(tag.value) } as React.CSSProperties}
-            >{tag.value}</span>
-            {editIdx === idx ? (
-              <EditDescRow
-                initial={tag.description}
-                onSave={desc => saveEdit(idx, desc)}
-                onCancel={() => setEditIdx(null)}
+          {customTags.map((tag, idx) => (
+            <div key={tag.value} className="ds-tags-settings-row">
+              <span
+                className="ds-tags-settings-pill"
+                style={{ '--pill-color': tagColorTs(tag.value) } as React.CSSProperties}
+              >{tag.value}</span>
+              {editIdx === idx ? (
+                <EditDescRow
+                  initial={tag.description}
+                  onSave={desc => saveEdit(idx, desc)}
+                  onCancel={() => setEditIdx(null)}
+                />
+              ) : (
+                <>
+                  <span className="ds-tags-settings-desc" onClick={() => setEditIdx(idx)}>
+                    {tag.description || <em className="ds-tags-settings-desc-empty">no description — click to add</em>}
+                  </span>
+                  <button className="ds-tags-settings-edit-btn" onClick={() => setEditIdx(idx)} title="Edit description">✎</button>
+                  <button className="ds-tags-settings-del-btn" onClick={() => deleteCustomTag(idx)} title="Delete tag">🗑</button>
+                </>
+              )}
+            </div>
+          ))}
+
+          {/* New tag form */}
+          <div className="ds-tags-settings-new-form">
+            <div className="ds-tags-settings-new-row">
+              <input
+                className="ds-tags-settings-name-input"
+                placeholder="tag-value"
+                value={newValue}
+                onChange={e => { setNewValue(e.target.value); setNameErr(''); }}
+                onKeyDown={e => { if (e.key === 'Enter') addCustomTag(); }}
               />
-            ) : (
-              <>
-                <span className="ds-tags-settings-desc" onClick={() => setEditIdx(idx)}>
-                  {tag.description || <em className="ds-tags-settings-desc-empty">no description — click to add</em>}
-                </span>
-                <button className="ds-tags-settings-edit-btn" onClick={() => setEditIdx(idx)} title="Edit description">✎</button>
-                <button className="ds-tags-settings-del-btn" onClick={() => deleteCustomTag(idx)} title="Delete tag">🗑</button>
-              </>
-            )}
+              <input
+                className="ds-tags-settings-desc-input"
+                placeholder="Description (optional)"
+                value={newDesc}
+                onChange={e => setNewDesc(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') addCustomTag(); }}
+              />
+              <button
+                className="ds-tags-settings-add-btn"
+                onClick={addCustomTag}
+                disabled={!newValue.trim()}
+              >+ Add</button>
+            </div>
+            {nameErr && <p className="ds-tags-settings-error">{nameErr}</p>}
           </div>
-        ))}
-
-        {/* New tag form */}
-        <div className="ds-tags-settings-new-form">
-          <div className="ds-tags-settings-new-row">
-            <input
-              className="ds-tags-settings-name-input"
-              placeholder="tag-value"
-              value={newValue}
-              onChange={e => { setNewValue(e.target.value); setNameErr(''); }}
-              onKeyDown={e => { if (e.key === 'Enter') addCustomTag(); }}
-            />
-            <input
-              className="ds-tags-settings-desc-input"
-              placeholder="Description (optional)"
-              value={newDesc}
-              onChange={e => setNewDesc(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') addCustomTag(); }}
-            />
-            <button
-              className="ds-tags-settings-add-btn"
-              onClick={addCustomTag}
-              disabled={!newValue.trim()}
-            >+ Add</button>
-          </div>
-          {nameErr && <p className="ds-tags-settings-error">{nameErr}</p>}
-        </div>
+        </>)}
       </div>
 
       {/* ── Built-in tags ──────────────────────────────────────────────────── */}
       <div className="ds-tags-settings-section">
-        <div className="ds-tags-settings-section-header">
+        <div
+          className="ds-tags-settings-section-header ds-tags-settings-section-header--toggle"
+          onClick={() => toggleSection('__builtin__')}
+        >
+          <span className={`ds-tags-settings-chevron${openSections.has('__builtin__') ? ' ds-tags-settings-chevron--open' : ''}`}>›</span>
           <span className="ds-tags-settings-section-title">Built-in Tags</span>
           <span className="ds-tags-settings-section-count">{allBuiltInValues.length}</span>
         </div>
-        {BUILT_IN_TAG_DEFS.map(group => (
+        {openSections.has('__builtin__') && BUILT_IN_TAG_DEFS.map(group => (
           <div key={group.category} className="ds-tags-settings-group">
-            <div className="ds-tags-settings-group-label">{group.category}</div>
-            {group.tags.map(tag => (
-              <div key={tag.value} className="ds-tags-settings-row ds-tags-settings-row--builtin">
+            <div
+              className="ds-tags-settings-group-label ds-tags-settings-group-label--toggle"
+              onClick={() => toggleSection(group.category)}
+            >
+              <span className={`ds-tags-settings-chevron ds-tags-settings-chevron--sm${openSections.has(group.category) ? ' ds-tags-settings-chevron--open' : ''}`}>›</span>
+              {group.category}
+              <span className="ds-tags-settings-group-count">{group.tags.length}</span>
+            </div>
+            {openSections.has(group.category) && group.tags.map(tag => (
+              <div key={tag.value} className="ds-tags-settings-row">
                 <span
                   className="ds-tags-settings-pill"
                   style={{ '--pill-color': tagColorTs(tag.value) } as React.CSSProperties}
@@ -3297,7 +3244,6 @@ const SettingsPanel: React.FC<{
       case 'mcp':      return 'mcp';
       case 'skills':   return 'skills';
       case 'commands': return 'commands';
-      case 'indexing': return 'indexing';
       case 'tags':     return 'tags';
       default:         return 'model-routing';
     }
@@ -3339,12 +3285,6 @@ const SettingsPanel: React.FC<{
         return (
           <div className="ds-settings-section-body">
             <CommandsPanel apiClient={apiClient} />
-          </div>
-        );
-      case 'indexing':
-        return (
-          <div className="ds-settings-section-body">
-            <IndexingPanel apiClient={apiClient} notebookPath={notebookPath} />
           </div>
         );
       case 'tags':
@@ -4289,6 +4229,9 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   const threadsRef             = useRef<ChatThread[]>([]);
   const currentThreadIdRef     = useRef('');
   const currentNotebookPathRef = useRef('');
+  // Tracks the operationId whose cells are currently being auto-executed so
+  // handleUndo can interrupt the kernel if the user rejects mid-execution.
+  const executingOpIdRef = useRef<string | null>(null);
   // Holds a stable reference to loadForNotebook so the shell-focus callbacks
   // (registered once at mount) can invoke it without stale closures.
   const loadForNotebookRef = useRef<((path: string) => Promise<void>) | null>(null);
@@ -4914,11 +4857,8 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   // ── Version update check ──────────────────────────────────────────────────
   const [updateVersion,  setUpdateVersion]  = useState<string | null>(null);
   const [updateUrl,      setUpdateUrl]      = useState('');
-  const [releaseNotes,   setReleaseNotes]   = useState('');
-  const [currentVersion, setCurrentVersion] = useState('0.7.2');
+  const [currentVersion, setCurrentVersion] = useState('0.8.0');
   const [showChangelog,  setShowChangelog]  = useState(false);
-  // 'whats-new' = GitHub release notes for latest; 'history' = full local CHANGELOG.md
-  const [changelogMode,  setChangelogMode]  = useState<'whats-new' | 'history'>('whats-new');
   const [changelogBody,  setChangelogBody]  = useState('');
   const [changelogLoading, setChangelogLoading] = useState(false);
 
@@ -4931,34 +4871,16 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
           update_available: boolean; latest: string;
           release_url: string; release_notes: string; current: string;
         };
-        setCurrentVersion(d.current || '0.7.2');
+        setCurrentVersion(d.current || '0.8.0');
         if (d.update_available) {
           setUpdateVersion(d.latest);
           setUpdateUrl(d.release_url || '');
-          setReleaseNotes(d.release_notes || '');
         }
       } catch { /* network error — silent */ }
     })();
   }, []);
 
-  const openWhatsNew = () => {
-    setChangelogMode('whats-new');
-    if (releaseNotes) {
-      setChangelogBody(releaseNotes);
-      setShowChangelog(true);
-      return;
-    }
-    // Fallback: load local changelog sliced from current version
-    setChangelogLoading(true);
-    setShowChangelog(true);
-    void fetch(`/varys/changelog?since=${encodeURIComponent(currentVersion)}`)
-      .then(r => r.json())
-      .then((d: { content: string }) => { setChangelogBody(d.content || ''); setChangelogLoading(false); })
-      .catch(() => { setChangelogBody('_Could not load release notes._'); setChangelogLoading(false); });
-  };
-
-  const openHistory = () => {
-    setChangelogMode('history');
+  const openChangelog = () => {
     setChangelogLoading(true);
     setShowChangelog(true);
     void fetch('/varys/changelog')
@@ -5236,6 +5158,13 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   ): Promise<void> => {
     const typedText = (overrideText ?? input).trim();
     if (!typedText || isLoading) return;
+
+    // Auto-accept any unresolved ops that don't require explicit approval —
+    // the user moving on is implicit acceptance (code is already running).
+    pendingOps
+      .filter(o => !o.requiresApproval && !o.resolved)
+      .forEach(o => handleAccept(o.operationId));
+
     if (!chatProvider) {
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
@@ -5327,26 +5256,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
         setActiveCommand(null);
         setShowCmdPopup(false);
 
-        // /index [path]: route to the RAG index flow (async).
-        // No path → index the whole knowledge folder (backend defaults to it).
-        if (parsed.command === '/index') {
-          await handleIndexCommand(parsed.rest?.trim() ?? '');
-          return;
-        }
-
-        // /rag: show knowledge-base status
-        if (parsed.command === '/rag') {
-          await handleRagStatus();
-          return;
-        }
-
-        // /ask <query>: fall through to the task flow with command='/ask'
-        // so the backend can do RAG retrieval.  /ask with NO args shows help.
-        if (parsed.command === '/ask' && parsed.rest) {
-          slashCommand = '/ask';
-          message      = parsed.rest.trim();
-          // Don't return early — fall through to the main task flow below.
-        } else if (parsed.command === '/chat' && parsed.rest) {
+        if (parsed.command === '/chat' && parsed.rest) {
           // /chat <message>: force advisory/chat mode for this single request.
           // The backend skips tool-use and streams a plain markdown answer.
           slashCommand = '/chat';
@@ -6003,18 +5913,6 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
         } else {
           addMessage('assistant', chatText);
         }
-        // Show RAG source citations if the response was augmented
-        if (response.ragSources && Array.isArray(response.ragSources) && response.ragSources.length > 0) {
-          const sources = (response.ragSources as any[])
-            .map((s: any, i: number) => {
-              const file  = s.source ? s.source.split('/').pop() : 'unknown';
-              const loc   = s.cell_idx != null ? `, cell ${s.cell_idx}` : s.page != null ? `, page ${s.page}` : '';
-              const score = typeof s.score === 'number' ? ` (score: ${s.score.toFixed(2)})` : '';
-              return `${i + 1}. **${file}**${loc}${score}`;
-            })
-            .join('\n');
-          addMessage('system', `📎 **Sources from knowledge base:**\n${sources}`);
-        }
         // When the user's "Chat Only" toggle prevented a skill from writing cells,
         // show a gentle advisory note so they know they can switch mode.
         if (response.skillWantedCells) {
@@ -6074,25 +5972,6 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
         response.steps
       );
 
-      // Execute cells flagged for auto-run
-      if (!response.requiresApproval) {
-        for (let i = 0; i < response.steps.length; i++) {
-          const step = response.steps[i];
-          const shouldRun =
-            step.type === 'run_cell' ||
-            (step.autoExecute === true && step.type !== 'delete');
-          if (shouldRun) {
-            const notebookIndex = stepIndexMap.get(i) ?? step.cellIndex;
-            setProgressText(`Running cell ${notebookIndex}…`);
-            try {
-              await cellEditor.executeCell(notebookIndex);
-            } catch (err) {
-              console.warn(`[DSAssistant] auto-execution of cell ${notebookIndex} failed:`, err);
-            }
-          }
-        }
-      }
-
       const affectedIndices = Array.from(stepIndexMap.values());
       const stepSummary = response.steps
         .map(s => {
@@ -6131,7 +6010,10 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
           };
         });
 
-      // ── Preview mode (default) ────────────────────────────────────────
+      // ── Preview mode (default) — show diff block BEFORE executing cells ──
+      // The diff panel must be visible to the user before any "Running cell…"
+      // progress message appears, so they can see what changed regardless of
+      // how long execution takes.
       const op: PendingOp = {
         operationId: response.operationId,
         cellIndices: affectedIndices,
@@ -6148,8 +6030,39 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
       // Append step summary + review prompt to the streamed explanation bubble
       const reviewPrompt = response.requiresApproval
         ? '\n\n⚠️ This operation requires approval before execution.'
-        : '\n\nReview the highlighted cell(s) then Accept or Undo.';
+        : '\n\nChanges applied. Click Reject below to undo.';
       appendToStream(`\n\n${stepSummary}${reviewPrompt}`);
+
+      // Execute cells flagged for auto-run — after the diff block is already visible.
+      // executingOpIdRef lets handleUndo interrupt the kernel and break this loop
+      // if the user clicks Reject while a cell is still running.
+      if (!response.requiresApproval) {
+        executingOpIdRef.current = response.operationId;
+        try {
+          for (let i = 0; i < response.steps.length; i++) {
+            // If the user rejected the op mid-execution, stop running further cells.
+            if (executingOpIdRef.current !== response.operationId) break;
+            const step = response.steps[i];
+            const shouldRun =
+              step.type === 'run_cell' ||
+              (step.autoExecute === true && step.type !== 'delete');
+            if (shouldRun) {
+              const notebookIndex = stepIndexMap.get(i) ?? step.cellIndex;
+              setProgressText(`Running cell ${notebookIndex}…`);
+              try {
+                await cellEditor.executeCell(notebookIndex);
+              } catch (err) {
+                console.warn(`[DSAssistant] auto-execution of cell ${notebookIndex} failed:`, err);
+              }
+            }
+          }
+        } finally {
+          // Clear only if we're still the active op (don't stomp a newer one).
+          if (executingOpIdRef.current === response.operationId) {
+            executingOpIdRef.current = null;
+          }
+        }
+      }
 
     } catch (error: unknown) {
       clearInterval(progressTimer);
@@ -6252,6 +6165,13 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   };
 
   const handleUndo = (operationId: string): void => {
+    // If this op's cells are currently auto-executing, interrupt the kernel first
+    // so the running cell stops before we revert the code.
+    if (executingOpIdRef.current === operationId) {
+      executingOpIdRef.current = null; // signals the execution loop to bail out
+      void cellEditor.interruptKernel();
+    }
+
     const op = pendingOps.find(o => o.operationId === operationId);
     if (op?.compositeOpIds) {
       // Reverse order so later steps (which may have inserted cells) are undone first
@@ -6497,28 +6417,9 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
         );
         break;
 
-      case '/ask':
-        // With no args: show usage. With args, handleSend routes to RAG flow.
-        addMessage('system',
-          '### 📚 Knowledge Base Query\n\n' +
-          'Type `/ask <your question>` to search indexed documents and get an answer with citations.\n\n' +
-          'Run `/index <path>` first to index files into the knowledge base.'
-        );
-        break;
-
       case '/learn':
         // /learn is handled in handleSend when the full message is available
         addMessage('system', 'Type `/learn <your preference>` and press Enter to save it to memory.');
-        break;
-
-      case '/index':
-        // No args → index the whole knowledge folder immediately.
-        void handleIndexCommand('');
-        break;
-
-      case '/rag':
-        // Show RAG status — handled async in handleSend-style flow
-        void handleRagStatus();
         break;
 
       case '/no_figures':
@@ -6560,73 +6461,6 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   // -------------------------------------------------------------------------
   // RAG-specific handlers
   // -------------------------------------------------------------------------
-
-  const handleIndexCommand = async (path: string): Promise<void> => {
-    const displayPath = path || '.jupyter-assistant/knowledge';
-    setIsLoading(true);
-    const progressId = generateId();
-    setMessages(prev => [...prev, {
-      id: progressId,
-      role: 'system' as const,
-      content: `📂 Indexing **${displayPath}**…`,
-      timestamp: new Date()
-    }]);
-    try {
-      const result = await apiClient.ragLearn(path, (msg: string) => {
-        setMessages(prev => prev.map(m =>
-          m.id === progressId ? { ...m, content: msg } : m
-        ));
-      }, false, currentNotebookPathRef.current);
-      const summary =
-        `✅ **Indexing complete** — \`${displayPath}\`\n\n` +
-        `- Files found: **${result.total}**\n` +
-        `- Indexed: **${result.processed}**\n` +
-        `- Skipped (unchanged): **${result.skipped}**\n` +
-        (result.errors.length
-          ? `- Errors: ${result.errors.map((e: string) => `\n  - ${e}`).join('')}`
-          : '');
-      setMessages(prev => prev.map(m =>
-        m.id === progressId ? { ...m, content: summary } : m
-      ));
-    } catch (err: any) {
-      setMessages(prev => prev.map(m =>
-        m.id === progressId
-          ? { ...m, content: `❌ Indexing failed: ${err.message}` }
-          : m
-      ));
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleRagStatus = async (): Promise<void> => {
-    setIsLoading(true);
-    try {
-      const status = await apiClient.ragStatus(currentNotebookPathRef.current);
-      if (!status.available) {
-        addMessage('system',
-          '⚠️ **RAG not available**\n\n' +
-          (status.hint || 'Install with: `pip install chromadb sentence-transformers`')
-        );
-        return;
-      }
-      const fileList = status.files.length
-        ? status.files.slice(0, 20).map((f: string) => `- \`${f.split('/').pop()}\``).join('\n') +
-          (status.files.length > 20 ? `\n- _...and ${status.files.length - 20} more_` : '')
-        : '_No files indexed yet_';
-      addMessage('assistant',
-        `### 📚 Knowledge Base Status\n\n` +
-        `- **Total chunks**: ${status.total_chunks}\n` +
-        `- **Indexed files**: ${status.indexed_files}\n\n` +
-        `**Files:**\n${fileList}\n\n` +
-        `Drop documents in \`.jupyter-assistant/knowledge/\` and run \`/index\` to index them.`
-      );
-    } catch (err: any) {
-      addMessage('system', `❌ Could not get RAG status: ${err.message}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   // Keep the ref pointing at the latest handleSend so the external-message
   // listener can invoke it without capturing a stale closure.
@@ -6798,16 +6632,11 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   }
 
   if (showChangelog) {
-    const isWhatsNew = changelogMode === 'whats-new';
-    const title = isWhatsNew
-      ? `What's New${updateVersion ? ` in v${updateVersion}` : ''}`
-      : 'Changelog';
     return (
       <div className={`ds-assistant-sidebar ds-chat-${chatTheme}`}>
         <div className="ds-assistant-header">
           <span className="ds-assistant-title">
-            <span className="ds-varys-spider">🕷️</span>{' '}
-            {title}
+            <span className="ds-varys-spider">🕷️</span>{' '}Changelog
           </span>
           <button
             className="ds-settings-close-btn"
@@ -6816,50 +6645,40 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
           >✕</button>
         </div>
         <div className="ds-changelog-panel">
-          {/* Tab bar */}
-          <div className="ds-changelog-tabs">
-            <button
-              className={`ds-changelog-tab${isWhatsNew ? ' ds-changelog-tab--active' : ''}`}
-              onClick={openWhatsNew}
-            >
-              {updateVersion ? `↑ v${updateVersion}` : "What's New"}
-            </button>
-            <button
-              className={`ds-changelog-tab${!isWhatsNew ? ' ds-changelog-tab--active' : ''}`}
-              onClick={openHistory}
-            >
-              Full History
-            </button>
+          {/* Version banner */}
+          <div className="ds-changelog-version-bar">
+            <span className="ds-changelog-version-current">Installed: v{currentVersion}</span>
+            {updateVersion && (
+              <span className="ds-changelog-version-latest">Latest: v{updateVersion}</span>
+            )}
           </div>
 
-          {/* Body */}
+          {/* Update strip — only shown when a newer version is available */}
+          {updateVersion && (
+            <div className="ds-changelog-footer">
+              {updateUrl && (
+                <a href={updateUrl} target="_blank" rel="noreferrer"
+                   className="ds-changelog-github-link">
+                  View release on GitHub ↗
+                </a>
+              )}
+              <div className="ds-changelog-update-cmd">
+                <code>pip install --force-reinstall git+https://github.com/brightappsllc/varys-ai.git@main</code>
+              </div>
+            </div>
+          )}
+
+          {/* Full changelog body */}
           <div className="ds-changelog-body">
             {changelogLoading ? (
               <div className="ds-changelog-loading">Loading…</div>
             ) : changelogBody ? (
-              <>
-                <div
-                  className="ds-changelog-content ds-message-content"
-                  dangerouslySetInnerHTML={{ __html: renderMarkdown(changelogBody) }}
-                />
-                {isWhatsNew && updateUrl && (
-                  <div className="ds-changelog-footer">
-                    <a href={updateUrl} target="_blank" rel="noreferrer"
-                       className="ds-changelog-github-link">
-                      View on GitHub ↗
-                    </a>
-                    <div className="ds-changelog-update-cmd">
-                      <code>pip install --upgrade varys</code>
-                    </div>
-                  </div>
-                )}
-              </>
+              <div
+                className="ds-changelog-content ds-message-content"
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(changelogBody) }}
+              />
             ) : (
-              <div className="ds-changelog-empty">
-                {isWhatsNew
-                  ? 'You are on the latest version.'
-                  : 'Changelog not available.'}
-              </div>
+              <div className="ds-changelog-empty">Changelog not available.</div>
             )}
           </div>
         </div>
@@ -6875,13 +6694,13 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
           <span className="ds-varys-spider">🕷️</span>{' '}Varys{' '}
           <span
             className="ds-varys-version ds-varys-version--clickable"
-            onClick={openHistory}
+            onClick={openChangelog}
             title="View changelog"
-          >v0.7.2</span>
+          >v0.8.0</span>
           {updateVersion && (
             <button
               className="ds-varys-update-pill"
-              onClick={openWhatsNew}
+              onClick={openChangelog}
               title={`v${updateVersion} is available — click to see what's new`}
             >
               ↑ v{updateVersion}
@@ -7450,6 +7269,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                 onAccept={handleAccept}
                 onUndo={handleUndo}
                 resolved={resolvedStatus}
+                requiresApproval={op?.requiresApproval ?? false}
               />
             );
           })()}

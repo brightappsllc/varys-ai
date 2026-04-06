@@ -134,6 +134,19 @@ def assemble_context(
         or kernel_name.startswith("rnk_")
     )
     dlog("assembler", "remote_kernel_detected", {"is_remote": is_remote, "kernel": kernel_name})
+    # Load live kernel state once — used to overlay current variable types/values
+    # on top of the (potentially stale) SummaryStore entries.
+    live_vars: Dict[str, Any] = {}
+    if nb_base is not None:
+        try:
+            import json as _json
+            _ks_path = nb_base / "context" / "kernel_state.json"
+            if _ks_path.exists():
+                _ks_data = _json.loads(_ks_path.read_text(encoding="utf-8"))
+                live_vars = _ks_data.get("variables") or {}
+        except Exception:
+            live_vars = {}
+
     norm   = _normalize_cells(cell_order)
     active = [c for c in norm if not _is_deleted(c["cell_id"], summary_store)]
 
@@ -214,7 +227,7 @@ def assemble_context(
             if cell.get("cell_id") == focal_cid:
                 focal_parts.append(_format_focal_cell(cell, focal_cell_full_output))
             else:
-                summary_parts.append(_format_summary_cell(cell, summary_store))
+                summary_parts.append(_format_summary_cell(cell, summary_store, live_vars))
 
     # ── Phase 4: local import enrichment (independently shippable) ───────────
     focal_cell_dict = next(
@@ -242,7 +255,7 @@ def assemble_context(
             if downstream_ref and downstream_ref.get("cell_id") not in kept_ids:
                 parts.append(
                     "(downstream cell referenced in query)\n"
-                    + _format_summary_cell(downstream_ref, summary_store)
+                    + _format_summary_cell(downstream_ref, summary_store, live_vars)
                 )
 
     # ── Step 7b: downstream skeleton (cells beyond the visible window) ───────────
@@ -358,7 +371,7 @@ def _format_skeleton_cell(cell: Dict[str, Any], store: SummaryStore) -> str:
         return f"  Cell {position} [{ctype}, not executed]: {snippet}"
 
     if ctype == "markdown":
-        label = summary.get("llm_summary") or summary.get("source_snippet", "")
+        label = summary.get("auto_summary") or summary.get("source_snippet", "")
         label = label[:60] if label else "(markdown)"
         return f"  Cell {position} [markdown]: {label}"
 
@@ -419,7 +432,11 @@ def _format_agent_cell(cell: Dict[str, Any], store: SummaryStore) -> str:
     return "\n".join(lines)
 
 
-def _format_summary_cell(cell: Dict[str, Any], store: SummaryStore) -> str:
+def _format_summary_cell(
+    cell: Dict[str, Any],
+    store: SummaryStore,
+    live_vars: Optional[Dict[str, Any]] = None,
+) -> str:
     """Compact summary block for a pre-focal cell."""
     position = cell["index"] + 1   # 1-based for the LLM
     cell_id  = cell["cell_id"]
@@ -442,12 +459,41 @@ def _format_summary_cell(cell: Dict[str, Any], store: SummaryStore) -> str:
     ]
 
     if ctype == "code":
-        defined   = summary.get("symbols_defined", [])
-        consumed  = summary.get("symbols_consumed", [])
-        sym_vals  = summary.get("symbol_values", {})
-        sym_types = summary.get("symbol_types", {})
-        output    = summary.get("output")
-        ec        = summary.get("execution_count")
+        defined     = summary.get("symbols_defined", [])
+        consumed    = summary.get("symbols_consumed", [])
+        sym_vals    = summary.get("symbol_values", {})
+        sym_types   = summary.get("symbol_types", {})
+        output      = summary.get("output")
+        cell_action = summary.get("cell_action") or []
+        exec_ms     = summary.get("execution_ms")
+
+        symbol_meta = summary.get("symbol_meta", {})
+
+        # Overlay live kernel state for defined variables when available.
+        # This corrects stale shapes/meta from the SummaryStore (e.g. df
+        # mutated by a later cell without re-running this one).
+        if live_vars and defined:
+            live_types = {}
+            for name in defined:
+                lv = live_vars.get(name)
+                if not lv:
+                    continue
+                if lv.get("type"):
+                    live_types[name] = lv["type"]
+                if lv.get("symbol_meta"):
+                    symbol_meta = {**symbol_meta, name: lv["symbol_meta"]}
+            if live_types:
+                sym_types = {**sym_types, **live_types}
+
+        # Action line — "Compute" and "Import" are implied by other fields
+        action_parts = [a for a in cell_action if a not in ("Compute", "Import")]
+        if action_parts:
+            action_str = " + ".join(action_parts)
+            if exec_ms is not None and exec_ms >= 1000:
+                action_str += f" ({exec_ms / 1000:.1f}s)"
+            lines.append(f"Action: {action_str}")
+        elif exec_ms is not None and exec_ms >= 1000:
+            lines.append(f"Slow: {exec_ms / 1000:.1f}s")
 
         if defined:
             lines.append(f"Defines: {', '.join(defined)}")
@@ -460,6 +506,17 @@ def _format_summary_cell(cell: Dict[str, Any], store: SummaryStore) -> str:
             lines.append(f"Consumes: {', '.join(c_parts)}")
         if sym_types:
             lines.append(f"Types: {', '.join(f'{k}={v}' for k, v in sym_types.items())}")
+        # Enrich with column profiles (DataFrames) and hyperparams (sklearn)
+        for name in defined:
+            meta = symbol_meta.get(name)
+            if meta:
+                rendered = _render_symbol_meta(name, meta)
+                if rendered:
+                    lines.append(rendered)
+        # Comment-based description (extracted by summarizer; may be LLM-compressed)
+        auto_summary = summary.get("auto_summary")
+        if auto_summary:
+            lines.append(f"Notes: {auto_summary[:300]}")
         if output:
             snippet = output[:200] + (" […]" if len(output) > 200 else "")
             lines.append(f'Output: "{snippet}"')
@@ -470,14 +527,14 @@ def _format_summary_cell(cell: Dict[str, Any], store: SummaryStore) -> str:
         if summary.get("is_mutation_only"):
             snip = summary.get("source_snippet", "")[:200]
             lines.append(f"Source: {snip}")
-        if ec is not None:
-            lines.append(f"Execution: [{ec}]")
+        tags = summary.get("tags") or []
+        if tags:
+            lines.append(f"Tags: {', '.join(tags)}")
     else:
-        # Markdown / raw: prefer LLM prose summary when available
-        llm_summary = summary.get("llm_summary")
-        if llm_summary:
-            lines.append(llm_summary)
-            lines.append("[LLM-generated summary]")
+        # Markdown / raw: prefer auto summary (TextRank or LLM) when available
+        auto_summary = summary.get("auto_summary")
+        if auto_summary:
+            lines.append(auto_summary)
         else:
             snippet = summary.get("source_snippet", "")
             if snippet:
@@ -487,6 +544,45 @@ def _format_summary_cell(cell: Dict[str, Any], store: SummaryStore) -> str:
 
     lines.append("---")
     return "\n".join(lines)
+
+
+def _render_col_profile(col_name: str, profile: Dict[str, Any]) -> str:
+    """Format one DataFrame column profile as a compact token: name(dtype …hints)."""
+    dtype = profile.get("dtype", "?")
+    hints: List[str] = []
+    n_null = profile.get("n_null")
+    if n_null:
+        hints.append(f"{n_null}null")
+    mean = profile.get("mean")
+    if mean is not None:
+        hints.append(f"μ={mean}")
+    elif profile.get("min") is not None:
+        # datetime or numeric without mean — show range
+        hints.append(f"{profile['min']}…{profile['max']}")
+    n_unique = profile.get("n_unique")
+    if n_unique is not None and dtype in ("object", "category", "bool"):
+        hints.append(f"{n_unique}uniq")
+    inner = " ".join(hints)
+    return f"{col_name}({dtype} {inner})" if inner else f"{col_name}({dtype})"
+
+
+def _render_symbol_meta(name: str, meta: Dict[str, Any]) -> Optional[str]:
+    """Return a compact enrichment line for one variable's symbol_meta, or None."""
+    columns = meta.get("columns")
+    if isinstance(columns, dict) and columns:
+        shown = list(columns.items())[:8]
+        parts = [_render_col_profile(cn, cp) for cn, cp in shown]
+        suffix = f" +{len(columns) - 8} more" if len(columns) > 8 else ""
+        return f"  {name} cols: {' | '.join(parts)}{suffix}"
+
+    params = meta.get("params")
+    if isinstance(params, dict) and params:
+        shown = list(params.items())[:10]
+        pairs = [f"{k}={v}" for k, v in shown]
+        suffix = f" +{len(params) - 10} more" if len(params) > 10 else ""
+        return f"  {name} params: {', '.join(pairs)}{suffix}"
+
+    return None
 
 
 def _format_focal_cell(
@@ -716,7 +812,8 @@ def _enrich_local_imports(
 
     if nb_base is None:
         return []
-    working_dir = str(nb_base.parent) if nb_base.name == ".jupyter-assistant" else str(nb_base)
+    from ..utils.paths import notebook_dir as _notebook_dir
+    working_dir = str(_notebook_dir(nb_base))
 
     target_cell = focal_cell
     if target_cell is None and visible_cells:

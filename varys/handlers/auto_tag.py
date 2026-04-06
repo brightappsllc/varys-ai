@@ -117,7 +117,16 @@ def _parse_response(raw: str, eligible_values: set[str], max_sug: int) -> list[s
 # ── Handler ────────────────────────────────────────────────────────────────
 
 class AutoTagHandler(JupyterHandler):
-    """POST /varys/auto-tag — suggest tags for a single notebook cell."""
+    """GET  /varys/auto-tag — return the full tag library (presets + metadata).
+    POST /varys/auto-tag — suggest tags for a single notebook cell.
+    """
+
+    @authenticated
+    async def get(self) -> None:
+        """Return library.json so the frontend can build presets dynamically."""
+        library = _load_library()
+        self.set_header("Content-Type", "application/json")
+        self.finish(json.dumps(library))
 
     @authenticated
     async def post(self) -> None:
@@ -147,10 +156,10 @@ class AutoTagHandler(JupyterHandler):
         # ── Build prompt ─────────────────────────────────────────────────────
         system, user = _build_prompt(cell_source, cell_output, library)
 
-        # ── Resolve provider: simple-tasks first, chat as fallback ───────────
-        from ..llm.factory import create_simple_task_provider, create_provider
+        # ── Resolve provider: background-task first, chat as fallback ───────────
+        from ..llm.factory import create_bg_task_provider, create_provider
 
-        provider = create_simple_task_provider(self.settings)
+        provider = create_bg_task_provider(self.settings)
         if provider is None:
             try:
                 provider = create_provider(self.settings, task="chat")
