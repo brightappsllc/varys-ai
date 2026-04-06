@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Session Management
+
+Run `/compact` whenever the context window usage exceeds 40%.
+
 ## What This Project Is
 
 Varys-AI is an AI-powered data science assistant implemented as a **JupyterLab 4 extension** (v0.8.0). It has two separate build systems:
