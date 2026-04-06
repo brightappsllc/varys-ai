@@ -58,9 +58,8 @@ jobs:
         run: |
           pip install cyclonedx-bom --quiet
           cyclonedx-py environment \
-            --output-format json \
-            --output-file sbom.json \
-            --schema-version 1.5
+            --output-format JSON \
+            --outfile sbom.json
           echo "SBOM generated — $(jq '.components | length' sbom.json) components"
 
       - name: Upload SBOM artifact
