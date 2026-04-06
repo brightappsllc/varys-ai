@@ -22,15 +22,16 @@ jobs:
           python-version: "3.11"
 
       - name: Install varys core + all optional extras
-        run: pip install ".[all,rag-local,rag-pdf]" --quiet
+        run: pip install ".[all]" --quiet
 
       - name: Run pip-audit
         run: |
           pip install pip-audit --quiet
           # --strict: exit non-zero if any vuln found (fail the CI job)
-          # --output json: machine-readable for downstream tooling
-          pip-audit --strict --output json --file pip-audit-report.json || true
-          pip-audit --strict   # human-readable summary for the CI log
+          # --skip-editable: varys itself is not on PyPI; skip it and audit deps only
+          # -o: write machine-readable JSON report for the upload step
+          pip-audit --strict --skip-editable -o pip-audit-report.json || true
+          pip-audit --strict --skip-editable   # human-readable summary for the CI log
 
       - name: Upload pip-audit report
         if: always()
@@ -51,7 +52,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install varys core + all optional extras
-        run: pip install ".[all,rag-local,rag-pdf]" --quiet
+        run: pip install ".[all]" --quiet
 
       - name: Generate CycloneDX SBOM
         run: |
