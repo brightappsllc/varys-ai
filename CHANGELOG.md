@@ -5,26 +5,175 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.8.0] — Notebook-scoped data layout
+## [0.8.0] — Smart Context Engine + Graph Overhaul + UI Polish
+
+### Breaking Changes
+
+- **RAG / Embedding subsystem removed** — `varys/rag/`, `varys/handlers/rag.py`,
+  and `varys/bundled_config/rag.cfg` have been deleted. The `/ask` command is no
+  longer available. This removes the `chromadb` dependency entirely.
+- **Prompt-caching env var unified** — `VARYS_AGENT_PROMPT_CACHING` is removed;
+  use `VARYS_PROMPT_CACHING` for all modes (chat, agent, background tasks).
+
+---
 
 ### New Features
 
+#### Smart Cell Context & Kernel State Tracking
+- **`kernel_state.json`** — new live variable store written after each cell
+  execution; tracks every in-scope variable's type, shape, and sampled values,
+  updated incrementally.
+- **DataFrame column profiles** captured in `symbol_meta`: column names, dtypes,
+  and null counts per DataFrame; available to the LLM as structured context.
+- **Series metadata**: name + dtype recorded in kernel snapshot.
+- **scikit-learn estimator hyperparameters** captured in kernel snapshot for
+  fitted models.
+- **Wall-clock execution time** tracked per cell; surfaced as `execution_ms` in
+  LLM context.
+- **`auto_summary` for code cells**: short cells (≤ 2 000 chars) use their source
+  directly; longer cells use TextRank + optional LLM fallback to produce a
+  concise summary.
+- **TextRank summarization for markdown cells**: large markdown cells are
+  summarized with TextRank (field renamed `llm_summary` → `auto_summary`).
+- **Output collapsing**: repetitive output lines are collapsed to `[N × …]`;
+  large outputs are summarized by the LLM before injection into context.
+- **Tuple unpacking in `extractAssignedNames`**: `a, b = func()` now correctly
+  registers both `a` and `b` as defined symbols.
+- **LLM context enriched**: `auto_summary`, `cell_action`, `execution_ms`,
+  `symbol_meta`, and cell tags are now surfaced to the LLM in structured context
+  blocks; execution count removed (replaced by `execution_ms`).
+
+#### Dependency Graph — Upgraded Node Labels & Sublabels
+- **Variable name as hero text**: graph nodes show the primary assigned variable
+  name as the largest label.
+- **Data source filename** shown in data-loading nodes alongside the variable
+  name and type.
+- **Self-learning action stem dictionary** (`~/.jupyter/varys_action_stems.json`):
+  new method names observed at runtime are appended so node labels improve over
+  time without a code change.
+- **Unified action/tag vocabulary** — action identifiers now use the same tag
+  names as the Tags panel (`library.json` is the single source of truth).
+- **Sublabel format improvements**: data-loading nodes use
+  `filename · var (Type)`; action nodes show primary method name first (e.g.
+  `dropna · df (DataFrame)`); f-string variables and direct args extracted
+  correctly.
+- **Graph connectivity fixes**: multigraph enabled in dagre for named edges;
+  role-coloured nodes; `Cell N` headers; re-import edges handled correctly.
+
+#### Notebook-Scoped Data Layout
 - **Per-notebook UUID data layout** — each notebook's Varys data (chat threads,
   cell-summary store, memory, debug logs) is now stored under a stable UUID
-  sub-directory: `<nb_dir>/.jupyter-assistant/<uuid>/`.  The UUID is written once
+  sub-directory: `<nb_dir>/.jupyter-assistant/<uuid>/`. The UUID is written once
   into `notebook.metadata.varys_notebook_id` and travels with the file on rename
   or move, so renaming a notebook no longer orphans its data.
-  Project-level data (`knowledge/`, `rag/`, `config/`) remains shared at the flat
+  Project-level data (`knowledge/`, `config/`) remains shared at the flat
   `.jupyter-assistant/` level.
-
 - **Automatic migration** — on first use with an existing flat layout, Varys
-  silently migrates data into the UUID folder.  If multiple notebooks share a
-  folder, each notebook receives a copy of the shared data and Varys logs a
-  warning suggesting `varys nb migrate` for cleanup.
+  silently migrates data into the UUID folder.
+- **`POST /varys/nb/move` endpoint** — moves a notebook and its UUID-scoped data
+  directory atomically.
 
-- **`POST /varys/nb/move` endpoint** — moves a notebook *and* its UUID-scoped
-  data directory atomically.  Use this via the frontend (or directly) to keep
-  data co-located when reorganising notebooks.
+#### Prompt Caching
+- **Semantic boundary split for chat mode**: cache break inserted at the natural
+  boundary between system prompt and conversation history.
+- **Semantic boundary split for Bedrock**: same boundary logic applied to the
+  Bedrock Converse API path.
+- **Unified `VARYS_PROMPT_CACHING`** controls caching for all modes.
+- **Toggle in Model Routing settings**: prompt caching can be enabled/disabled
+  from the UI without restarting JupyterLab.
+
+#### SummaryStore Improvements
+- **`_cells` index** added to `summary_store.json` for human inspection —
+  maps source hash → cell metadata.
+- **In-place runtime field patching** on same-source re-runs: only
+  `execution_ms`, `error_flag`, and `outputs` are updated; full
+  re-summarization is skipped.
+- **Empty-source cells skipped** to prevent ghost entries in the store.
+
+#### Settings UI — Multi-Panel Polish
+- **Model Providers panel**: cleaner layout, password reveal button, per-field
+  descriptions, better row spacing; embedding model fields removed.
+- **MCP settings panel**: improved layout and help text.
+- **Skills panel**: improved list view and skill detail display.
+- **Commands panel**: improved layout and sorting.
+- **Tags panel**: collapsible tag sections; UI polish throughout.
+- **Model Routing panel**: prompt caching toggle added; background task section
+  clarified; Chat/Agent labels updated.
+
+---
+
+### Bug Fixes
+
+#### Graph
+- Action sublabel now extracts f-string variables and direct argument names
+  instead of the string prefix.
+- Data-loading sublabel resolves DataFrame variable name and filename from
+  `symbol_values`.
+- Operation·result pattern applied consistently across all action sublabel
+  types.
+- Primary method name shown first in action sublabels (e.g. `dropna · df`).
+- `tags` reference corrected in import-cell `detect_actions`; missing
+  `symbol_meta` key added.
+
+#### Kernel Snapshot
+- `sys.modules` used instead of `import` to avoid cold-import delay
+  (≈ 1–2 s on first NumPy/pandas execution).
+- 5-second timeout added to kernel snapshot to prevent stalling.
+- 150 ms delay added before snapshot to avoid blocking BLAS initialisation.
+- Redundant stat calls removed from snapshot path.
+
+#### Context / Summarizer
+- `auto_summary` returns full source for short markdown cells (≤ 2 000 chars)
+  instead of an empty summary.
+- `source_snippet` whitespace stripped in all summarizer paths.
+
+#### UI
+- Skill filepath directory label colour corrected in dark mode.
+- Only the Reject button shown when code has already been applied
+  (`requiresApproval=false`) — Accept hidden to prevent double-apply.
+- Code diff block shown before running cells (not after).
+
+#### Bedrock
+- `ExpiredTokenException` on streaming calls now triggers automatic token
+  refresh and retry.
+- Forced `tool_choice` skipped when extended thinking is active (was causing
+  API errors).
+- `create_operation_plan` tool call forced on Bedrock thinking path to avoid
+  empty responses.
+
+#### Miscellaneous
+- Cell execution interrupted on Reject when a cell is running mid-execution.
+- `Background Task` / `Background Model` naming made consistent across all
+  settings fields and info bubbles.
+- `Glob` and `Grep` file-agent tools now have a 15-second timeout to prevent
+  stalling on large filesystems.
+- `bash_guard` returns a structured tool result on BLOCK/WARN (was plain string).
+- "What's New" panel shows current-version changes correctly using inclusive
+  `?from=` parameter.
+- Inline imports moved to module level in `cell_executed.py` for faster
+  repeated execution.
+
+---
+
+### Removed
+
+- **RAG / Embedding subsystem** (`varys/rag/`, `varys/handlers/rag.py`,
+  `varys/bundled_config/rag.cfg`) — removed to reduce dependency surface and
+  maintenance burden.
+- **`VARYS_AGENT_PROMPT_CACHING`** environment variable — superseded by
+  `VARYS_PROMPT_CACHING`.
+- **Execution count** from LLM context summary blocks — replaced by
+  `execution_ms`.
+
+---
+
+### Developer / Ops
+
+- New modules: `varys/context/kernel_state.py`, `varys/context/action_stems.py`,
+  `varys/handlers/nb_move.py`.
+- New documentation: `docs/summary_store.md`.
+- `CLAUDE.md` developer guide added to repo root.
+- `tests/` directory added to `.gitignore`.
 
 ---
 
