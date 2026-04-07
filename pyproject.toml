@@ -36,6 +36,15 @@ mcp       = ["mcp>=1.0"]
 images    = ["Pillow>=10.0"]
 # Install all LLM providers + MCP + image processing at once.
 all = ["anthropic", "openai", "boto3", "google-genai", "mcp>=1.0", "Pillow>=10.0"]
+test = [
+    "pytest>=7.0",
+    "pytest-playwright>=0.5",
+    "playwright>=1.40",
+    "anthropic",
+    "nbconvert>=7.0",
+    "nbformat>=5.0",
+    "requests>=2.28",
+]
 
 [project.urls]
 Homepage = "https://github.com/brightappsllc/varys-ai"
@@ -46,6 +55,10 @@ varys = "varys:_jupyter_server_extension_points"
 
 [tool.hatch.build.targets.wheel]
 packages = ["varys"]
+exclude = ["varys_tests", "varys_tests/**"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["varys_tests", "varys_tests/**"]
 
 [tool.hatch.build.targets.wheel.shared-data]
 "varys/labextension" = "share/jupyter/labextensions/varys"
