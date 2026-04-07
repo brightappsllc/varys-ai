@@ -7133,6 +7133,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                       ) : (
                         <div
                           className="ds-assistant-message-content ds-markdown"
+                          data-testid="varys-assistant-message"
                           dangerouslySetInnerHTML={{ __html: renderMarkdown((msg.displayContent ?? msg.content).replace(/[\r\n\s]+$/, '')) }}
                         />
                       )}
@@ -7596,6 +7597,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
             ref={textareaRef}
             role="textbox"
             aria-multiline="true"
+            data-testid="varys-chat-input"
             contentEditable={isLoading ? 'false' : 'true'}
             className="ds-assistant-input ds-assistant-ce"
             style={{ minHeight: MIN_INPUT_HEIGHT, maxHeight: inputHeight }}
@@ -7733,6 +7735,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
           {isLoading ? (
             <button
               className="ds-assistant-send-btn ds-send-stop"
+              data-testid="varys-stop-button"
               onClick={handleStop}
               title="Stop generation"
               aria-label="Stop generation"
@@ -7746,6 +7749,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
           ) : input.trim() ? (
             <button
               className="ds-assistant-send-btn ds-send-arrow"
+              data-testid="varys-send-button"
               onClick={() => void handleSend()}
               title="Send message (Enter)"
               aria-label="Send message"
