@@ -7742,13 +7742,6 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
               {limitToFocal ? '🔒 Focused' : '🌐 Full'}
             </button>
           )}
-          <ModelSwitcher
-            provider={chatProvider}
-            model={chatModel}
-            zoo={chatZoo}
-            saving={modelSwitching}
-            onSelect={m => void handleModelSelect(m)}
-          />
           {/* Spacer — pushes token counter and send/stop to the far right */}
           <span className="ds-input-bottom-spacer" />
           {(() => {
@@ -7796,6 +7789,18 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
             </button>
           ) : null}
           </div>{/* end ds-assistant-input-bottom */}
+          {/* Model switcher — its own row below the input + bottom toolbar
+              so the model name has full width and never collides with the
+              cell-mode / focus toggles. */}
+          <div className="ds-assistant-input-model-row">
+            <ModelSwitcher
+              provider={chatProvider}
+              model={chatModel}
+              zoo={chatZoo}
+              saving={modelSwitching}
+              onSelect={m => void handleModelSelect(m)}
+            />
+          </div>
         </div>{/* end ds-input-frame */}
       </div>
     </div>

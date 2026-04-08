@@ -1760,6 +1760,14 @@
   color: var(--ds-text, #c5c5cc);
 }
 
+/* Model switcher row — sits below .ds-assistant-input-bottom so the model
+   name gets the full input-frame width. */
+.ds-assistant-input-model-row {
+  display: flex;
+  align-items: center;
+  padding: 4px 6px 0 6px;
+}
+
 /* Focus toggle — sits next to the cell-mode selector. Visual style mirrors
    .ds-cell-mode-select so the two pills feel like a single control group. */
 .ds-focus-toggle {
