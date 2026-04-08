@@ -1769,40 +1769,136 @@
   margin-top: 0;
 }
 
-/* Focus toggle — sits next to the cell-mode selector. Visual style mirrors
-   .ds-cell-mode-select so the two pills feel like a single control group. */
-.ds-focus-toggle {
+/* Generic settings row: label block on left, control on the right. */
+.ds-settings-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--ds-border, rgba(0,0,0,0.08));
+}
+.ds-settings-row:last-child { border-bottom: none; }
+.ds-settings-row-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ds-settings-row-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ds-text, #3b3e55);
+}
+.ds-settings-row-sub {
+  font-size: 11px;
+  color: var(--ds-text-muted, #6b6e85);
+  line-height: 1.4;
+}
+.ds-chat-night .ds-settings-row-title { color: var(--ds-text, #c5c5cc); }
+.ds-chat-night .ds-settings-row-sub   { color: var(--ds-text-muted, #8b8e9b); }
+.ds-chat-night .ds-settings-row {
+  border-bottom-color: var(--ds-border, rgba(255,255,255,0.08));
+}
+
+/* Generic toggle pill — used by ContextPanel and any future on/off setting. */
+.ds-toggle-pill {
   flex-shrink: 0;
   background: var(--ds-btn-bg, #e4e5ed);
   border: 1px solid var(--ds-btn-border, #c6c8d4);
-  border-radius: 4px;
+  border-radius: 999px;
   cursor: pointer;
-  font-size: 10px;
-  font-weight: 500;
-  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 12px;
   color: var(--ds-btn-text, #3b3e55);
-  margin-left: 4px;
+  white-space: nowrap;
 }
-.ds-focus-toggle:hover {
-  background: var(--ds-surface2, #d8d9e4);
-}
-.ds-focus-toggle.active {
+.ds-toggle-pill:hover { background: var(--ds-surface2, #d8d9e4); }
+.ds-toggle-pill.active {
   background: #f3c969;
   border-color: #d4a93f;
   color: #3b3e55;
 }
-.ds-chat-night .ds-focus-toggle {
+.ds-chat-night .ds-toggle-pill {
   background: var(--ds-surface, #1e1e2a);
   border-color: var(--ds-border, rgba(255,255,255,0.12));
   color: var(--ds-text, #c5c5cc);
 }
-.ds-chat-night .ds-focus-toggle:hover {
-  background: var(--ds-surface2, #28283a);
-}
-.ds-chat-night .ds-focus-toggle.active {
+.ds-chat-night .ds-toggle-pill:hover { background: var(--ds-surface2, #28283a); }
+.ds-chat-night .ds-toggle-pill.active {
   background: #b08a2e;
   border-color: #d4a93f;
   color: #fffceb;
+}
+
+/* Info bubble — small (i) badge with a hover/focus tooltip from data-tip. */
+.ds-info-bubble {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--ds-surface2, #d8d9e4);
+  color: var(--ds-text-muted, #6b6e85);
+  border: 1px solid var(--ds-border, rgba(0,0,0,0.12));
+  font-size: 9px;
+  font-weight: 700;
+  font-style: italic;
+  font-family: Georgia, serif;
+  cursor: help;
+  position: relative;
+  outline: none;
+}
+.ds-info-bubble:hover,
+.ds-info-bubble:focus {
+  background: #f3c969;
+  color: #3b3e55;
+  border-color: #d4a93f;
+}
+.ds-info-bubble:hover::after,
+.ds-info-bubble:focus::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  background: #2a2d3f;
+  color: #f5f5fa;
+  font-size: 11px;
+  font-weight: 400;
+  font-style: normal;
+  font-family: inherit;
+  line-height: 1.45;
+  padding: 8px 10px;
+  border-radius: 6px;
+  width: 280px;
+  white-space: pre-line;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+  z-index: 1000;
+  pointer-events: none;
+}
+.ds-info-bubble:hover::before,
+.ds-info-bubble:focus::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 2px);
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: #2a2d3f;
+  z-index: 1000;
+  pointer-events: none;
+}
+.ds-chat-night .ds-info-bubble {
+  background: var(--ds-surface2, #28283a);
+  color: var(--ds-text-muted, #8b8e9b);
+  border-color: var(--ds-border, rgba(255,255,255,0.12));
 }
 
 /* =============================================================
