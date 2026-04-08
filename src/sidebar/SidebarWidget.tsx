@@ -7789,19 +7789,19 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
             </button>
           ) : null}
           </div>{/* end ds-assistant-input-bottom */}
-          {/* Model switcher — its own row below the input + bottom toolbar
-              so the model name has full width and never collides with the
-              cell-mode / focus toggles. */}
-          <div className="ds-assistant-input-model-row">
-            <ModelSwitcher
-              provider={chatProvider}
-              model={chatModel}
-              zoo={chatZoo}
-              saving={modelSwitching}
-              onSelect={m => void handleModelSelect(m)}
-            />
-          </div>
         </div>{/* end ds-input-frame */}
+        {/* Model switcher — sits OUTSIDE the rounded input frame so the
+            model name is visually a separate control, not crammed inside
+            the prompt box. */}
+        <div className="ds-assistant-input-model-row">
+          <ModelSwitcher
+            provider={chatProvider}
+            model={chatModel}
+            zoo={chatZoo}
+            saving={modelSwitching}
+            onSelect={m => void handleModelSelect(m)}
+          />
+        </div>
       </div>
     </div>
   );
