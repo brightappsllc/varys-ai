@@ -17,7 +17,10 @@ notebook: simple_rename.ipynb
 # reasoning: off  | cot | sequential
 mode: "agent"
 reasoning: "cot"
-
+# Full notebook context — these tasks span multiple cells (rename references
+# downstream, etc.) so the focal cutoff would make them impossible. See
+# focal_only_basics.yaml for the cutoff scenario.
+limit_to_focal: false
 # One-shot actions applied right after the notebook is first opened,
 # before the first task runs. Mirrors a real user opening the notebook,
 # running everything, and then clicking the cell they want to edit.
