@@ -200,6 +200,12 @@ export interface TaskRequest {
      */
     cellMode?: 'chat' | 'agent';
     /**
+     * When true, the backend assembler hides cells past the active (focal) cell
+     * even in agent mode. Controlled by the sidebar "Focus on active cell"
+     * toggle. Default: false (full notebook visible).
+     */
+    limitToFocal?: boolean;
+    /**
      * When true, the backend injects sequential-thinking instructions so the LLM
      * reasons step-by-step before answering.  Thought tokens are streamed as
      * separate 'thought' SSE events and returned in response.thoughts.

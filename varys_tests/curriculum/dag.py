@@ -130,10 +130,53 @@ class CurriculumRunner:
             Path(__file__).resolve().parent.parent / "results"
         )
         self._results_dir.mkdir(parents=True, exist_ok=True)
+        # Track the currently-open fixture so we only do full page navigation
+        # when the fixture changes between tasks. Same-fixture tasks reuse the
+        # open notebook tab and just revert in place.
+        self._current_fixture: Optional[str] = None
+        self._driver: Optional[VarysDriver] = None
+        # Stable report path — overwritten after each task so partial / aborted
+        # runs still leave a debuggable artifact at a known location.
+        self._report_path: Optional[Path] = None
+        self._live_report: Optional[CurriculumReport] = None
+        # One-shot setup actions to apply right after the first notebook open.
+        self._pending_setup: Optional[dict] = None
+
+    # ------------------------------------------------------------------
+    def run_scenario(
+        self,
+        tasks: List[Task],
+        scenario_name: str = "scenario",
+        setup: Optional[dict] = None,
+    ) -> CurriculumReport:
+        """Run an ordered, chained list of tasks (scenario mode).
+
+        Unlike `run()`, no tier gates apply — every task is attempted in
+        sequence and each one builds on the previous task's notebook state.
+
+        `setup` is an optional dict applied once, right after the notebook
+        is first opened (before the first task's snapshot/focus/submit):
+            {"run_all": True, "focus_cell": 2}
+        """
+        self._pending_setup = setup or None
+        report = CurriculumReport(started_at=time.strftime("%Y-%m-%dT%H:%M:%S"))
+        self._live_report = report
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        self._report_path = self._results_dir / f"{ts}-{scenario_name}.json"
+        for task in tasks:
+            tr = self._run_one(task)
+            report.tasks.append(tr)
+            self._flush_report()
+        report.finished_at = time.strftime("%Y-%m-%dT%H:%M:%S")
+        self._flush_report()
+        return report
 
     # ------------------------------------------------------------------
     def run(self) -> CurriculumReport:
         report = CurriculumReport(started_at=time.strftime("%Y-%m-%dT%H:%M:%S"))
+        self._live_report = report
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        self._report_path = self._results_dir / f"{ts}.json"
         passed_tiers: Set[int] = set()
 
         # Tier 1 — unconditional
@@ -183,6 +226,7 @@ class CurriculumRunner:
 
             tr = self._run_one(task)
             report.tasks.append(tr)
+            self._flush_report()
 
             if tr.status == "timeout":
                 report.infrastructure_failures += 1
@@ -211,21 +255,75 @@ class CurriculumRunner:
 
     # ------------------------------------------------------------------
     def _run_one(self, task: Task) -> TaskReport:
+        print(f"\n[curriculum] ▶ {task.id} (tier {task.tier}) — {task.prompt[:80]}", flush=True)
         tr = TaskReport(task_id=task.id, tier=task.tier, status="fail")
 
-        # Reset workdir + reload notebook
-        try:
-            self._server.reset_workdir(task.fixture)
-        except Exception as e:  # noqa: BLE001
-            tr.status = "timeout"
-            tr.notes = f"workdir reset failed: {e}"
-            return tr
+        same_fixture = (self._driver is not None and self._current_fixture == task.fixture)
 
-        before_path = self._snapshot_before(task.fixture)
+        if not same_fixture:
+            # First task on this fixture: place a fresh copy of the fixture
+            # in the workdir and open it in a new browser tab.
+            try:
+                self._server.reset_workdir(task.fixture)
+                print(f"[curriculum]   workdir reset → {task.fixture}", flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"[curriculum]   ✗ workdir reset failed: {e}", flush=True)
+                tr.status = "timeout"
+                tr.notes = f"workdir reset failed: {e}"
+                return tr
+            url = self._server.get_notebook_url()
+            nb_path = self._server.notebook_path
+            print(
+                f"[curriculum]   opening notebook (fixture change: {self._current_fixture} → {task.fixture})",
+                flush=True,
+            )
+            driver = self._driver_factory(url, nb_path)
+            self._driver = driver
+            self._current_fixture = task.fixture
 
-        url = self._server.get_notebook_url()
-        nb_path = self._server.notebook_path
-        driver = self._driver_factory(url, nb_path)
+            # One-shot scenario setup (run_all, initial focus_cell) — applied
+            # only on the *first* open of this scenario, before the first task
+            # snapshots / focuses / submits.
+            if self._pending_setup:
+                setup = self._pending_setup
+                self._pending_setup = None
+                # Force the driver to open the page NOW so JupyterLab is
+                # loaded before we try to dispatch app.commands. The driver's
+                # own open() already runs all cells, so we don't need to
+                # repeat that here — only honour focus_cell.
+                try:
+                    driver.open()
+                except Exception as e:  # noqa: BLE001
+                    print(f"[curriculum]   ⚠ driver.open() in setup failed: {e}", flush=True)
+                fc = setup.get("focus_cell")
+                if fc is not None:
+                    # YAML uses 1-indexed cell numbers to match the Varys UI
+                    # badges (`#1`, `#2`, ...). JupyterLab's activeCellIndex
+                    # is 0-indexed, so subtract 1.
+                    print(f"[curriculum]   setup: focusing cell #{fc}", flush=True)
+                    try:
+                        driver.focus_cell(int(fc) - 1)
+                    except Exception as e:  # noqa: BLE001
+                        print(f"[curriculum]   ⚠ setup focus_cell failed: {e}", flush=True)
+        else:
+            # Chained mode: this task builds on the previous task's notebook
+            # state. Do NOT reset workdir, do NOT revert. Just submit.
+            print("[curriculum]   chained run (same fixture, keeping state)", flush=True)
+            driver = self._driver
+            nb_path = self._server.notebook_path
+
+        # Snapshot the notebook *as it currently sits on disk* so the diff
+        # captures only what THIS task changed, not what previous tasks did.
+        before_path = self._snapshot_current(nb_path)
+
+        # Focus the target cell if the task specifies one — mirrors how a
+        # real user clicks the cell they want edited before asking Varys.
+        if task.target_cell is not None:
+            # YAML target_cell is 1-indexed (matches Varys UI badges).
+            try:
+                driver.focus_cell(task.target_cell - 1)
+            except Exception as e:  # noqa: BLE001
+                print(f"[curriculum]   ⚠ focus_cell({task.target_cell}) failed: {e}", flush=True)
 
         # Submit
         try:
@@ -269,6 +367,13 @@ class CurriculumRunner:
         else:
             tr.status = "fail"
 
+        sym = {"pass": "✓", "fail": "✗", "timeout": "⏱"}.get(tr.status, "?")
+        print(
+            f"[curriculum]   {sym} {task.id} → {tr.status} "
+            f"(struct={struct_res.passed}, exec={exec_passed}, judge={judge_passed}, "
+            f"{tr.duration_s:.1f}s)",
+            flush=True,
+        )
         return tr
 
     # ------------------------------------------------------------------
@@ -278,6 +383,22 @@ class CurriculumRunner:
         p = fixtures_dir / fixture
         return str(p) if p.exists() else ""
 
+    def _snapshot_current(self, nb_path: str) -> str:
+        """Copy the current on-disk notebook to a temp file so we can diff
+        against it after this task modifies the live notebook.
+        """
+        import shutil
+        import tempfile
+        try:
+            tmp = tempfile.NamedTemporaryFile(
+                prefix="varys_before_", suffix=".ipynb", delete=False
+            )
+            tmp.close()
+            shutil.copy(nb_path, tmp.name)
+            return tmp.name
+        except Exception:  # noqa: BLE001
+            return ""
+
     def _mark_skipped(self, tier_tasks: List[Task], report: CurriculumReport, reason: str) -> None:
         for t in tier_tasks:
             report.tasks.append(TaskReport(
@@ -285,7 +406,15 @@ class CurriculumRunner:
             ))
 
     def _write_report(self, report: CurriculumReport) -> None:
-        ts = time.strftime("%Y%m%d-%H%M%S")
-        out = self._results_dir / f"{ts}.json"
-        with open(out, "w") as f:
-            json.dump(report.to_dict(), f, indent=2)
+        # Final write — same path as incremental flushes so users always
+        # find the latest run at one stable location (plus the timestamp).
+        self._flush_report()
+
+    def _flush_report(self) -> None:
+        if self._live_report is None or self._report_path is None:
+            return
+        try:
+            with open(self._report_path, "w") as f:
+                json.dump(self._live_report.to_dict(), f, indent=2)
+        except Exception as e:  # noqa: BLE001
+            print(f"[curriculum]   ⚠ report flush failed: {e}", flush=True)

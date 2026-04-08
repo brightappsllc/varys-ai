@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import os
 import re as _re
 import traceback
 import uuid
@@ -710,6 +711,10 @@ class TaskHandler(JupyterHandler):
             _raw_cell_mode = "agent"
         user_cell_mode   = _raw_cell_mode  # 'chat' | 'agent'
         reasoning_mode   = body.get("reasoningMode", "off")   # 'off' | 'cot' | 'sequential'
+        # Per-request opt-in: in agent mode, hide cells past the focal cell.
+        # Sent by the sidebar "Focus on active cell" toggle. Defaults to False
+        # so existing behavior (full notebook in agent mode) is preserved.
+        limit_to_focal   = bool(body.get("limitToFocal", False))
         cot_enabled      = reasoning_mode == "cot"
         sequential_enabled = reasoning_mode == "sequential"
 
@@ -885,6 +890,10 @@ class TaskHandler(JupyterHandler):
                     nb_base                = _nb_base_path,
                     kernel_name            = notebook_context.get("kernelName") or "",
                     agent_mode             = (user_cell_mode == "agent"),
+                    agent_cutoff_at_focal  = limit_to_focal or (
+                        os.environ.get("VARYS_AGENT_CUTOFF_AT_FOCAL", "").lower()
+                        in ("1", "true", "yes")
+                    ),
                 )
                 # Ensure notebook_context is a mutable copy before patching
                 notebook_context = dict(notebook_context)
