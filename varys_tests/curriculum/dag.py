@@ -141,6 +141,7 @@ class CurriculumRunner:
         self._live_report: Optional[CurriculumReport] = None
         # One-shot setup actions to apply right after the first notebook open.
         self._pending_setup: Optional[dict] = None
+        self._pending_limit_to_focal: bool = False
 
     # ------------------------------------------------------------------
     def run_scenario(
@@ -148,6 +149,7 @@ class CurriculumRunner:
         tasks: List[Task],
         scenario_name: str = "scenario",
         setup: Optional[dict] = None,
+        limit_to_focal: bool = False,
     ) -> CurriculumReport:
         """Run an ordered, chained list of tasks (scenario mode).
 
@@ -159,6 +161,7 @@ class CurriculumRunner:
             {"run_all": True, "focus_cell": 2}
         """
         self._pending_setup = setup or None
+        self._pending_limit_to_focal = limit_to_focal
         report = CurriculumReport(started_at=time.strftime("%Y-%m-%dT%H:%M:%S"))
         self._live_report = report
         ts = time.strftime("%Y%m%d-%H%M%S")
@@ -295,6 +298,15 @@ class CurriculumRunner:
                     driver.open()
                 except Exception as e:  # noqa: BLE001
                     print(f"[curriculum]   ⚠ driver.open() in setup failed: {e}", flush=True)
+                # Toggle the sidebar "Focus on active cell" pill if requested.
+                # Must happen after open() so the sidebar is mounted, and before
+                # the first focus_cell so the visible state is consistent.
+                if self._pending_limit_to_focal:
+                    print("[curriculum]   setup: enabling limit_to_focal", flush=True)
+                    try:
+                        driver.set_limit_to_focal(True)
+                    except Exception as e:  # noqa: BLE001
+                        print(f"[curriculum]   ⚠ set_limit_to_focal failed: {e}", flush=True)
                 fc = setup.get("focus_cell")
                 if fc is not None:
                     # YAML uses 1-indexed cell numbers to match the Varys UI

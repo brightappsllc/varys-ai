@@ -95,6 +95,7 @@ class Scenario:
     cell_mode: Optional[str] = None      # "chat" | "agent" | None
     reasoning: Optional[str] = None      # "off" | "cot" | "sequential" | None
     setup: Optional[dict] = None         # {"run_all": bool, "focus_cell": int}
+    limit_to_focal: bool = False         # toggle "Focus on active cell" pill
 
     @property
     def id(self) -> str:
@@ -188,6 +189,7 @@ def load_scenario(path: Path) -> Scenario:
         cell_mode=cell_mode,
         reasoning=reasoning,
         setup=setup,
+        limit_to_focal=bool(raw.get("limit_to_focal", False)),
     )
 
 
