@@ -1765,7 +1765,7 @@
 .ds-assistant-input-model-row {
   display: flex;
   align-items: center;
-  padding: 4px 6px 0 6px;
+  padding: 6px 4px 2px 4px;
 }
 
 /* Focus toggle — sits next to the cell-mode selector. Visual style mirrors
