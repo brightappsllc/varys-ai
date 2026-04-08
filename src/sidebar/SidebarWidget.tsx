@@ -1391,6 +1391,16 @@ const SETTINGS_NAV_GROUPS: NavGroup[] = [
     label: 'Workspace',
     items: [
       {
+        id: 'context',
+        label: 'Context',
+        icon: (
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.3">
+            <rect x="1.5" y="2.5" width="12" height="10" rx="1.2"/>
+            <path d="M4 5.5h7M4 8h7M4 10.5h4"/>
+          </svg>
+        ),
+      },
+      {
         id: 'skills',
         label: 'Skills',
         icon: (
@@ -1457,6 +1467,7 @@ const SECTION_HEADING_MAP: Record<string, string> = {
   'model-routing':   'Model Routing',
   'model-providers': 'Model Providers',
   'mcp':             'MCP',
+  'context':         'Context',
   'skills':          'Skills',
   'commands':        'Commands',
   'tags':            'Tags',
@@ -2551,6 +2562,72 @@ function tagColorTs(tag: string): string {
   return TAG_PALETTE_TS[h % TAG_PALETTE_TS.length];
 }
 
+// ---------------------------------------------------------------------------
+// ContextPanel — Settings → Workspace → Context
+// Lets the user toggle the focal-cell context cutoff. Source of truth is
+// localStorage 'ds-assistant-limit-to-focal'; the chat input reads it fresh
+// at submit time, so this panel doesn't need to push state anywhere.
+// ---------------------------------------------------------------------------
+const ContextPanel: React.FC = () => {
+  const [limitToFocal, setLimitToFocalState] = useState<boolean>(() => {
+    try { return localStorage.getItem('ds-assistant-limit-to-focal') === '1'; }
+    catch { return false; }
+  });
+
+  const setLimit = (next: boolean) => {
+    setLimitToFocalState(next);
+    try { localStorage.setItem('ds-assistant-limit-to-focal', next ? '1' : '0'); }
+    catch { /* ignore */ }
+  };
+
+  return (
+    <div className="ds-settings-section-body">
+      <div className="ds-settings-row">
+        <div className="ds-settings-row-label">
+          <span className="ds-settings-row-title">
+            Limit context to active cell
+            <span
+              className="ds-info-bubble"
+              tabIndex={0}
+              role="img"
+              aria-label="What does this do?"
+              data-tip={
+                "When ON (Agent mode only): the assistant only sees cells from "
+                + "the top of the notebook through the active (focused) cell. "
+                + "Cells past the active cell are hidden — the agent can still "
+                + "see their existence as a one-line skeleton, but cannot read "
+                + "or edit their contents.\n\n"
+                + "Use this for tasks that act on a single cell and where you "
+                + "don't want the agent to make 'helpful' edits to unrelated "
+                + "downstream cells.\n\n"
+                + "Leave OFF for cross-cell refactors (rename across the whole "
+                + "notebook, insert above a downstream header, etc.) — the "
+                + "agent needs full visibility for those.\n\n"
+                + "No effect in Chat mode — chat already cuts off at the "
+                + "active cell."
+              }
+            >
+              i
+            </span>
+          </span>
+          <span className="ds-settings-row-sub">
+            Agent mode only. Hides cells past the focused cell so the agent
+            stays focused on a single cell.
+          </span>
+        </div>
+        <button
+          type="button"
+          className={`ds-toggle-pill${limitToFocal ? ' active' : ''}`}
+          aria-pressed={limitToFocal}
+          onClick={() => setLimit(!limitToFocal)}
+        >
+          {limitToFocal ? '🔒 On' : '🌐 Off'}
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const TagsSettingsPanel: React.FC = () => {
   const [customTags, setCustomTags] = useState<CustomTagDef[]>(loadCustomTags);
   const [newValue, setNewValue]     = useState('');
@@ -3279,6 +3356,8 @@ const SettingsPanel: React.FC<{
             <MCPPanel apiClient={apiClient} />
           </div>
         );
+      case 'context':
+        return <ContextPanel />;
       case 'skills':
         return <SkillsPanel apiClient={apiClient} notebookPath={notebookPath} />;
       case 'commands':
@@ -4063,14 +4142,9 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   const cellModeRef = useRef<CellMode>(cellMode);
   useEffect(() => { cellModeRef.current = cellMode; }, [cellMode]);
 
-  // "Focus on active cell" — when ON, agent mode hides cells past the focal
-  // cell. Off by default so existing users see no behavior change.
-  const [limitToFocal, setLimitToFocal] = useState<boolean>(() => {
-    try { return localStorage.getItem('ds-assistant-limit-to-focal') === '1'; }
-    catch { return false; }
-  });
-  const limitToFocalRef = useRef<boolean>(limitToFocal);
-  useEffect(() => { limitToFocalRef.current = limitToFocal; }, [limitToFocal]);
+  // "Focus on active cell" lives in Settings → Context now. The chat
+  // request reads it fresh from localStorage at submit time so changes
+  // there take effect on the next message without prop drilling.
   // Per-thread mode map — the authoritative in-session source.
   // Updated synchronously on every explicit mode change and on thread load,
   // so handleSwitchThread always sees the correct mode regardless of render timing
@@ -5579,7 +5653,12 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
           variables: resolvedVariables,
           ...(slashCommand ? { command: slashCommand } : {}),
           cellMode: (notebookAware || !!currentFilePathRef.current) ? cellMode : 'chat',
-          ...(limitToFocalRef.current ? { limitToFocal: true } : {}),
+          // Read fresh from localStorage so the Settings → Context toggle
+          // takes effect on the very next message without prop drilling.
+          ...((() => {
+            try { return localStorage.getItem('ds-assistant-limit-to-focal') === '1' ? { limitToFocal: true } : {}; }
+            catch { return {}; }
+          })()),
           ...(reasoningModeRef.current !== 'off' ? { reasoningMode: reasoningModeRef.current } : {}),
           ...(imageModeRef.current ? { imageMode: imageModeRef.current } : {}),
         },
@@ -7718,29 +7797,6 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
               <option value="chat">💬 Chat</option>
               <option value="agent">✨ Agent</option>
             </select>
-          )}
-          {/* Focus toggle — only meaningful in agent mode (chat mode already
-              cuts off at the focal cell). When ON, the backend assembler
-              hides cells past the active cell so the agent can't make
-              "helpful" edits to unrelated downstream cells. */}
-          {(notebookAware || !!currentFilePath) && cellMode === 'agent' && (
-            <button
-              type="button"
-              className={`ds-focus-toggle${limitToFocal ? ' active' : ''}`}
-              title={
-                limitToFocal
-                  ? 'Context limited to active cell and above. Click to send the full notebook.'
-                  : 'Send the full notebook as context. Click to limit context to the active cell and above.'
-              }
-              onClick={() => {
-                const next = !limitToFocal;
-                setLimitToFocal(next);
-                limitToFocalRef.current = next;
-                try { localStorage.setItem('ds-assistant-limit-to-focal', next ? '1' : '0'); } catch { /* ignore */ }
-              }}
-            >
-              {limitToFocal ? '🔒 Focused' : '🌐 Full'}
-            </button>
           )}
           {/* Spacer — pushes token counter and send/stop to the far right */}
           <span className="ds-input-bottom-spacer" />

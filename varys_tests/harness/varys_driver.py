@@ -491,31 +491,22 @@ class VarysDriver:
     # internals
     # ------------------------------------------------------------------
     def set_limit_to_focal(self, on: bool) -> None:
-        """Toggle the sidebar's "Focus on active cell" pill to the given state.
+        """Set the "Limit context to active cell" preference for the next
+        chat request.
 
-        The pill is `.ds-focus-toggle` and carries `.active` when ON.
-        Only visible in agent mode — call after switching to agent mode.
+        The setting now lives in Settings → Workspace → Context. The chat
+        input reads it fresh from localStorage at submit time, so we just
+        write the key directly via JS — no UI navigation needed.
         """
-        sel = ".ds-focus-toggle"
+        value = "1" if on else "0"
         try:
-            btn = self._page.locator(sel)
-            btn.wait_for(state="visible", timeout=5_000)
+            self._page.evaluate(
+                "(v) => { try { localStorage.setItem('ds-assistant-limit-to-focal', v); } catch (e) {} }",
+                value,
+            )
+            print(f"[driver]   limit_to_focal → {'on' if on else 'off'} (localStorage)", flush=True)
         except Exception as e:  # noqa: BLE001
-            print(f"[driver]   ⚠ focus toggle not visible: {e}", flush=True)
-            return
-        is_active = self._page.evaluate(
-            "(s) => { const el = document.querySelector(s);"
-            " return el ? el.classList.contains('active') : false; }",
-            sel,
-        )
-        if bool(is_active) == bool(on):
-            print(f"[driver]   focus toggle already {'on' if on else 'off'}", flush=True)
-            return
-        try:
-            btn.click(timeout=2_000)
-            print(f"[driver]   focus toggle → {'on' if on else 'off'}", flush=True)
-        except Exception as e:  # noqa: BLE001
-            print(f"[driver]   ⚠ focus toggle click failed: {e}", flush=True)
+            print(f"[driver]   ⚠ set_limit_to_focal failed: {e}", flush=True)
 
     def run_all_cells(self, timeout_ms: int = 120_000) -> None:
         """Run every cell and BLOCK until the kernel reports idle and every
