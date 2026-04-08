@@ -298,15 +298,19 @@ class CurriculumRunner:
                     driver.open()
                 except Exception as e:  # noqa: BLE001
                     print(f"[curriculum]   ⚠ driver.open() in setup failed: {e}", flush=True)
-                # Toggle the sidebar "Focus on active cell" pill if requested.
-                # Must happen after open() so the sidebar is mounted, and before
-                # the first focus_cell so the visible state is consistent.
-                if self._pending_limit_to_focal:
-                    print("[curriculum]   setup: enabling limit_to_focal", flush=True)
-                    try:
-                        driver.set_limit_to_focal(True)
-                    except Exception as e:  # noqa: BLE001
-                        print(f"[curriculum]   ⚠ set_limit_to_focal failed: {e}", flush=True)
+                # ALWAYS enforce the desired state of the "Focus on active
+                # cell" pill — both ON and OFF. localStorage persists the
+                # toggle across runs, so a previous scenario that turned it
+                # ON would otherwise leak into a scenario that wants it OFF.
+                desired = bool(self._pending_limit_to_focal)
+                print(
+                    f"[curriculum]   setup: enforcing limit_to_focal={desired}",
+                    flush=True,
+                )
+                try:
+                    driver.set_limit_to_focal(desired)
+                except Exception as e:  # noqa: BLE001
+                    print(f"[curriculum]   ⚠ set_limit_to_focal failed: {e}", flush=True)
                 fc = setup.get("focus_cell")
                 if fc is not None:
                     # YAML uses 1-indexed cell numbers to match the Varys UI
