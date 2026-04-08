@@ -8,7 +8,7 @@ objects directly.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, List
+from typing import Callable, List, Optional
 
 from varys_tests.harness.notebook_state import (
     cell_count_between,
@@ -32,15 +32,22 @@ class Task:
     run_judge_assert: bool = True
     on_pass: List[str] = field(default_factory=list)
     on_fail: List[str] = field(default_factory=list)
+    # Optional 1-indexed cell to focus before submitting the prompt (matches
+    # the Varys UI cell badges `#1`, `#2`, ...). The dag runner subtracts 1
+    # before passing to JupyterLab's 0-indexed activeCellIndex.
+    target_cell: Optional[int] = None
 
 
 # ----------------------------------------------------------------------
 # Tier 1 — single cell, atomic
 # ----------------------------------------------------------------------
-T1_TIMEOUT = 30
-T2_TIMEOUT = 60
-T3_TIMEOUT = 120
-T4_TIMEOUT = 180
+# Generous timeouts. The LLM can do long thinking on complex prompts; the
+# total budget here is "wall time from Send to Stop", not "no progress" — a
+# slow but progressing stream is fine. Tighten only if false-positives appear.
+T1_TIMEOUT = 180
+T2_TIMEOUT = 300
+T3_TIMEOUT = 600
+T4_TIMEOUT = 900
 
 SIMPLE = "simple_rename.ipynb"
 MESSY = "messy_sales_analysis.ipynb"

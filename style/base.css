@@ -1760,6 +1760,42 @@
   color: var(--ds-text, #c5c5cc);
 }
 
+/* Focus toggle — sits next to the cell-mode selector. Visual style mirrors
+   .ds-cell-mode-select so the two pills feel like a single control group. */
+.ds-focus-toggle {
+  flex-shrink: 0;
+  background: var(--ds-btn-bg, #e4e5ed);
+  border: 1px solid var(--ds-btn-border, #c6c8d4);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 6px;
+  color: var(--ds-btn-text, #3b3e55);
+  margin-left: 4px;
+}
+.ds-focus-toggle:hover {
+  background: var(--ds-surface2, #d8d9e4);
+}
+.ds-focus-toggle.active {
+  background: #f3c969;
+  border-color: #d4a93f;
+  color: #3b3e55;
+}
+.ds-chat-night .ds-focus-toggle {
+  background: var(--ds-surface, #1e1e2a);
+  border-color: var(--ds-border, rgba(255,255,255,0.12));
+  color: var(--ds-text, #c5c5cc);
+}
+.ds-chat-night .ds-focus-toggle:hover {
+  background: var(--ds-surface2, #28283a);
+}
+.ds-chat-night .ds-focus-toggle.active {
+  background: #b08a2e;
+  border-color: #d4a93f;
+  color: #fffceb;
+}
+
 /* =============================================================
    Thread bar & popup
    ============================================================= */

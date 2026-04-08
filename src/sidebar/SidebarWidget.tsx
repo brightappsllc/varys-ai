@@ -4062,6 +4062,15 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   // Ref so closures (e.g. _saveThread) always read the latest mode.
   const cellModeRef = useRef<CellMode>(cellMode);
   useEffect(() => { cellModeRef.current = cellMode; }, [cellMode]);
+
+  // "Focus on active cell" — when ON, agent mode hides cells past the focal
+  // cell. Off by default so existing users see no behavior change.
+  const [limitToFocal, setLimitToFocal] = useState<boolean>(() => {
+    try { return localStorage.getItem('ds-assistant-limit-to-focal') === '1'; }
+    catch { return false; }
+  });
+  const limitToFocalRef = useRef<boolean>(limitToFocal);
+  useEffect(() => { limitToFocalRef.current = limitToFocal; }, [limitToFocal]);
   // Per-thread mode map — the authoritative in-session source.
   // Updated synchronously on every explicit mode change and on thread load,
   // so handleSwitchThread always sees the correct mode regardless of render timing
@@ -5570,6 +5579,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
           variables: resolvedVariables,
           ...(slashCommand ? { command: slashCommand } : {}),
           cellMode: (notebookAware || !!currentFilePathRef.current) ? cellMode : 'chat',
+          ...(limitToFocalRef.current ? { limitToFocal: true } : {}),
           ...(reasoningModeRef.current !== 'off' ? { reasoningMode: reasoningModeRef.current } : {}),
           ...(imageModeRef.current ? { imageMode: imageModeRef.current } : {}),
         },
@@ -7708,6 +7718,29 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
               <option value="chat">💬 Chat</option>
               <option value="agent">✨ Agent</option>
             </select>
+          )}
+          {/* Focus toggle — only meaningful in agent mode (chat mode already
+              cuts off at the focal cell). When ON, the backend assembler
+              hides cells past the active cell so the agent can't make
+              "helpful" edits to unrelated downstream cells. */}
+          {(notebookAware || !!currentFilePath) && cellMode === 'agent' && (
+            <button
+              type="button"
+              className={`ds-focus-toggle${limitToFocal ? ' active' : ''}`}
+              title={
+                limitToFocal
+                  ? 'Context limited to active cell and above. Click to send the full notebook.'
+                  : 'Send the full notebook as context. Click to limit context to the active cell and above.'
+              }
+              onClick={() => {
+                const next = !limitToFocal;
+                setLimitToFocal(next);
+                limitToFocalRef.current = next;
+                try { localStorage.setItem('ds-assistant-limit-to-focal', next ? '1' : '0'); } catch { /* ignore */ }
+              }}
+            >
+              {limitToFocal ? '🔒 Focused' : '🌐 Full'}
+            </button>
           )}
           <ModelSwitcher
             provider={chatProvider}
