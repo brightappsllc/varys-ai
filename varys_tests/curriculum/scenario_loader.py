@@ -116,6 +116,16 @@ def load_scenario(path: Path) -> Scenario:
     notebook = raw.get("notebook")
     if not notebook:
         raise ValueError(f"scenario {name}: 'notebook' field is required")
+    # Resolve `notebook` relative to the YAML file's directory so each
+    # scenario folder is self-contained: scenarios/<fixture>/<name>.yaml
+    # references its sibling .ipynb. Pass the absolute path through to the
+    # task so the runner / jupyter_server don't need to know about layout.
+    notebook_path = (path.parent / notebook).resolve()
+    if not notebook_path.exists():
+        raise ValueError(
+            f"scenario {name}: notebook {notebook!r} not found at {notebook_path}"
+        )
+    notebook = str(notebook_path)
     description = str(raw.get("description") or "")
 
     # Handle YAML bool coercion: bare `off`/`on` parse as False/True.
@@ -194,10 +204,11 @@ def load_scenario(path: Path) -> Scenario:
 
 
 def discover_scenarios() -> List[Path]:
-    """Return all *.yaml files in the scenarios/ directory."""
+    """Return all *.yaml files under scenarios/, recursing into per-fixture
+    subfolders (scenarios/<fixture_name>/<scenario>.yaml)."""
     if not SCENARIOS_DIR.exists():
         return []
-    return sorted(SCENARIOS_DIR.glob("*.yaml")) + sorted(SCENARIOS_DIR.glob("*.yml"))
+    return sorted(SCENARIOS_DIR.rglob("*.yaml")) + sorted(SCENARIOS_DIR.rglob("*.yml"))
 
 
 def load_scenario_by_name(name: str) -> Optional[Scenario]:

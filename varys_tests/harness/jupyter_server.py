@@ -55,14 +55,15 @@ class JupyterServer:
     def start(self, fixture: str) -> None:
         """Spawn JupyterLab and copy `fixture` into a fresh temp workdir.
 
-        `fixture` is a filename in `varys_tests/curriculum/fixtures/`.
+        `fixture` may be either:
+          • an absolute path to a .ipynb file (preferred — used by the
+            scenario loader, which resolves notebooks relative to the YAML)
+          • a bare filename (legacy) — searched under
+            varys_tests/curriculum/scenarios/<stem>/<filename>
         """
         self._workdir = Path(tempfile.mkdtemp(prefix="varys_test_"))
-        fixtures_dir = Path(__file__).resolve().parent.parent / "curriculum" / "fixtures"
-        src = fixtures_dir / fixture
-        if not src.exists():
-            raise FileNotFoundError(f"fixture not found: {src}")
-        dst = self._workdir / fixture
+        src = self._resolve_fixture(fixture)
+        dst = self._workdir / src.name
         shutil.copy2(src, dst)
         self.notebook_path = str(dst)
 
@@ -137,11 +138,41 @@ class JupyterServer:
         if ck.exists():
             shutil.rmtree(ck, ignore_errors=True)
 
-        fixtures_dir = Path(__file__).resolve().parent.parent / "curriculum" / "fixtures"
-        src = fixtures_dir / fixture
-        dst = self._workdir / fixture
-        shutil.copy2(src, dst)
+        src = self._resolve_fixture(fixture)
+        dst = self._workdir / src.name
+        # Use shutil.copy (not copy2) so the new file gets a fresh mtime —
+        # otherwise JupyterLab's file watcher won't fire and the open
+        # notebook tab won't notice the disk change.
+        shutil.copy(src, dst)
+        # Belt-and-suspenders: explicitly touch to current time.
+        dst.touch()
         self.notebook_path = str(dst)
+
+    def _resolve_fixture(self, fixture: str) -> Path:
+        """Accept absolute path OR bare filename and return an existing Path.
+
+        Bare filenames are searched under scenarios/<stem>/<filename> first
+        (new layout) then scenarios/<filename>'s parent for the legacy flat
+        layout. Raises FileNotFoundError on miss.
+        """
+        p = Path(fixture)
+        if p.is_absolute():
+            if not p.exists():
+                raise FileNotFoundError(f"fixture not found: {p}")
+            return p
+        scenarios_dir = (
+            Path(__file__).resolve().parent.parent / "curriculum" / "scenarios"
+        )
+        # New layout: scenarios/<stem>/<filename>
+        candidate = scenarios_dir / p.stem / p.name
+        if candidate.exists():
+            return candidate
+        # Last-ditch: recursive search.
+        for hit in scenarios_dir.rglob(p.name):
+            return hit
+        raise FileNotFoundError(
+            f"fixture {fixture!r} not found under {scenarios_dir}"
+        )
 
     # ------------------------------------------------------------------
     # urls

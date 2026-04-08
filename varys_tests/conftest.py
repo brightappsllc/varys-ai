@@ -22,6 +22,8 @@ from varys_tests.harness.varys_driver import PlaywrightSession
 def jupyter_server():
     server = JupyterServer()
     # Start with the simple fixture; runner resets per task.
+    # Bare filename — JupyterServer._resolve_fixture searches under
+    # scenarios/<stem>/ so this picks up scenarios/simple_rename/simple_rename.ipynb.
     server.start("simple_rename.ipynb")
     yield server
     server.stop()

@@ -394,10 +394,21 @@ class CurriculumRunner:
 
     # ------------------------------------------------------------------
     def _snapshot_before(self, fixture: str) -> str:
-        """Return path to the pristine fixture (used for diffs)."""
-        fixtures_dir = Path(__file__).resolve().parent / "fixtures"
-        p = fixtures_dir / fixture
-        return str(p) if p.exists() else ""
+        """Return path to the pristine fixture (used for diffs).
+
+        `fixture` may be an absolute path (new scenario loader) or a bare
+        filename. Bare filenames are searched under scenarios/<stem>/.
+        """
+        p = Path(fixture)
+        if p.is_absolute():
+            return str(p) if p.exists() else ""
+        scenarios_dir = Path(__file__).resolve().parent / "scenarios"
+        candidate = scenarios_dir / p.stem / p.name
+        if candidate.exists():
+            return str(candidate)
+        for hit in scenarios_dir.rglob(p.name):
+            return str(hit)
+        return ""
 
     def _snapshot_current(self, nb_path: str) -> str:
         """Copy the current on-disk notebook to a temp file so we can diff
