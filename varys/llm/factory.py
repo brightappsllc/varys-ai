@@ -19,7 +19,13 @@ from .base import BaseLLMProvider
 
 
 def _load_varys_env() -> None:
-    """Load the active varys.env into os.environ (only keys not already set)."""
+    """Load the active varys.env into os.environ.
+
+    varys.env is the user's explicit Varys configuration file and always takes
+    priority over inherited shell environment variables.  This prevents a stale
+    AWS_SESSION_TOKEN (or any other credential) that was set in the parent shell
+    from silently overriding a fresh token the user placed in varys.env.
+    """
     try:
         from ..handlers.settings import resolve_env_path
         env_file = resolve_env_path()
@@ -34,8 +40,7 @@ def _load_varys_env() -> None:
         m = re.match(r"^([A-Z0-9_]+)\s*=\s*(.*)", stripped)
         if m:
             key, val = m.group(1), re.sub(r"\s+#.*$", "", m.group(2)).strip().strip("\"'")
-            if key not in os.environ:
-                os.environ[key] = val
+            os.environ[key] = val  # always override — varys.env is the source of truth
 
 
 log = logging.getLogger(__name__)
@@ -99,6 +104,9 @@ def _cache_key(provider_name: str, task: str, model: str, settings: Dict[str, An
             str(settings.get("ds_assistant_bedrock_max_tokens", "")),
             settings.get("ds_assistant_aws_region", "us-east-1"),
             settings.get("ds_assistant_aws_profile", "")[:8],
+            # Include session token prefix so a rotated token forces a new provider
+            # instance rather than returning a cached one with expired credentials.
+            settings.get("ds_assistant_aws_session_token", "")[:8],
         ])
     elif provider_name == "anthropic":
         extra = str(settings.get("ds_assistant_anthropic_extended_thinking", True))
