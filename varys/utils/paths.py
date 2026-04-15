@@ -93,6 +93,38 @@ def _write_sidecar_id(nb_dir: Path, nb_filename: str, uuid_str: str) -> None:
     _atomic_write_text(p, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
 
+def _remove_sidecar_id(nb_dir: Path, nb_filename: str) -> None:
+    """Remove the sidecar entry for *nb_filename* (no-op if absent)."""
+    p = _sidecar_path(nb_dir)
+    if not p.exists():
+        return
+    try:
+        data: Dict[str, str] = json.loads(p.read_text(encoding="utf-8"))
+        if nb_filename not in data:
+            return
+        del data[nb_filename]
+        _atomic_write_text(p, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        log.debug("paths: could not remove sidecar entry for %s — %s", nb_filename, exc)
+
+
+def _migrate_data_dir(nb_dir: Path, old_id: str, new_id: str) -> None:
+    """Move the per-notebook data dir from *old_id* to *new_id* (best-effort).
+
+    Called when metadata.id is discovered after a sidecar UUID was already
+    used — ensures existing chat threads, summaries, and memory are not orphaned.
+    """
+    src = nb_dir / ".jupyter-assistant" / old_id
+    dst = nb_dir / ".jupyter-assistant" / new_id
+    if not src.exists() or dst.exists():
+        return
+    try:
+        shutil.move(str(src), str(dst))
+        log.info("paths: migrated data dir %s… → %s…", old_id[:8], new_id[:8])
+    except Exception as exc:
+        log.warning("paths: could not migrate data dir %s → %s: %s", old_id[:8], new_id[:8], exc)
+
+
 def _atomic_write_text(path: Path, content: str) -> None:
     """Write *content* to *path* atomically (rename trick)."""
     parent = path.parent
@@ -155,6 +187,13 @@ def get_or_create_notebook_id(notebook_abs_path: str) -> Optional[str]:
     #    rename-stable because the ID is embedded in the file itself.
     std_id: Optional[str] = meta.get("id")
     if std_id and isinstance(std_id, str):
+        # If a sidecar entry was assigned before metadata.id was written (via the
+        # needsIdStamp → silent-save flow), migrate the data directory so existing
+        # chat threads, summaries and memory are not orphaned.
+        sidecar_id = _read_sidecar_id(nb_path.parent, nb_path.name)
+        if sidecar_id and sidecar_id != std_id:
+            _migrate_data_dir(nb_path.parent, sidecar_id, std_id)
+            _remove_sidecar_id(nb_path.parent, nb_path.name)
         _UUID_CACHE[cache_key] = std_id
         return std_id
 
@@ -165,7 +204,7 @@ def get_or_create_notebook_id(notebook_abs_path: str) -> Optional[str]:
         _UUID_CACHE[cache_key] = sidecar_id
         return sidecar_id
 
-    # 3. Generate a new UUID and write it to the sidecar — NOT to the notebook.
+    # 4. Generate a new UUID and write it to the sidecar — NOT to the notebook.
     #    Writing to the notebook triggers JupyterLab's "File Changed on disk"
     #    dialog even when only one instance of the file is open.
     new_id = str(_uuid_mod.uuid4())

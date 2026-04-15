@@ -34,7 +34,7 @@ from pathlib import Path
 from jupyter_server.base.handlers import JupyterHandler
 from tornado.web import authenticated
 
-from ..utils.paths import get_or_create_notebook_id, _UUID_CACHE, _read_sidecar_id, _write_sidecar_id
+from ..utils.paths import get_or_create_notebook_id, _UUID_CACHE, _read_sidecar_id, _write_sidecar_id, _remove_sidecar_id
 
 log = logging.getLogger(__name__)
 
@@ -123,6 +123,8 @@ class NbMoveHandler(JupyterHandler):
         if sidecar_id:
             try:
                 _write_sidecar_id(dst.parent, dst.name, sidecar_id)
+                # Remove the stale source entry so the sidecar stays clean.
+                _remove_sidecar_id(src.parent, src.name)
             except Exception as exc:
                 log.warning("NbMoveHandler: could not update sidecar for %s — %s", dst.name, exc)
 

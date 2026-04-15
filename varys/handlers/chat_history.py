@@ -63,9 +63,9 @@ log = logging.getLogger(__name__)
 def _notebook_has_built_in_id(abs_nb_path: str) -> bool:
     """Return True if the notebook carries a stable, rename-proof ID in its metadata.
 
-    'Built-in' means ``metadata.id`` (nbformat 4.5 / JupyterLab 4+) or the
-    legacy ``metadata.varys_notebook_id`` written by older Varys.  Both survive
-    rename because they travel inside the file.
+    'Built-in' means ``metadata.id`` (nbformat 4.5 / JupyterLab 4+),
+    ``metadata.varys_notebook_id``, or the legacy ``metadata.varys_id`` written
+    by older Varys.  All survive rename because they travel inside the file.
 
     When False the ID lives only in the sidecar (keyed by filename), so the
     frontend should trigger a silent JupyterLab save to embed ``metadata.id``.
@@ -77,7 +77,7 @@ def _notebook_has_built_in_id(abs_nb_path: str) -> bool:
             meta = json.load(fh).get("metadata", {})
         if not isinstance(meta, dict):
             return False
-        return bool(meta.get("id") or meta.get("varys_notebook_id"))
+        return bool(meta.get("id") or meta.get("varys_notebook_id") or meta.get("varys_id"))
     except Exception:
         return True   # can't tell — suppress spurious save requests
 

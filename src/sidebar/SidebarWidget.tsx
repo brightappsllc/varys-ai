@@ -4669,7 +4669,9 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
         // JupyterLab save.  JupyterLab writes metadata.id during save, making
         // the ID portable across renames — no dialog, one-time per old notebook.
         if (chatFile.needsIdStamp) {
-          void notebookTracker.currentWidget?.context.save();
+          notebookTracker.currentWidget?.context.save().catch(err => {
+            console.debug('[Varys] silent id-stamp save failed:', err);
+          });
         }
         if (chatFile.threads.length > 0) {
           const lastId     = chatFile.lastThreadId ?? chatFile.threads[0].id;
