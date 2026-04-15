@@ -5,6 +5,105 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.8.5] — Focal-Cell Context, Notebook ID Stability, Bedrock Fixes
+
+### New Features
+
+#### Focal-Cell Context Cutoff
+- **Opt-in context limit**: new toggle in **Settings → Context** — "Limit context
+  to active cell" — restricts the cell context sent to the agent to all cells up
+  to and including the focused cell, keeping the agent focused on work-in-progress
+  rather than downstream cells.
+- **Settings toggle** moved into the Context section with an info bubble that
+  accurately describes the behaviour ("all cells up to and including the focused
+  cell").
+- **Always enforced**: the `limit_to_focal` state is now applied regardless of
+  the toggle direction (was previously only enforced when switching ON).
+
+#### Notebook ID Stability — No More "File Changed" Dialog
+- Varys no longer writes to `.ipynb` files to stamp a notebook ID.  Previously,
+  every new notebook triggered a "File Changed on disk" dialog in JupyterLab
+  because Varys wrote `metadata.varys_notebook_id` directly into the file.
+- **New lookup order** in `get_or_create_notebook_id`:
+  1. In-process cache
+  2. `metadata.varys_notebook_id` — legacy field (backward compat, read-only)
+  3. `metadata.id` — standard nbformat 4.5 field written by JupyterLab 4+; used
+     directly with no write, rename-stable because it travels inside the file
+  4. Sidecar file `{nb_dir}/.jupyter-assistant/_notebook_ids.json` — for truly
+     old notebooks only; avoids any write to the `.ipynb` file
+- **Silent save (Option C)**: when a notebook falls back to the sidecar (no
+  built-in ID), the frontend triggers a silent `context.save()` via JupyterLab's
+  own API.  JupyterLab writes `metadata.id` into the file during the save — no
+  dialog, one-time per old notebook, ID becomes rename-stable permanently.
+- **UUID migration**: if `metadata.id` is found after a sidecar UUID was already
+  assigned (i.e. after the silent save), the per-notebook data directory is
+  automatically renamed from the sidecar UUID to `metadata.id` so no data
+  (chat threads, summaries, memory) is orphaned on the next server restart.
+- **Sidecar cleanup on rename**: `POST /varys/nb/move` now removes the stale
+  source sidecar entry after copying it to the destination, keeping
+  `_notebook_ids.json` clean.
+
+#### UI — Input Toolbar Redesign
+- **Model switcher** moved to its own dedicated row below the input toolbar,
+  outside the rounded input frame; cleaner visual separation from the text area.
+- Gap between the input frame and model row tightened.
+
+---
+
+### Bug Fixes
+
+#### UI
+- **"Reject" button renamed to "Undo"** across all surfaces: `DiffView` (notebook
+  cell edits), `FileChangeCard` (file agent changes), `ActionBar`, all hint text
+  strings, and inline chat bubble copy.  Consistent with the "Undo" label already
+  used in the standalone `ActionBar`.
+- **Focal-cell info bubble** text corrected: previously said "so the agent stays
+  focused on a single cell"; now accurately reads "all cells up to and including
+  the focused cell".
+
+#### AWS Bedrock
+- **`ExpiredTokenException` recovery fixed** — two root causes addressed:
+  - *SSO profiles* (`AWS_PROFILE`): `_credentials_expired()` was reading
+    `~/.aws/credentials` for SSO profiles that live in `~/.aws/config`, so it
+    always returned `True` and ran `aws sso login` before every request.  Fixed
+    by skipping the file check for profile-based auth (boto3's SSO credential
+    provider handles refresh internally).
+  - *Explicit session tokens* (`AWS_SESSION_TOKEN` in `varys.env`): after running
+    the auth-refresh command, `_make_client()` still reused `self.session_token`
+    (the stale value from startup).  Fixed by `_reload_credentials_from_env()`
+    which re-reads `AWS_*` keys from `varys.env` after the refresh so the
+    rebuilt boto3 client picks up the new values.
+- **"input is too long" caught as context-too-long**: AWS Bedrock raises
+  `ValidationException: input is too long` when the request exceeds the model's
+  context window.  This was not matched by the existing patterns, so users saw a
+  raw error string instead of the friendly "Context too large" UI advisory.
+  Added Bedrock-specific patterns: `"input is too long"`, `"too many tokens"`,
+  `"input length"`.
+
+#### Notebook ID / Data Integrity (code-review fixes)
+- `_notebook_has_built_in_id()` now also checks `metadata.varys_id` (legacy
+  Varys field) so notebooks stamped by older Varys versions don't spuriously
+  trigger a `needsIdStamp` silent save.
+- Silent save promise (`context.save()`) now has a `.catch()` handler instead of
+  bare `void`.
+- Duplicate step-label comment ("3." appearing twice) in `paths.py` fixed.
+
+---
+
+### Developer / Test Infrastructure
+
+- **Varys stress-test framework v1.0** (`varys_tests/`): curriculum-based
+  scenario harness that drives a real JupyterLab session, evaluates responses
+  with an LLM judge, and writes structured JSON result files.
+- **Self-contained per-fixture scenario folders**: each test scenario ships its
+  own fixture notebook, preventing cross-scenario contamination.
+- **LLM prompt templates** for generating new test scenarios added to
+  `docs/tests/`.
+- `limit_to_focal` plumbed through scenario YAML so test runs can exercise the
+  focal-cell context feature.
+
+---
+
 ## [0.8.0] — Smart Context Engine + Graph Overhaul + UI Polish
 
 ### Breaking Changes
