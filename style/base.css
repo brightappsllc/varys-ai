@@ -1546,8 +1546,9 @@
    Must visually match the textarea's metrics exactly.
    ───────────────────────────────────────────────────────────────────────── */
 .ds-assistant-ce {
-  white-space: pre-wrap;   /* preserve newlines & spaces like a textarea */
-  word-break: break-word;
+  white-space: pre-wrap;      /* preserve newlines & spaces like a textarea */
+  word-break: normal;         /* don't split words mid-character on wrap */
+  overflow-wrap: break-word;  /* only break if a single token is too wide to fit */
   cursor: text;
   outline: none;
   overflow-y: auto;
