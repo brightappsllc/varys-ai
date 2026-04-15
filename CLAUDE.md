@@ -8,7 +8,7 @@ Run `/compact` whenever the context window usage exceeds 40%.
 
 ## What This Project Is
 
-Varys-AI is an AI-powered data science assistant implemented as a **JupyterLab 4 extension** (v0.8.0). It has two separate build systems:
+Varys-AI is an AI-powered data science assistant implemented as a **JupyterLab 4 extension** (v0.8.5). It has two separate build systems:
 - **Frontend**: TypeScript/React compiled with `tsc` and bundled via webpack
 - **Backend**: Python 3.9+ Jupyter Server extension (no build step needed)
 
