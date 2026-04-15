@@ -34,7 +34,7 @@ from pathlib import Path
 from jupyter_server.base.handlers import JupyterHandler
 from tornado.web import authenticated
 
-from ..utils.paths import get_or_create_notebook_id, _UUID_CACHE
+from ..utils.paths import get_or_create_notebook_id, _UUID_CACHE, _read_sidecar_id, _write_sidecar_id
 
 log = logging.getLogger(__name__)
 
@@ -115,6 +115,16 @@ class NbMoveHandler(JupyterHandler):
         new_key = str(dst)
         if old_key in _UUID_CACHE:
             _UUID_CACHE[new_key] = _UUID_CACHE.pop(old_key)
+
+        # ── Carry sidecar entry to destination ───────────────────────────────
+        # If the UUID was stored in the sidecar (not in notebook metadata), copy
+        # the entry so the destination path resolves to the same UUID.
+        sidecar_id = _read_sidecar_id(src.parent, src.name)
+        if sidecar_id:
+            try:
+                _write_sidecar_id(dst.parent, dst.name, sidecar_id)
+            except Exception as exc:
+                log.warning("NbMoveHandler: could not update sidecar for %s — %s", dst.name, exc)
 
         self.set_header("Content-Type", "application/json")
         self.finish(json.dumps({

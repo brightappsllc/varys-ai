@@ -55,8 +55,8 @@ export interface DiffViewProps {
   resolved?: 'accepted' | 'undone';
   /**
    * When false (default), the code has already been inserted and executed —
-   * only the Reject button is shown.  When true (reorder ops), execution is
-   * gated on approval so both Accept and Reject are shown.
+   * only the Undo button is shown.  When true (reorder ops), execution is
+   * gated on approval so both Accept and Undo are shown.
    */
   requiresApproval?: boolean;
 }
@@ -260,7 +260,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
                 className="ds-assistant-btn ds-assistant-btn-undo"
                 onClick={() => onUndo(operationId)}
                 title="Reject changes and undo"
-              >✕ Reject</button>
+              >✕ Undo</button>
             </>
           )}
         </div>
@@ -270,10 +270,10 @@ export const DiffView: React.FC<DiffViewProps> = ({
       {!resolved && (
         <div className="ds-diff-hint">
           {isReorder
-            ? <>Cells have been rearranged in the notebook. Use <strong>✓ Accept</strong> to keep the new order or <strong>✕ Reject</strong> to undo.</>
+            ? <>Cells have been rearranged in the notebook. Use <strong>✓ Accept</strong> to keep the new order or <strong>✕ Undo</strong> to revert.</>
             : requiresApproval
-              ? <>Review the changes below, then use <strong>✓ Accept</strong> to run or <strong>✕ Reject</strong> to undo.</>
-              : <>Changes applied. Click <strong>✕ Reject</strong> to undo.</>
+              ? <>Review the changes below, then use <strong>✓ Accept</strong> to run or <strong>✕ Undo</strong> to revert.</>
+              : <>Changes applied. Click <strong>✕ Undo</strong> to revert.</>
           }
         </div>
       )}
