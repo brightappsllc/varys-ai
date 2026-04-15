@@ -2612,7 +2612,7 @@ const ContextPanel: React.FC = () => {
           </span>
           <span className="ds-settings-row-sub">
             Agent mode only. Hides cells past the focused cell so the agent
-            stays focused on a single cell.
+            stays focused on all cells up to and including the focused cell.
           </span>
         </div>
         <button
@@ -6119,12 +6119,12 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
       // Append step summary + review prompt to the streamed explanation bubble
       const reviewPrompt = response.requiresApproval
         ? '\n\n⚠️ This operation requires approval before execution.'
-        : '\n\nChanges applied. Click Reject below to undo.';
+        : '\n\nChanges applied. Click Undo below to revert.';
       appendToStream(`\n\n${stepSummary}${reviewPrompt}`);
 
       // Execute cells flagged for auto-run — after the diff block is already visible.
       // executingOpIdRef lets handleUndo interrupt the kernel and break this loop
-      // if the user clicks Reject while a cell is still running.
+      // if the user clicks Undo while a cell is still running.
       if (!response.requiresApproval) {
         executingOpIdRef.current = response.operationId;
         try {
