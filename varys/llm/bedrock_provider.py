@@ -132,11 +132,22 @@ class BedrockProvider(BaseLLMProvider):
     def _credentials_expired(self) -> bool:
         """Return True if the profile's temporary credentials are expired (or missing).
 
-        Reads ``~/.aws/credentials`` and checks the ``aws_expiration`` field
-        written by tools like aws-azure-login.  If no expiration field is
-        present the credentials are assumed to be long-lived (IAM user keys)
-        and this method always returns False.
+        For profile-based auth (AWS_PROFILE / aws_profile): boto3's own credential
+        provider — including the SSO provider — handles refresh internally.  We
+        return False so that _ensure_credentials does NOT run the refresh command
+        before every request (SSO profiles live in ~/.aws/config, not in
+        ~/.aws/credentials, so the old check always returned True for SSO users,
+        causing aws sso login to run on every single API call).
+
+        For explicit session-token auth: reads ``~/.aws/credentials`` and checks
+        the ``aws_expiration`` field written by tools like aws-azure-login.  If no
+        expiration field is present the credentials are assumed long-lived (IAM
+        user keys) and this method returns False.
         """
+        # Profile-based: let boto3 manage credential refresh transparently.
+        if self.aws_profile:
+            return False
+
         creds_path = Path.home() / ".aws" / "credentials"
         if not creds_path.exists():
             return True
@@ -144,7 +155,7 @@ class BedrockProvider(BaseLLMProvider):
         cfg = configparser.ConfigParser()
         cfg.read(creds_path)
 
-        profile = self.aws_profile or "default"
+        profile = "default"
         if profile not in cfg:
             return True
 
@@ -164,6 +175,40 @@ class BedrockProvider(BaseLLMProvider):
         except (ValueError, TypeError):
             return True  # unparseable → assume expired to be safe
 
+    def _reload_credentials_from_env(self) -> None:
+        """Re-read AWS credentials from varys.env after a refresh command.
+
+        When using explicit session tokens (not AWS_PROFILE), the refresh
+        command may write fresh STS credentials to varys.env.  Reading them
+        here ensures _make_client() picks up the new values rather than
+        reusing the stale token that was loaded at startup.
+        """
+        if self.aws_profile:
+            return  # profile-based: boto3 reads SSO cache directly, nothing to reload
+        try:
+            from ..handlers.settings import resolve_env_path
+            env_file = resolve_env_path()
+            if not env_file.exists():
+                return
+            import re as _re
+            for line in env_file.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                m = _re.match(r"^([A-Z0-9_]+)\s*=\s*(.*)", stripped)
+                if not m:
+                    continue
+                key = m.group(1)
+                val = _re.sub(r"\s+#.*$", "", m.group(2)).strip().strip("\"'")
+                if key == "AWS_SESSION_TOKEN":
+                    self.session_token = val
+                elif key == "AWS_ACCESS_KEY_ID":
+                    self.access_key_id = val
+                elif key == "AWS_SECRET_ACCESS_KEY":
+                    self.secret_access_key = val
+        except Exception as exc:
+            log.debug("Bedrock: could not reload credentials from varys.env: %s", exc)
+
     def _run_auth_refresh(self) -> None:
         """Run the auth-refresh command synchronously and rebuild the boto3 client."""
         log.info("Bedrock: credentials expired, running auth refresh: %s", self.aws_auth_refresh)
@@ -178,6 +223,10 @@ class BedrockProvider(BaseLLMProvider):
             raise RuntimeError(f"AWS auth refresh command failed: {e}") from e
         except subprocess.TimeoutExpired as e:
             raise RuntimeError("AWS auth refresh command timed out after 120 s") from e
+        # For explicit-token setups: reload fresh credentials from varys.env in
+        # case the refresh command wrote new STS values there.  For profile-based
+        # setups this is a no-op — boto3 reads the SSO cache directly.
+        self._reload_credentials_from_env()
         # Rebuild the boto3 client so it picks up the freshly written credentials.
         self._boto_client = self._make_client()
         log.info("Bedrock: credentials refreshed successfully")
