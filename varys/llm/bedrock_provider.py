@@ -437,13 +437,21 @@ class BedrockProvider(BaseLLMProvider):
         for _round in range(max_rounds):
             log.info("Bedrock thinking MCP round %d", _round)
             try:
+                # Wrap with _retry_on_expired_token so an ExpiredTokenException
+                # triggers a credential refresh and a transparent single retry —
+                # matching the behaviour of the non-thinking Converse path.
+                # ExpiredTokenException is always raised before any chunks are
+                # delivered (token checked server-side before the stream opens),
+                # so the on_chunk callback has not fired yet and the retry is safe.
                 _thinking, _text, full_blocks, tool_use_blocks = \
-                    await self._stream_invoke_model(
-                        system=system,
-                        messages=msgs,
-                        on_chunk=on_chunk,
-                        on_thought=on_thought,
-                        tools=mcp_tools,
+                    await self._retry_on_expired_token(
+                        lambda: self._stream_invoke_model(
+                            system=system,
+                            messages=msgs,
+                            on_chunk=on_chunk,
+                            on_thought=on_thought,
+                            tools=mcp_tools,
+                        )
                     )
             except Exception as e:
                 log.error("Bedrock thinking MCP loop error (round %d): %s", _round, e)
@@ -1315,10 +1323,12 @@ class BedrockProvider(BaseLLMProvider):
                 # but we want streaming UX.  Re-run the final call with converse_stream.
                 # Build a fresh copy of msgs so the stream call sees the correct history.
                 try:
-                    full_response = await self._stream_converse(
-                        system=system,
-                        messages=msgs,
-                        on_chunk=on_chunk,
+                    full_response = await self._retry_on_expired_token(
+                        lambda: self._stream_converse(
+                            system=system,
+                            messages=msgs,
+                            on_chunk=on_chunk,
+                        )
                     )
                 except Exception:
                     # Fallback: emit the already-collected text as-is.
