@@ -1640,12 +1640,17 @@ class TaskHandler(JupyterHandler):
                 return
 
             # Check for prompt-too-long errors (context budget exceeded).
+            # Patterns cover Anthropic direct API, OpenAI, and AWS Bedrock
+            # (ValidationException: "input is too long" / "too many tokens").
             _is_ctx_long = (
                 "prompt is too long" in _err_lower
                 or "context length exceeded" in _err_lower
                 or "maximum context length" in _err_lower
                 or "context_length_exceeded" in _err_lower
                 or "reduce the length of the messages" in _err_lower
+                or "input is too long" in _err_lower          # AWS Bedrock
+                or "too many tokens" in _err_lower            # AWS Bedrock (Converse API)
+                or "input length" in _err_lower               # AWS Bedrock variant
             )
             if _is_ctx_long:
                 _nb_ctx = locals().get("notebook_context") or {}
