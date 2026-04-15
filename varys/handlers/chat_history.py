@@ -60,6 +60,28 @@ log = logging.getLogger(__name__)
 
 # ── File helpers ──────────────────────────────────────────────────────────────
 
+def _notebook_has_built_in_id(abs_nb_path: str) -> bool:
+    """Return True if the notebook carries a stable, rename-proof ID in its metadata.
+
+    'Built-in' means ``metadata.id`` (nbformat 4.5 / JupyterLab 4+) or the
+    legacy ``metadata.varys_notebook_id`` written by older Varys.  Both survive
+    rename because they travel inside the file.
+
+    When False the ID lives only in the sidecar (keyed by filename), so the
+    frontend should trigger a silent JupyterLab save to embed ``metadata.id``.
+    """
+    if not os.path.isfile(abs_nb_path):
+        return True   # can't do anything — suppress spurious save requests
+    try:
+        with open(abs_nb_path, "r", encoding="utf-8") as fh:
+            meta = json.load(fh).get("metadata", {})
+        if not isinstance(meta, dict):
+            return False
+        return bool(meta.get("id") or meta.get("varys_notebook_id"))
+    except Exception:
+        return True   # can't tell — suppress spurious save requests
+
+
 def _ensure_notebook_id(abs_nb_path: str) -> str | None:
     """Return a stable 8-char hex ID for a notebook.
 
@@ -237,6 +259,16 @@ class ChatHistoryHandler(JupyterHandler):
         # _load reads the .ipynb file (via _ensure_notebook_id) and the chat
         # JSON — run in a thread so the event loop stays responsive.
         data = await asyncio.to_thread(_load, root, notebook_rel)
+
+        # Tell the frontend to trigger a silent JupyterLab save when the
+        # notebook has no built-in rename-stable ID (metadata.id / varys_notebook_id).
+        # The save causes JupyterLab to write metadata.id into the file so the
+        # ID becomes portable — no dialog, no data loss.
+        if notebook_rel.lower().endswith(".ipynb"):
+            abs_nb = os.path.join(root, notebook_rel)
+            has_id = await asyncio.to_thread(_notebook_has_built_in_id, abs_nb)
+            data["needs_id_stamp"] = not has_id
+
         self.set_header("Content-Type", "application/json")
         self.finish(json.dumps(data))
 

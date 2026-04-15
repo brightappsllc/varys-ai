@@ -114,11 +114,16 @@ def get_or_create_notebook_id(notebook_abs_path: str) -> Optional[str]:
 
     Lookup order:
       1. In-process cache (fastest).
-      2. ``notebook.metadata.varys_notebook_id`` — present on notebooks that
-         were stamped by an older version of Varys (backward compat, read-only).
-      3. Sidecar file ``{nb_dir}/.jupyter-assistant/_notebook_ids.json`` — used
-         for all new notebooks to avoid writing to the ``.ipynb`` file, which
-         would trigger JupyterLab's "File Changed on disk" dialog.
+      2. ``notebook.metadata.varys_notebook_id`` — present on notebooks stamped
+         by an older version of Varys (backward compat, read-only).
+      3. ``notebook.metadata.id`` — the standard nbformat 4.5 field written by
+         JupyterLab 4+ on every save.  Using it here means modern notebooks
+         never need any write at all and the ID is rename-stable because it
+         travels inside the file.
+      4. Sidecar file ``{nb_dir}/.jupyter-assistant/_notebook_ids.json`` — used
+         only for truly old notebooks (pre-nbformat 4.5) that carry neither of
+         the above fields.  Avoids writing to the ``.ipynb`` file, which would
+         trigger JupyterLab's "File Changed on disk" dialog.
 
     Returns ``None`` when the notebook file does not exist or cannot be read.
     Callers fall back to the old directory-scoped layout in that case.
@@ -138,17 +143,23 @@ def get_or_create_notebook_id(notebook_abs_path: str) -> Optional[str]:
         log.debug("paths: could not read notebook %s — %s", nb_path, exc)
         return None
 
-    # 1. Check existing metadata field (backward compat — never written by new code)
-    existing_id: Optional[str] = (
-        data.get("metadata", {}).get("varys_notebook_id")
-        if isinstance(data.get("metadata"), dict)
-        else None
-    )
+    meta = data.get("metadata", {}) if isinstance(data.get("metadata"), dict) else {}
+
+    # 1. Legacy Varys field — check first so existing data dirs keep their UUID
+    existing_id: Optional[str] = meta.get("varys_notebook_id")
     if existing_id and isinstance(existing_id, str):
         _UUID_CACHE[cache_key] = existing_id
         return existing_id
 
-    # 2. Check sidecar (written by current code to avoid modifying .ipynb)
+    # 2. Standard nbformat 4.5 field written by JupyterLab 4+ — no write needed,
+    #    rename-stable because the ID is embedded in the file itself.
+    std_id: Optional[str] = meta.get("id")
+    if std_id and isinstance(std_id, str):
+        _UUID_CACHE[cache_key] = std_id
+        return std_id
+
+    # 3. Sidecar (written by Varys for pre-nbformat-4.5 notebooks to avoid the
+    #    "File Changed on disk" dialog that a direct .ipynb write would cause)
     sidecar_id = _read_sidecar_id(nb_path.parent, nb_path.name)
     if sidecar_id and isinstance(sidecar_id, str):
         _UUID_CACHE[cache_key] = sidecar_id
