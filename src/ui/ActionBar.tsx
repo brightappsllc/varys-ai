@@ -33,14 +33,14 @@ export const ActionBar: React.FC<ActionBarProps> = ({
           onClick={() => onAccept(operationId)}
           title="Accept changes"
         >
-          Apply
+          ✓ Apply
         </button>
         <button
           className="ds-assistant-btn ds-assistant-btn-undo"
           onClick={() => onUndo(operationId)}
           title="Undo changes"
         >
-          Undo
+          ✕ Undo
         </button>
       </div>
     </div>
