@@ -7315,7 +7315,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                         }
                       }
                     }}
-                  >✓ Accept All</button>
+                  >✓ Apply All</button>
                   <button
                     className="ds-assistant-btn ds-assistant-btn-undo"
                     onClick={async () => {
@@ -7337,7 +7337,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                         }
                       }
                     }}
-                  >✕ Reject All</button>
+                  >✕ Undo All</button>
                 </div>
               )}
             </div>

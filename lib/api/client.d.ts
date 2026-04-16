@@ -62,6 +62,13 @@ export interface ChatFile {
     notebookPath: string;
     lastThreadId: string | null;
     threads: ChatThread[];
+    /**
+     * True when the notebook has no built-in rename-stable ID (metadata.id /
+     * varys_notebook_id) — the ID lives only in a sidecar file keyed by filename.
+     * The frontend should trigger a silent context.save() so JupyterLab writes
+     * metadata.id into the notebook, making the ID portable across renames.
+     */
+    needsIdStamp?: boolean;
 }
 export interface CellInfo {
     index: number;
