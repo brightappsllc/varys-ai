@@ -1639,6 +1639,26 @@ class TaskHandler(JupyterHandler):
                 self.finish()
                 return
 
+            # Check for read/connection timeout errors and surface a friendly message.
+            _is_timeout = (
+                "read timeout" in _err_lower
+                or "readtimeout" in _err_lower
+                or "connect timeout" in _err_lower
+                or "connecttimeout" in _err_lower
+                or "timed out" in _err_lower
+            )
+            if _is_timeout:
+                _timeout_msg = (
+                    "⏱️ **Request timed out** — the model took too long to respond. "
+                    "This can happen with complex code generation or extended thinking. "
+                    "Try again, or break the request into smaller steps."
+                )
+                self.set_status(200)
+                self.set_header("Content-Type", "text/event-stream")
+                self.write(f"data: {json.dumps({'type': 'done', 'operationId': operation_id, 'steps': [], 'requiresApproval': False, 'clarificationNeeded': None, 'cellInsertionMode': 'chat', 'chatResponse': _timeout_msg, 'summary': 'Timeout'})}\n\n")
+                self.finish()
+                return
+
             # Check for prompt-too-long errors (context budget exceeded).
             # Patterns cover Anthropic direct API, OpenAI, and AWS Bedrock
             # (ValidationException: "input is too long" / "too many tokens").
