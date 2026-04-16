@@ -4059,9 +4059,9 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
       const stored = localStorage.getItem('ds-varys-reasoning-mode') as ReasoningMode | null;
       // Migrate legacy boolean flag
       if (!stored && localStorage.getItem('ds-varys-thinking') === 'true') return 'sequential';
-      return REASONING_CYCLE.includes(stored as ReasoningMode) ? (stored as ReasoningMode) : 'off';
+      return REASONING_CYCLE.includes(stored as ReasoningMode) ? (stored as ReasoningMode) : 'cot';
     } catch {
-      return 'off';
+      return 'cot';
     }
   });
   // Tracks which message IDs have their thinking section collapsed (true = collapsed)
@@ -4515,7 +4515,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
       mapped !== undefined ? mapped :
       (REASONING_CYCLE.includes(thread.reasoningMode as ReasoningMode)
         ? (thread.reasoningMode as ReasoningMode)
-        : 'off');
+        : 'cot');
     setReasoningMode(mode);
     reasoningModeRef.current = mode;
     threadReasoningMapRef.current.set(thread.id, mode);
