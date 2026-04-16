@@ -104,8 +104,19 @@ class BedrockProvider(BaseLLMProvider):
     def _make_client(self):
         try:
             import boto3
+            from botocore.config import Config as BotocoreConfig
         except ImportError:
             raise RuntimeError("boto3 not installed. Run: pip install boto3")
+
+        # Long read timeout for streaming LLM responses.  boto3 default is 60 s,
+        # which is too short for complex code-generation requests where the model
+        # may take several minutes to produce the first token (especially with
+        # extended thinking enabled).  600 s (10 min) covers all realistic cases.
+        boto_cfg = BotocoreConfig(
+            read_timeout=600,
+            connect_timeout=10,
+            retries={"max_attempts": 0},  # Varys handles retries explicitly
+        )
 
         # Profile-based auth: use a named profile from ~/.aws/credentials.
         # Takes priority over explicit key/secret so the user only needs to
@@ -115,7 +126,7 @@ class BedrockProvider(BaseLLMProvider):
                 profile_name=self.aws_profile,
                 region_name=self.region,
             )
-            return session.client("bedrock-runtime")
+            return session.client("bedrock-runtime", config=boto_cfg)
 
         # Explicit key auth (or fall through to boto3 default credential chain:
         # env vars → ~/.aws/credentials default profile → IAM role).
@@ -124,6 +135,7 @@ class BedrockProvider(BaseLLMProvider):
             "region_name": self.region,
             "aws_access_key_id": self.access_key_id or None,
             "aws_secret_access_key": self.secret_access_key or None,
+            "config": boto_cfg,
         }
         if self.session_token:
             kwargs["aws_session_token"] = self.session_token
