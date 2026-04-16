@@ -39,8 +39,8 @@ export interface DiffViewProps {
     resolved?: 'accepted' | 'undone';
     /**
      * When false (default), the code has already been inserted and executed —
-     * only the Reject button is shown.  When true (reorder ops), execution is
-     * gated on approval so both Accept and Reject are shown.
+     * only the Undo button is shown.  When true, execution is gated on approval
+     * so both "Apply & Run" and "Undo" are shown.
      */
     requiresApproval?: boolean;
 }
