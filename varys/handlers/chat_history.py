@@ -69,7 +69,18 @@ def _notebook_has_built_in_id(abs_nb_path: str) -> bool:
 
     When False the ID lives only in the sidecar (keyed by filename), so the
     frontend should trigger a silent JupyterLab save to embed ``metadata.id``.
+
+    Fast path: ``get_or_create_notebook_id`` records provenance in
+    ``_BUILT_IN_ID_CACHE`` when it first reads the file.  On the same request
+    ``_chat_path`` already called that function, so we avoid a second full
+    notebook parse here.
     """
+    from ..utils.paths import notebook_has_built_in_id as _cached
+    cached = _cached(abs_nb_path)
+    if cached is not None:
+        return cached
+
+    # Slow path — first access or path not yet resolved (rare).
     if not os.path.isfile(abs_nb_path):
         return True   # can't do anything — suppress spurious save requests
     try:
@@ -256,17 +267,21 @@ class ChatHistoryHandler(JupyterHandler):
 
         root = self._root()
         notebook_rel = _normalize_path(root, notebook)
-        # _load reads the .ipynb file (via _ensure_notebook_id) and the chat
-        # JSON — run in a thread so the event loop stays responsive.
-        data = await asyncio.to_thread(_load, root, notebook_rel)
 
-        # Tell the frontend to trigger a silent JupyterLab save when the
-        # notebook has no built-in rename-stable ID (metadata.id / varys_notebook_id).
-        # The save causes JupyterLab to write metadata.id into the file so the
-        # ID becomes portable — no dialog, no data loss.
+        # Run both the chat load and the built-in-ID check in a single thread
+        # call so the notebook file is read at most once (the provenance cache
+        # in paths._BUILT_IN_ID_CACHE makes the second check free after the
+        # first read).
+        def _load_and_check() -> tuple:
+            d = _load(root, notebook_rel)
+            has_id = True  # default: don't request a stamp for non-notebooks
+            if notebook_rel.lower().endswith(".ipynb"):
+                abs_nb = os.path.join(root, notebook_rel)
+                has_id = _notebook_has_built_in_id(abs_nb)
+            return d, has_id
+
+        data, has_id = await asyncio.to_thread(_load_and_check)
         if notebook_rel.lower().endswith(".ipynb"):
-            abs_nb = os.path.join(root, notebook_rel)
-            has_id = await asyncio.to_thread(_notebook_has_built_in_id, abs_nb)
             data["needs_id_stamp"] = not has_id
 
         self.set_header("Content-Type", "application/json")

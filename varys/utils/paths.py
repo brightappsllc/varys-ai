@@ -52,6 +52,12 @@ log = logging.getLogger(__name__)
 # abs_notebook_path → uuid_str
 _UUID_CACHE: Dict[str, str] = {}
 
+# abs_notebook_path → True  (ID came from metadata.id / varys_notebook_id)
+#                  → False (ID came from sidecar or was freshly generated)
+# Populated by get_or_create_notebook_id; used to skip re-reading the file in
+# _notebook_has_built_in_id on subsequent requests.
+_BUILT_IN_ID_CACHE: Dict[str, bool] = {}
+
 # abs .jupyter-assistant dirs already checked for migration this session
 _MIGRATED_CHECK: Set[str] = set()
 
@@ -181,6 +187,7 @@ def get_or_create_notebook_id(notebook_abs_path: str) -> Optional[str]:
     existing_id: Optional[str] = meta.get("varys_notebook_id")
     if existing_id and isinstance(existing_id, str):
         _UUID_CACHE[cache_key] = existing_id
+        _BUILT_IN_ID_CACHE[cache_key] = True   # lives inside the file
         return existing_id
 
     # 2. Standard nbformat 4.5 field written by JupyterLab 4+ — no write needed,
@@ -195,6 +202,7 @@ def get_or_create_notebook_id(notebook_abs_path: str) -> Optional[str]:
             _migrate_data_dir(nb_path.parent, sidecar_id, std_id)
             _remove_sidecar_id(nb_path.parent, nb_path.name)
         _UUID_CACHE[cache_key] = std_id
+        _BUILT_IN_ID_CACHE[cache_key] = True   # lives inside the file
         return std_id
 
     # 3. Sidecar (written by Varys for pre-nbformat-4.5 notebooks to avoid the
@@ -202,6 +210,7 @@ def get_or_create_notebook_id(notebook_abs_path: str) -> Optional[str]:
     sidecar_id = _read_sidecar_id(nb_path.parent, nb_path.name)
     if sidecar_id and isinstance(sidecar_id, str):
         _UUID_CACHE[cache_key] = sidecar_id
+        _BUILT_IN_ID_CACHE[cache_key] = False  # sidecar only — not in the file
         return sidecar_id
 
     # 4. Generate a new UUID and write it to the sidecar — NOT to the notebook.
@@ -217,6 +226,7 @@ def get_or_create_notebook_id(notebook_abs_path: str) -> Optional[str]:
         return new_id
 
     _UUID_CACHE[cache_key] = new_id
+    _BUILT_IN_ID_CACHE[cache_key] = False      # sidecar only — not in the file
     return new_id
 
 
@@ -273,6 +283,20 @@ def _maybe_migrate(nb_dir: Path, nb_id: str) -> None:
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
+
+
+def notebook_has_built_in_id(notebook_abs_path: str) -> Optional[bool]:
+    """Return whether the notebook's ID lives inside the file (True/False).
+
+    Returns None if ``get_or_create_notebook_id`` has not yet been called for
+    this path (i.e. the file hasn't been read this session).  Callers that
+    need a definitive answer should call ``get_or_create_notebook_id`` first.
+
+    This avoids re-reading the notebook file on subsequent requests — the
+    provenance (built-in vs sidecar) is recorded the first time the file is
+    read and cached for the remainder of the server session.
+    """
+    return _BUILT_IN_ID_CACHE.get(str(notebook_abs_path))
 
 
 def nb_base(root_dir: str, notebook_path: str = "") -> Path:
