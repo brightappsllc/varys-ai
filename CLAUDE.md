@@ -51,24 +51,42 @@ There is no automated test suite. Testing is done by running JupyterLab manually
 After **any** frontend change (TypeScript, CSS, assets):
 
 1. Run `bash deploy.sh`
-2. Commit **all** of these together — never a subset:
+2. Stage **the entire static directory** — never individual files:
+   ```bash
+   git add varys/labextension/static/   # ALL files, including new lazy chunks
+   git add varys/labextension/package.json
+   git add src/ style/ lib/
+   ```
+3. Verify **zero untracked files remain** in the static dir before committing:
+   ```bash
+   git ls-files --others varys/labextension/static/
+   # must print nothing — any line here = a chunk that will 404 on clean installs
+   ```
+4. Commit everything together — never a subset:
    - `src/` — TypeScript source
    - `style/` — CSS
    - `lib/` — compiled JS (output of `tsc`)
-   - `varys/labextension/static/` — webpack bundle
+   - `varys/labextension/static/` — **all** webpack chunks, including lazy ones
    - `varys/labextension/package.json` — **critical**: points to the active `remoteEntry*.js` hash
 
-**Why `varys/labextension/package.json` is critical**: JupyterLab reads this file to discover which webpack bundle to load. A stale hash causes `pip install --force-reinstall` to install new bundle files but load the old UI.
+**Why every chunk matters**: webpack splits the bundle into many files. The `remoteEntry*.js`
+entry point lazy-loads numbered chunks (`181.*.js`, `514.*.js`, etc.) at runtime. If even
+one chunk is missing from git, any machine that installs from git gets a 404 and a broken UI —
+even though JupyterLab reports the extension as "loaded". `deploy.sh` will print a warning if
+it detects untracked static files after building.
 
 **Verify before pushing:**
 ```bash
+# hash in package.json must match the remoteEntry file on disk
 git show HEAD:varys/labextension/package.json \
   | python3 -c "import sys,json; d=json.load(sys.stdin); \
     print(d.get('jupyterlab',{}).get('_build',{}).get('load','N/A'))"
 
 ls varys/labextension/static/remoteEntry*.js
+
+# no output = all chunks are committed
+git ls-files --others varys/labextension/static/
 ```
-Both must show the **same hash**.
 
 For **backend-only** (Python) changes: no build needed, just commit and push.
 
