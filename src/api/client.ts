@@ -982,6 +982,27 @@ export class APIClient {
     if (!r.ok) throw new Error(`toggleMCPServer failed: ${r.status}`);
   }
 
+  /**
+   * Notify the backend that JupyterLab renamed (or moved) a notebook so that
+   * the Varys sidecar ID mapping and UUID cache stay in sync.  Fire-and-forget
+   * — always resolves so callers never need to handle exceptions.
+   */
+  async notifyRenamed(src: string, dst: string): Promise<void> {
+    try {
+      await fetch(`${this.baseUrl}/nb/renamed`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-XSRFToken': this.getXSRFToken(),
+        },
+        body: JSON.stringify({ src, dst }),
+      });
+    } catch {
+      // Non-fatal — the rename notify is best-effort.
+    }
+  }
+
   private getXSRFToken(): string {
     const cookies = document.cookie.split(';');
     for (const cookie of cookies) {

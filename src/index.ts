@@ -720,6 +720,29 @@ const plugin: JupyterFrontEndPlugin<void> = {
     });
     notebookTracker.forEach(panel => _wireCellLifecycle(panel));
 
+    // ── Notebook rename listener — keep Varys sidecar in sync ───────────────
+    // app.serviceManager.contents.fileChanged fires for every file-system
+    // operation (new / save / rename / delete) regardless of whether the
+    // document is currently open.  This covers:
+    //   • renaming an open notebook from the tab title or context menu
+    //   • renaming a CLOSED notebook from the file browser
+    //   • moving a notebook to a different folder while it is closed
+    // For notebooks whose ID already lives in metadata.id or
+    // metadata.varys_notebook_id (embedded in the file), this is a no-op
+    // cache warm-up.  For legacy sidecar-keyed notebooks the sidecar key
+    // is updated so chat history survives the rename.
+    (app.serviceManager.contents as any).fileChanged?.connect(
+      (_mgr: unknown, change: any) => {
+        if (change.type !== 'rename') return;
+        const oldPath: string = change.oldValue?.path ?? '';
+        const newPath: string = change.newValue?.path ?? '';
+        if (!oldPath.endsWith('.ipynb') || !newPath || oldPath === newPath) return;
+        apiClient.notifyRenamed(oldPath, newPath).catch(err => {
+          console.warn('[Varys] rename notify failed:', err);
+        });
+      },
+    );
+
     // ── Background repo scan on notebook open ────────────────────────────────
     notebookTracker.currentChanged.connect(async (_, widget) => {
       if (!widget) return;
