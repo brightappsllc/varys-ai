@@ -1461,6 +1461,22 @@ const SETTINGS_NAV_GROUPS: NavGroup[] = [
       },
     ],
   },
+  {
+    label: 'Maintenance',
+    items: [
+      {
+        id: 'maintenance',
+        label: 'Notebooks',
+        icon: (
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.3">
+            <path d="M7.5 1L9.18 5.27L13.78 5.64L10.28 8.63L11.39 13.09L7.5 10.7L3.61 13.09L4.72 8.63L1.22 5.64L5.82 5.27L7.5 1Z" strokeLinejoin="round"/>
+            <line x1="7.5" y1="5" x2="7.5" y2="10"/>
+            <line x1="5" y1="7.5" x2="10" y2="7.5"/>
+          </svg>
+        ),
+      },
+    ],
+  },
 ];
 
 const SECTION_HEADING_MAP: Record<string, string> = {
@@ -1473,6 +1489,7 @@ const SECTION_HEADING_MAP: Record<string, string> = {
   'tags':            'Tags',
   'memory':          'Long-term memory',
   'usage':           'Usage',
+  'maintenance':     'Notebooks',
 };
 
 const SUB_SECTION_LABEL_MAP: Record<string, string> = {
@@ -3306,6 +3323,153 @@ const MemoryTab: React.FC = () => (
 );
 
 // ---------------------------------------------------------------------------
+// MaintenancePanel — scan and relink orphaned notebook data dirs
+// ---------------------------------------------------------------------------
+
+type OrphanEntry = {
+  uuid: string;
+  notebook_path: string;
+  message_count: number;
+  current_uuid: string | null;
+  notebook_missing: boolean;
+  needs_migration: boolean;
+  conflict: boolean;
+};
+
+const MaintenancePanel: React.FC<{ apiClient: APIClient }> = ({ apiClient }) => {
+  const [scanning,    setScanning]    = useState(false);
+  const [applying,    setApplying]    = useState(false);
+  const [scanResult,  setScanResult]  = useState<{
+    orphaned: OrphanEntry[];
+    already_linked: number;
+    total_scanned: number;
+  } | null>(null);
+  const [applyResult, setApplyResult] = useState<Array<{
+    uuid: string; status: string; notebook_path: string; new_uuid?: string; error?: string;
+  }> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleScan = async () => {
+    setScanning(true);
+    setError(null);
+    setApplyResult(null);
+    try {
+      const r = await apiClient.scanOrphans();
+      setScanResult(r);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Scan failed');
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const handleRelink = async () => {
+    setApplying(true);
+    setError(null);
+    try {
+      const r = await apiClient.applyOrphanMigration();
+      setApplyResult(r.results);
+      // Refresh scan so counts update
+      const refreshed = await apiClient.scanOrphans();
+      setScanResult(refreshed);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Relink failed');
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const needsMigration = scanResult?.orphaned.filter(o => o.needs_migration) ?? [];
+  const missing        = scanResult?.orphaned.filter(o => o.notebook_missing)  ?? [];
+
+  return (
+    <div className="ds-settings-section-body ds-maintenance-panel">
+      <p className="ds-maintenance-desc">
+        Scan for notebook chat history that became unlinked after an upgrade or
+        schema change. Varys will rename the data directories to match each
+        notebook's current ID so history is restored automatically.
+      </p>
+
+      <div className="ds-maintenance-actions">
+        <button
+          className="ds-settings-save-btn"
+          onClick={handleScan}
+          disabled={scanning || applying}
+        >{scanning ? 'Scanning…' : 'Scan'}</button>
+
+        {needsMigration.length > 0 && (
+          <button
+            className="ds-settings-save-btn"
+            onClick={handleRelink}
+            disabled={applying}
+            style={{ marginLeft: 8 }}
+          >{applying ? 'Relinking…' : `Relink ${needsMigration.length} notebook${needsMigration.length !== 1 ? 's' : ''}`}</button>
+        )}
+      </div>
+
+      {error && <div className="ds-maintenance-error">{error}</div>}
+
+      {scanResult && (
+        <div className="ds-maintenance-results">
+          <div className="ds-maintenance-summary">
+            {scanResult.total_scanned === 0
+              ? 'No notebook data directories found.'
+              : <>
+                  Scanned <strong>{scanResult.total_scanned}</strong> data {scanResult.total_scanned === 1 ? 'dir' : 'dirs'}.
+                  {' '}<strong>{scanResult.already_linked}</strong> already linked.
+                  {needsMigration.length > 0
+                    ? <> <strong>{needsMigration.length}</strong> need relinking.</>
+                    : ' All up to date.'}
+                </>
+            }
+          </div>
+
+          {needsMigration.map(item => (
+            <div key={item.uuid} className="ds-maintenance-item ds-maintenance-item--needs">
+              <div className="ds-maintenance-item-path" title={item.notebook_path}>
+                {item.notebook_path.split('/').pop()}
+              </div>
+              <div className="ds-maintenance-item-meta">
+                {item.message_count} msg{item.message_count !== 1 ? 's' : ''}
+                {item.conflict && <span className="ds-maintenance-warn"> · conflict</span>}
+              </div>
+            </div>
+          ))}
+
+          {missing.length > 0 && (
+            <div className="ds-maintenance-missing">
+              <span className="ds-maintenance-missing-label">
+                {missing.length} notebook{missing.length !== 1 ? 's' : ''} not found on disk
+              </span>
+              {missing.map(item => (
+                <div key={item.uuid} className="ds-maintenance-item ds-maintenance-item--missing" title={item.notebook_path}>
+                  {item.notebook_path.split('/').pop()} · {item.message_count} msg{item.message_count !== 1 ? 's' : ''}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {applyResult && applyResult.length > 0 && (
+        <div className="ds-maintenance-apply-results">
+          {applyResult.filter(r => r.status === 'migrated').map(r => (
+            <div key={r.uuid} className="ds-maintenance-result ds-maintenance-result--ok">
+              ✓ Relinked: {r.notebook_path.split('/').pop()}
+            </div>
+          ))}
+          {applyResult.filter(r => r.status !== 'migrated' && r.status !== 'skipped').map(r => (
+            <div key={r.uuid} className="ds-maintenance-result ds-maintenance-result--err">
+              ✗ {r.notebook_path.split('/').pop()}: {r.error}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
 // SettingsPanel — vertical sidebar nav + content pane
 // ---------------------------------------------------------------------------
 
@@ -3380,6 +3544,8 @@ const SettingsPanel: React.FC<{
             <UsageTab apiClient={apiClient} />
           </div>
         );
+      case 'maintenance':
+        return <MaintenancePanel apiClient={apiClient} />;
       default:
         return null;
     }

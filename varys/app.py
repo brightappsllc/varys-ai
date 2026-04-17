@@ -43,6 +43,7 @@ from .handlers.graph import GraphHandler
 from .handlers.version_check import VersionCheckHandler
 from .handlers.changelog import ChangelogHandler
 from .handlers.nb_move import NbMoveHandler, NbRenameHandler
+from .handlers.nb_migration import NbMigrationHandler
 
 
 class DSAssistantExtension(ExtensionApp):
@@ -392,4 +393,6 @@ class DSAssistantExtension(ExtensionApp):
             (url_path_join(base, "nb", "move"),             NbMoveHandler),
             # Notebook renamed/moved by JupyterLab natively — sync sidecar + cache
             (url_path_join(base, "nb", "renamed"),          NbRenameHandler),
+            # Notebook migration — scan / relink orphaned UUID data dirs
+            (url_path_join(base, "nb", "migration"),        NbMigrationHandler),
         ])

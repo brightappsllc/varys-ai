@@ -9556,3 +9556,91 @@ body[data-jp-theme-light="false"] .ds-tag-add-input::placeholder {
 
 /* ── Dark mode (graph panel uses jp-* tokens which already adapt) ────────────── */
 /* .ds-graph-open-btn color is handled by the shared button rule + ds-chat-night overrides above */
+
+/* ── Maintenance panel ─────────────────────────────────────────────────────── */
+.ds-maintenance-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ds-maintenance-desc {
+  font-size: 12px;
+  color: var(--jp-ui-font-color2);
+  line-height: 1.5;
+  margin: 0;
+}
+.ds-maintenance-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ds-maintenance-error {
+  font-size: 12px;
+  color: #D94040;
+  padding: 6px 8px;
+  background: rgba(217,64,64,.08);
+  border-radius: 4px;
+}
+.ds-maintenance-results {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ds-maintenance-summary {
+  font-size: 12px;
+  color: var(--jp-ui-font-color1);
+  padding: 6px 8px;
+  background: var(--jp-layout-color2);
+  border-radius: 4px;
+}
+.ds-maintenance-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+.ds-maintenance-item--needs {
+  background: rgba(255,200,0,.08);
+  border: 1px solid rgba(255,200,0,.2);
+}
+.ds-maintenance-item--missing {
+  background: var(--jp-layout-color2);
+  color: var(--jp-ui-font-color2);
+}
+.ds-maintenance-item-path {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 65%;
+}
+.ds-maintenance-item-meta {
+  color: var(--jp-ui-font-color2);
+  white-space: nowrap;
+}
+.ds-maintenance-warn { color: #D94040; }
+.ds-maintenance-missing {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ds-maintenance-missing-label {
+  font-size: 11px;
+  color: var(--jp-ui-font-color2);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.ds-maintenance-apply-results {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ds-maintenance-result {
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.ds-maintenance-result--ok  { background: rgba(29,158,117,.1); color: #1D9E75; }
+.ds-maintenance-result--err { background: rgba(217,64,64,.08); color: #D94040; }

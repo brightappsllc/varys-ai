@@ -982,6 +982,51 @@ export class APIClient {
     if (!r.ok) throw new Error(`toggleMCPServer failed: ${r.status}`);
   }
 
+  /** Scan root dir for orphaned notebook UUID data dirs. */
+  async scanOrphans(): Promise<{
+    orphaned: Array<{
+      uuid: string;
+      notebook_path: string;
+      message_count: number;
+      current_uuid: string | null;
+      notebook_missing: boolean;
+      needs_migration: boolean;
+      conflict: boolean;
+    }>;
+    already_linked: number;
+    total_scanned: number;
+  }> {
+    const r = await fetch(`${this.baseUrl}/nb/migration`, {
+      credentials: 'same-origin',
+      headers: { 'X-XSRFToken': this.getXSRFToken() },
+    });
+    if (!r.ok) throw new Error(`scanOrphans failed: ${r.status}`);
+    return r.json();
+  }
+
+  /** Apply pending orphan migrations (rename UUID dirs to match current notebook IDs). */
+  async applyOrphanMigration(uuids?: string[]): Promise<{
+    results: Array<{
+      uuid: string;
+      status: 'migrated' | 'conflict' | 'missing' | 'error' | 'skipped';
+      notebook_path: string;
+      new_uuid?: string;
+      error?: string;
+    }>;
+  }> {
+    const r = await fetch(`${this.baseUrl}/nb/migration`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-XSRFToken': this.getXSRFToken(),
+      },
+      body: JSON.stringify(uuids ? { uuids } : {}),
+    });
+    if (!r.ok) throw new Error(`applyOrphanMigration failed: ${r.status}`);
+    return r.json();
+  }
+
   /**
    * Notify the backend that JupyterLab renamed (or moved) a notebook so that
    * the Varys sidecar ID mapping and UUID cache stay in sync.  Fire-and-forget
