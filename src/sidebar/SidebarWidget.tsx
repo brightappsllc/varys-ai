@@ -4825,24 +4825,12 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
       currentThreadIdRef.current = '';
       threadsRef.current = [];
 
-      // Capture the widget NOW — before the network await — so the id-stamp
-      // save targets the right notebook even if the user clicks the sidebar
-      // while the chat history is loading (which shifts currentWidget away).
-      const widgetForStamp = notebookTracker.currentWidget;
       try {
         const chatFile = await apiClient.loadChatHistory(newPath);
         // Stale-guard: another focus event may have fired while we were
         // awaiting the network response.  Drop the result if we no longer
         // own this path so we don't clobber the freshly-loaded context.
         if (currentNotebookPathRef.current !== newPath) return;
-        // If the notebook has no built-in rename-stable ID, trigger a silent
-        // JupyterLab save.  JupyterLab writes metadata.id during save, making
-        // the ID portable across renames — no dialog, one-time per old notebook.
-        if (chatFile.needsIdStamp) {
-          widgetForStamp?.context.save().catch(err => {
-            console.debug('[Varys] silent id-stamp save failed:', err);
-          });
-        }
         if (chatFile.threads.length > 0) {
           const lastId     = chatFile.lastThreadId ?? chatFile.threads[0].id;
           const lastThread = chatFile.threads.find(t => t.id === lastId);
