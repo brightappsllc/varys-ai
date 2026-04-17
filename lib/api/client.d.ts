@@ -516,6 +516,12 @@ export declare class APIClient {
         tags: string[];
     }>;
     toggleMCPServer(name: string, disabled: boolean): Promise<void>;
+    /**
+     * Notify the backend that JupyterLab renamed (or moved) a notebook so that
+     * the Varys sidecar ID mapping and UUID cache stay in sync.  Fire-and-forget
+     * — always resolves so callers never need to handle exceptions.
+     */
+    notifyRenamed(src: string, dst: string): Promise<void>;
     private getXSRFToken;
 }
 //# sourceMappingURL=client.d.ts.map
