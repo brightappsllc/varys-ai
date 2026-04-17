@@ -55,8 +55,9 @@ export interface DiffViewProps {
   resolved?: 'accepted' | 'undone';
   /**
    * When false (default), the code has already been inserted and executed —
-   * only the Undo button is shown.  When true, execution is gated on approval
-   * so both "Apply & Run" and "Undo" are shown.
+   * only the Undo button is shown.  When true, the cell was populated but not
+   * yet run — both "Apply" and "Undo" are shown; the user must run the cell
+   * manually after accepting.
    */
   requiresApproval?: boolean;
 }
@@ -253,8 +254,8 @@ export const DiffView: React.FC<DiffViewProps> = ({
                 <button
                   className="ds-assistant-btn ds-assistant-btn-accept"
                   onClick={() => onAccept(operationId)}
-                  title="Accept changes and run cells"
-                >✓ Apply & Run</button>
+                  title="Accept changes"
+                >✓ Apply</button>
               )}
               <button
                 className="ds-assistant-btn ds-assistant-btn-undo"
@@ -272,7 +273,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
           {isReorder
             ? <>Cells have been rearranged in the notebook. Use <strong>✓ Apply</strong> to keep the new order or <strong>✕ Undo</strong> to revert.</>
             : requiresApproval
-              ? <>Review the changes below, then use <strong>✓ Apply & Run</strong> to execute or <strong>✕ Undo</strong> to revert.</>
+              ? <>Cell populated. Use <strong>✓ Apply</strong> to accept or <strong>✕ Undo</strong> to revert. Run the cell manually when ready.</>
               : <>Changes applied. Click <strong>✕ Undo</strong> to revert.</>
           }
         </div>
