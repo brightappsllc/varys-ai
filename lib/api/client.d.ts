@@ -516,6 +516,30 @@ export declare class APIClient {
         tags: string[];
     }>;
     toggleMCPServer(name: string, disabled: boolean): Promise<void>;
+    /** Scan root dir for orphaned notebook UUID data dirs. */
+    scanOrphans(): Promise<{
+        orphaned: Array<{
+            uuid: string;
+            notebook_path: string;
+            message_count: number;
+            current_uuid: string | null;
+            notebook_missing: boolean;
+            needs_migration: boolean;
+            conflict: boolean;
+        }>;
+        already_linked: number;
+        total_scanned: number;
+    }>;
+    /** Apply pending orphan migrations (rename UUID dirs to match current notebook IDs). */
+    applyOrphanMigration(uuids?: string[]): Promise<{
+        results: Array<{
+            uuid: string;
+            status: 'migrated' | 'conflict' | 'missing' | 'error' | 'skipped';
+            notebook_path: string;
+            new_uuid?: string;
+            error?: string;
+        }>;
+    }>;
     /**
      * Notify the backend that JupyterLab renamed (or moved) a notebook so that
      * the Varys sidecar ID mapping and UUID cache stay in sync.  Fire-and-forget
