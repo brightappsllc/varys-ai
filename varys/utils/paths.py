@@ -114,6 +114,35 @@ def _remove_sidecar_id(nb_dir: Path, nb_filename: str) -> None:
         log.debug("paths: could not remove sidecar entry for %s — %s", nb_filename, exc)
 
 
+def _stamp_metadata_id(nb_path: Path, nb_id: str) -> bool:
+    """Write *nb_id* into ``metadata.id`` of the notebook file (atomic).
+
+    Called when the UUID is known from the sidecar but the notebook lacks a
+    built-in ``metadata.id``.  Writing the *same* UUID avoids any data-dir
+    migration — the existing ``.jupyter-assistant/<uuid>/`` keeps working.
+
+    Returns True on success, False if the write could not be completed (the
+    caller falls back to treating the ID as sidecar-only).
+    """
+    try:
+        raw = nb_path.read_text(encoding="utf-8")
+        data = json.loads(raw)
+        meta = data.get("metadata")
+        if not isinstance(meta, dict):
+            return False
+        if meta.get("id"):
+            return False  # already present — nothing to do
+        meta["id"] = nb_id
+        # nbformat uses indent=1; match so JupyterLab's next save produces a
+        # minimal diff.
+        _atomic_write_text(nb_path, json.dumps(data, indent=1, ensure_ascii=False) + "\n")
+        log.info("paths: stamped metadata.id=%s… into %s", nb_id[:8], nb_path.name)
+        return True
+    except Exception as exc:
+        log.warning("paths: could not stamp metadata.id into %s — %s", nb_path.name, exc)
+        return False
+
+
 def _migrate_data_dir(nb_dir: Path, old_id: str, new_id: str) -> None:
     """Move the per-notebook data dir from *old_id* to *new_id* (best-effort).
 
@@ -205,12 +234,15 @@ def get_or_create_notebook_id(notebook_abs_path: str) -> Optional[str]:
         _BUILT_IN_ID_CACHE[cache_key] = True   # lives inside the file
         return std_id
 
-    # 3. Sidecar (written by Varys for pre-nbformat-4.5 notebooks to avoid the
-    #    "File Changed on disk" dialog that a direct .ipynb write would cause)
+    # 3. Sidecar — stamp the UUID straight into metadata.id so the notebook
+    #    becomes rename-stable without needing a frontend save round-trip.
+    #    Using the *same* UUID means the existing data directory keeps working
+    #    with no migration.
     sidecar_id = _read_sidecar_id(nb_path.parent, nb_path.name)
     if sidecar_id and isinstance(sidecar_id, str):
+        stamped = _stamp_metadata_id(nb_path, sidecar_id)
         _UUID_CACHE[cache_key] = sidecar_id
-        _BUILT_IN_ID_CACHE[cache_key] = False  # sidecar only — not in the file
+        _BUILT_IN_ID_CACHE[cache_key] = stamped  # True once written to the file
         return sidecar_id
 
     # 4. Generate a new UUID and write it to the sidecar — NOT to the notebook.
