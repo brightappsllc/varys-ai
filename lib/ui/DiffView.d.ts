@@ -39,8 +39,9 @@ export interface DiffViewProps {
     resolved?: 'accepted' | 'undone';
     /**
      * When false (default), the code has already been inserted and executed —
-     * only the Undo button is shown.  When true, execution is gated on approval
-     * so both "Apply & Run" and "Undo" are shown.
+     * only the Undo button is shown.  When true, the cell was populated but not
+     * yet run — both "Apply" and "Undo" are shown; the user must run the cell
+     * manually after accepting.
      */
     requiresApproval?: boolean;
 }

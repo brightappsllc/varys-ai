@@ -6126,7 +6126,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
 
       // Append step summary + review prompt to the streamed explanation bubble
       const reviewPrompt = response.requiresApproval
-        ? '\n\n⚠️ This operation requires approval before execution.'
+        ? '\n\nCell populated — review the changes and run manually when ready.'
         : '\n\nChanges applied. Click Undo below to revert.';
       appendToStream(`\n\n${stepSummary}${reviewPrompt}`);
 
@@ -6226,20 +6226,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
     const op = pendingOps.find(o => o.operationId === operationId);
     if (op) {
       _acceptSingleOrComposite(op);
-      // When the plan required approval, auto-execute was held back.
-      // Run cells now so the user doesn't have to manually execute each one.
-      if (op.requiresApproval) {
-        void (async () => {
-          for (const step of op.steps) {
-            if (
-              step.autoExecute === true &&
-              (step.type === 'insert' || step.type === 'modify' || step.type === 'run_cell')
-            ) {
-              try { await cellEditor.executeCell(step.cellIndex); } catch { /* ignore */ }
-            }
-          }
-        })();
-      }
+      // requiresApproval ops: cell is already populated; user runs it manually.
     }
     setPendingOps(prev =>
       prev.map(o => o.operationId === operationId ? { ...o, resolved: 'accepted' as const } : o)
