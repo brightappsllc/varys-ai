@@ -7909,6 +7909,15 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
               }
             }}
             onKeyDown={handleKeyDown}
+            onPaste={(e: React.ClipboardEvent<HTMLDivElement>) => {
+              e.preventDefault();
+              // Block any paste that contains image data — only plain text is allowed.
+              const items = Array.from(e.clipboardData.items);
+              if (items.some(item => item.type.startsWith('image/'))) return;
+              const text = e.clipboardData.getData('text/plain');
+              if (!text) return;
+              document.execCommand('insertText', false, text);
+            }}
           />
           {/* @-mention autocomplete dropdown */}
           {atAnchorPos >= 0 && atFiltered.length > 0 && (
