@@ -5,6 +5,205 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.8.5] — Focal-Cell Context, Notebook ID Stability, Bedrock Fixes
+
+### New Features
+
+#### Focal-Cell Context Cutoff
+- **Opt-in context limit**: new toggle in **Settings → Context** — "Limit context
+  to active cell" — restricts the cell context sent to the agent to all cells up
+  to and including the focused cell, keeping the agent focused on work-in-progress
+  rather than downstream cells.
+- **Settings toggle** moved into the Context section with an info bubble that
+  accurately describes the behaviour ("all cells up to and including the focused
+  cell").
+- **Always enforced**: the `limit_to_focal` state is now applied regardless of
+  the toggle direction (was previously only enforced when switching ON).
+
+#### Notebook ID Stability — No More "File Changed" Dialog
+- Varys no longer writes to `.ipynb` files to stamp a notebook ID.  Previously,
+  every new notebook triggered a "File Changed on disk" dialog in JupyterLab
+  because Varys wrote `metadata.varys_notebook_id` directly into the file.
+- **New lookup order** in `get_or_create_notebook_id`:
+  1. In-process cache
+  2. `metadata.varys_notebook_id` — legacy field (backward compat, read-only)
+  3. `metadata.id` — standard nbformat 4.5 field written by JupyterLab 4+; used
+     directly with no write, rename-stable because it travels inside the file
+  4. Sidecar file `{nb_dir}/.jupyter-assistant/_notebook_ids.json` — for truly
+     old notebooks only; avoids any write to the `.ipynb` file
+- **Silent save (Option C)**: when a notebook falls back to the sidecar (no
+  built-in ID), the frontend triggers a silent `context.save()` via JupyterLab's
+  own API.  JupyterLab writes `metadata.id` into the file during the save — no
+  dialog, one-time per old notebook, ID becomes rename-stable permanently.
+- **UUID migration**: if `metadata.id` is found after a sidecar UUID was already
+  assigned (i.e. after the silent save), the per-notebook data directory is
+  automatically renamed from the sidecar UUID to `metadata.id` so no data
+  (chat threads, summaries, memory) is orphaned on the next server restart.
+- **Sidecar cleanup on rename**: `POST /varys/nb/move` now removes the stale
+  source sidecar entry after copying it to the destination, keeping
+  `_notebook_ids.json` clean.
+
+#### UI — Input Toolbar Redesign
+- **Model switcher** moved to its own dedicated row below the input toolbar,
+  outside the rounded input frame; cleaner visual separation from the text area.
+- Gap between the input frame and model row tightened.
+
+---
+
+### Bug Fixes
+
+#### UI
+- **"Reject" button renamed to "Undo"** across all surfaces: `DiffView` (notebook
+  cell edits), `FileChangeCard` (file agent changes), `ActionBar`, all hint text
+  strings, and inline chat bubble copy.  Consistent with the "Undo" label already
+  used in the standalone `ActionBar`.
+- **Focal-cell info bubble** text corrected: previously said "so the agent stays
+  focused on a single cell"; now accurately reads "all cells up to and including
+  the focused cell".
+
+#### AWS Bedrock
+- **`ExpiredTokenException` recovery fixed** — two root causes addressed:
+  - *SSO profiles* (`AWS_PROFILE`): `_credentials_expired()` was reading
+    `~/.aws/credentials` for SSO profiles that live in `~/.aws/config`, so it
+    always returned `True` and ran `aws sso login` before every request.  Fixed
+    by skipping the file check for profile-based auth (boto3's SSO credential
+    provider handles refresh internally).
+  - *Explicit session tokens* (`AWS_SESSION_TOKEN` in `varys.env`): after running
+    the auth-refresh command, `_make_client()` still reused `self.session_token`
+    (the stale value from startup).  Fixed by `_reload_credentials_from_env()`
+    which re-reads `AWS_*` keys from `varys.env` after the refresh so the
+    rebuilt boto3 client picks up the new values.
+- **"input is too long" caught as context-too-long**: AWS Bedrock raises
+  `ValidationException: input is too long` when the request exceeds the model's
+  context window.  This was not matched by the existing patterns, so users saw a
+  raw error string instead of the friendly "Context too large" UI advisory.
+  Added Bedrock-specific patterns: `"input is too long"`, `"too many tokens"`,
+  `"input length"`.
+
+#### Notebook ID / Data Integrity (code-review fixes)
+- `_notebook_has_built_in_id()` now also checks `metadata.varys_id` (legacy
+  Varys field) so notebooks stamped by older Varys versions don't spuriously
+  trigger a `needsIdStamp` silent save.
+- Silent save promise (`context.save()`) now has a `.catch()` handler instead of
+  bare `void`.
+- Duplicate step-label comment ("3." appearing twice) in `paths.py` fixed.
+
+#### macOS / Remote-install 404 on webpack lazy chunks
+- A missing lazy chunk (`181.ceebfd…js`) that was never committed to git caused
+  404 errors and a broken UI on any machine that installed from git (macOS, CI,
+  `pip install git+https://…`).  The chunk was staged and committed, and stale
+  old chunks were removed.
+- `deploy.sh` now prints a warning after every build that lists any untracked
+  files in `varys/labextension/static/`, prompting the developer to stage them
+  before committing.  The deploy / commit rules in `CLAUDE.md` were tightened to
+  require `git add varys/labextension/static/` (entire directory) and a
+  zero-untracked verification step before every commit.
+
+#### Maintenance Panel — Dark Mode Text
+- All text in the Notebooks maintenance panel was rendering black on dark
+  backgrounds.  Fixed by replacing hard-coded `--jp-ui-font-color*` /
+  `--jp-layout-color*` tokens with the theme-aware custom properties
+  `--ds-text`, `--ds-text-dim`, and `--ds-surface2` (defined for both
+  `.ds-chat-day` and `.ds-chat-night`).
+
+#### Notebook ID — Direct Backend Stamp from Sidecar
+- The frontend "silent save" (Option C) had a race condition: if the user
+  clicked a notebook tab during the `await loadChatHistory()` call,
+  `notebookTracker.currentWidget` was null and the save never fired, leaving
+  the notebook without `metadata.id` permanently.
+- **Fixed by moving the stamp to the backend**: when `get_or_create_notebook_id`
+  resolves the ID from the sidecar, it now calls `_stamp_metadata_id()` to
+  write `metadata.id` directly into the notebook file (atomic rename, `indent=1`
+  to match nbformat convention).  The frontend silent-save mechanism was removed.
+- The same sidecar UUID is written as `metadata.id`, so the existing
+  `.jupyter-assistant/<uuid>/` data directory is seamlessly reused with no
+  migration.
+
+#### Performance — Eliminate Double Notebook Parse per Tab Focus
+- `GET /varys/chat` was parsing the notebook file twice per request: once inside
+  `get_or_create_notebook_id` (to get the UUID) and a second time in
+  `_notebook_has_built_in_id` (to check ID provenance).
+- Added `_BUILT_IN_ID_CACHE: Dict[str, bool]` — a module-level dict in
+  `paths.py` that records whether a notebook's ID lives inside the file (`True`)
+  or only in the sidecar (`False`).  The cache is populated on the first call and
+  consulted on all subsequent requests, eliminating the redundant file read.
+  The two `asyncio.to_thread` calls in the chat handler were also merged into one.
+
+#### Chat Input — Block Image Paste
+- Pasting clipboard content that contained image data (e.g. a screenshot) was
+  silently ignored but could corrupt the input state.  An `onPaste` handler now
+  rejects any paste that contains `image/*` items, allowing only plain text
+  through via `document.execCommand('insertText')`.
+
+#### Cell Editor — Green Pending Bar Clears on Execution
+- The green left-border bar (`ds-assistant-pending`) that marks AI-generated
+  cells was only removed when the user clicked Accept or Undo, not when the cell
+  was actually run.  Fixed by connecting `NotebookActions.executed` in the
+  `CellEditor` constructor; when any cell fires the signal its pending class and
+  `highlightedCells` entry are cleared regardless of how the execution was
+  triggered (keyboard, toolbar, Agent, etc.).
+
+#### DiffView — Low-Profile Undo Button
+- The solid orange `✕ Undo` button in `DiffView` was visually heavy and drew
+  attention away from the primary Accept action.  Replaced with a transparent
+  ghost `↺` icon button: no background, faint text color, 1 px transparent
+  border that appears on hover.  Dark-mode variant uses `--ds-text-dim` /
+  `rgba(255,255,255,0.08)` hover.  Hint text and `FileChangeCard` copy updated
+  to use `↺` throughout.
+
+#### Chat Input — Ctrl+Enter Splits Backtick Blocks
+- Pressing `Ctrl+Enter` with the cursor inside or after triple backticks caused
+  the backtick characters to split to a new line instead of sending the message.
+  Root cause: Chrome fires `beforeinput(insertParagraph)` for `Ctrl+Enter` even
+  after `keydown` calls `e.preventDefault()`, mutating the DOM before React's
+  handler could act.
+- Fixed with an `onBeforeInput` handler that cancels `insertParagraph` and
+  `insertLineBreak` browser events unconditionally, and an explicit
+  `Ctrl/Cmd+Enter → send` branch added at the top of `handleKeyDown` (before the
+  general `!shiftKey` check).
+
+#### Chat Input — Shift+Enter Newline Displaced Last Character
+- Pressing `Shift+Enter` after text containing existing newlines moved the
+  character immediately before the cursor to the new line instead of creating an
+  empty new line.  Three layered bugs were fixed:
+  1. **`getCursorCharOffset`** used `Range.toString()` which silently ignores
+     `<br>` elements — so after N newlines the reported offset was N positions
+     too low.  Replaced with a recursive DOM walk that counts text-node
+     characters and `<br>` nodes (= `\n`) correctly.
+  2. **`setCursorCharOffset`** used `NodeFilter.SHOW_TEXT` which also skipped
+     `<br>` nodes, making the restored cursor land one position past the target
+     when newlines preceded it.  Replaced with the same recursive walk approach.
+  3. **innerHTML rebuild race**: Chrome fires the `input` event for programmatic
+     `innerHTML` changes to `contenteditable` elements; this caused the `onInput`
+     handler to re-run, strip a trailing `\n`, rebuild HTML, and call
+     `setCursorCharOffset` again — defeating the cursor fix before it could take
+     effect.  Fixed by replacing the `getCursorCharOffset → slice input → rebuild
+     innerHTML → setCursorCharOffset` cycle with `range.insertNode(br)` (direct
+     DOM insertion via the Selection API), which requires no HTML rebuild or
+     offset calculation in the keydown handler.
+  4. **Empty Text sibling from `insertNode`**: the DOM spec requires
+     `range.insertNode` to call `splitText(offset)` on text nodes, which creates
+     an empty `Text("")` next sibling when the cursor is at the very end of a
+     text node.  This non-null but empty sibling fooled the spacer-`<br>` check,
+     so no spacer was added and the trailing `\n` was stripped.  Fixed by
+     removing the empty sibling before the spacer check.
+
+---
+
+### Developer / Test Infrastructure
+
+- **Varys stress-test framework v1.0** (`varys_tests/`): curriculum-based
+  scenario harness that drives a real JupyterLab session, evaluates responses
+  with an LLM judge, and writes structured JSON result files.
+- **Self-contained per-fixture scenario folders**: each test scenario ships its
+  own fixture notebook, preventing cross-scenario contamination.
+- **LLM prompt templates** for generating new test scenarios added to
+  `docs/tests/`.
+- `limit_to_focal` plumbed through scenario YAML so test runs can exercise the
+  focal-cell context feature.
+
+---
+
 ## [0.8.0] — Smart Context Engine + Graph Overhaul + UI Polish
 
 ### Breaking Changes
