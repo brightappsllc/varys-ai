@@ -179,41 +179,126 @@ function buildHighlightHtml(text: string, validSymbols?: Set<string>): string {
   return parts.join('');
 }
 
-/** Returns the cursor's character offset within the element's plain text. */
+/**
+ * Returns the cursor's character offset within the element's plain text.
+ *
+ * Walks the DOM tree and counts both text-node characters AND <br> elements
+ * (each <br> = 1 '\n' in the `input` string).  The old Range.toString()
+ * approach silently ignored <br> nodes, causing an off-by-N displacement when
+ * the user pressed Shift+Enter more than once.
+ */
 function getCursorCharOffset(el: HTMLElement): number {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0) return 0;
-  const pre = sel.getRangeAt(0).cloneRange();
-  pre.selectNodeContents(el);
-  pre.setEnd(sel.getRangeAt(0).endContainer, sel.getRangeAt(0).endOffset);
-  return pre.toString().length;
-}
+  const range   = sel.getRangeAt(0);
+  const endNode = range.endContainer;
+  const endOff  = range.endOffset;
 
-/** Moves the cursor to `offset` characters into the element's plain text. */
-function setCursorCharOffset(el: HTMLElement, offset: number): void {
-  const sel = window.getSelection();
-  if (!sel) return;
-  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-  let charCount = 0;
-  let node: Node | null;
-  while ((node = walker.nextNode())) {
-    const len = (node.textContent ?? '').length;
-    if (charCount + len >= offset) {
-      const range = document.createRange();
-      range.setStart(node, offset - charCount);
-      range.collapse(true);
-      sel.removeAllRanges();
-      sel.addRange(range);
+  let count = 0;
+  let done  = false;
+
+  // Walk the entire subtree of `node`, adding all chars (text + <br>=\n).
+  function countAll(node: Node): void {
+    if (node.nodeType === Node.TEXT_NODE) {
+      count += (node.textContent ?? '').length;
+    } else if ((node as Element).tagName === 'BR') {
+      count += 1;
+    } else {
+      for (let i = 0; i < node.childNodes.length; i++) countAll(node.childNodes[i]);
+    }
+  }
+
+  // Walk until we hit `endNode`, counting chars along the way.
+  function countUpto(node: Node): void {
+    if (done) return;
+    if (node === endNode) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        count += endOff;
+      } else {
+        // Element endContainer: endOff = number of children before cursor
+        for (let i = 0; i < endOff && !done; i++) countAll(node.childNodes[i]);
+      }
+      done = true;
       return;
     }
-    charCount += len;
+    if (node.nodeType === Node.TEXT_NODE) {
+      count += (node.textContent ?? '').length;
+    } else if ((node as Element).tagName === 'BR') {
+      count += 1;
+    } else {
+      for (let i = 0; i < node.childNodes.length && !done; i++) countUpto(node.childNodes[i]);
+    }
+  }
+
+  // Special case: cursor anchored to el itself (between block children)
+  if (el === endNode) {
+    for (let i = 0; i < endOff; i++) countAll(el.childNodes[i]);
+    return count;
+  }
+  for (let i = 0; i < el.childNodes.length && !done; i++) countUpto(el.childNodes[i]);
+  return count;
+}
+
+/**
+ * Moves the cursor to `offset` characters into the element's plain text.
+ *
+ * Counts text-node characters AND <br> elements (each = 1 '\n') so the
+ * offset matches the `input` string representation.
+ */
+function setCursorCharOffset(el: HTMLElement, offset: number): void {
+  const selRaw = window.getSelection();
+  if (!selRaw) return;
+  const sel = selRaw; // non-null alias for use inside closures
+  let count = 0;
+
+  function walk(node: Node): boolean {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const len = (node.textContent ?? '').length;
+      if (count + len >= offset) {
+        const r = document.createRange();
+        r.setStart(node, offset - count);
+        r.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(r);
+        return true;
+      }
+      count += len;
+    } else if (node.nodeType === Node.ELEMENT_NODE && (node as Element).tagName === 'BR') {
+      // Check before incrementing: cursor may land right before this <br>
+      if (count >= offset) {
+        const r = document.createRange();
+        r.setStartBefore(node);
+        r.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(r);
+        return true;
+      }
+      count += 1; // <br> = '\n'
+      if (count >= offset) {
+        const r = document.createRange();
+        r.setStartAfter(node);
+        r.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(r);
+        return true;
+      }
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      for (let i = 0; i < node.childNodes.length; i++) {
+        if (walk(node.childNodes[i])) return true;
+      }
+    }
+    return false;
+  }
+
+  for (let i = 0; i < el.childNodes.length; i++) {
+    if (walk(el.childNodes[i])) return;
   }
   // Fallback: cursor to end
-  const range = document.createRange();
-  range.selectNodeContents(el);
-  range.collapse(false);
+  const r = document.createRange();
+  r.selectNodeContents(el);
+  r.collapse(false);
   sel.removeAllRanges();
-  sel.addRange(range);
+  sel.addRange(r);
 }
 
 /** Moves the cursor to the very end of the element's content. */
