@@ -6764,6 +6764,13 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
         return;
       }
     }
+    // Ctrl+Enter / Cmd+Enter → send immediately (explicit, before general check).
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      void handleSend();
+      return;
+    }
+
     if (e.key === 'Enter' && e.shiftKey) {
       // Insert a literal newline at the cursor position.
       // We must handle this ourselves because the onInput handler strips one
@@ -7909,6 +7916,17 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
               }
             }}
             onKeyDown={handleKeyDown}
+            onBeforeInput={(e: React.FormEvent<HTMLDivElement>) => {
+              // Chrome fires beforeinput(insertParagraph/insertLineBreak) for
+              // Enter keys even when keydown called e.preventDefault() — this
+              // causes spurious DOM mutations (e.g. Ctrl+Enter splits backtick
+              // blocks instead of sending).  Block all browser-level newline
+              // injection; our keydown handler is the sole gate.
+              const ie = e.nativeEvent as InputEvent;
+              if (ie.inputType === 'insertParagraph' || ie.inputType === 'insertLineBreak') {
+                e.preventDefault();
+              }
+            }}
             onPaste={(e: React.ClipboardEvent<HTMLDivElement>) => {
               e.preventDefault();
               // Block any paste that contains image data — only plain text is allowed.
