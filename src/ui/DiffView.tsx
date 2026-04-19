@@ -260,8 +260,8 @@ export const DiffView: React.FC<DiffViewProps> = ({
               <button
                 className="ds-assistant-btn ds-assistant-btn-undo"
                 onClick={() => onUndo(operationId)}
-                title="Reject changes and undo"
-              >✕ Undo</button>
+                title="Undo changes"
+              >↺</button>
             </>
           )}
         </div>
@@ -271,10 +271,10 @@ export const DiffView: React.FC<DiffViewProps> = ({
       {!resolved && (
         <div className="ds-diff-hint">
           {isReorder
-            ? <>Cells have been rearranged in the notebook. Use <strong>✓ Apply</strong> to keep the new order or <strong>✕ Undo</strong> to revert.</>
+            ? <>Cells have been rearranged in the notebook. Use <strong>✓ Apply</strong> to keep the new order or <strong>↺</strong> to revert.</>
             : requiresApproval
-              ? <>Cell populated. Use <strong>✓ Apply</strong> to accept or <strong>✕ Undo</strong> to revert. Run the cell manually when ready.</>
-              : <>Changes applied. Click <strong>✕ Undo</strong> to revert.</>
+              ? <>Cell populated. Use <strong>✓ Apply</strong> to accept or <strong>↺</strong> to revert. Run the cell manually when ready.</>
+              : <>Changes applied. Click <strong>↺</strong> to revert.</>
           }
         </div>
       )}
