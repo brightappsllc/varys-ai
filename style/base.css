@@ -1025,8 +1025,18 @@
 }
 
 .ds-assistant-btn-undo {
-  background: #fd7e14;
-  color: #ffffff;
+  background: transparent;
+  color: var(--ds-text-dim, #666);
+  border: 1px solid transparent;
+  font-size: 15px;
+  padding: 1px 5px;
+  line-height: 1.4;
+  border-radius: 4px;
+}
+.ds-assistant-btn-undo:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--ds-text, #333);
+  opacity: 1;
 }
 
 /* Apply selection (partial hunk accept) */
@@ -1152,10 +1162,14 @@
 }
 .ds-chat-night .ds-assistant-btn-accept-run:hover { background: #1f4272; }
 .ds-chat-night .ds-assistant-btn-undo {
-  background: #6b3810;
-  color: var(--ds-text, #c5c5cc);
+  background: transparent;
+  color: var(--ds-text-dim, #8890a8);
 }
-.ds-chat-night .ds-assistant-btn-undo:hover { background: #7a4214; }
+.ds-chat-night .ds-assistant-btn-undo:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ds-text, #c5c5cc);
+  opacity: 1;
+}
 .ds-chat-night .ds-assistant-btn-apply {
   background: var(--ds-surface2, #28283a);
   color: var(--ds-text, #c5c5cc);

@@ -7482,7 +7482,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                         }
                       }
                     }}
-                  >✕ Undo All</button>
+                  >↺ Undo All</button>
                 </div>
               )}
             </div>
