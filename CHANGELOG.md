@@ -61,6 +61,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   focused on a single cell"; now accurately reads "all cells up to and including
   the focused cell".
 
+#### Security & Reliability (code-review hardening)
+- **Path traversal prevention**: `chat_history`, `task`, and `reproducibility_guardian` handlers now contain notebook paths via `os.path.realpath()` — requests that resolve outside the project root are rejected with HTTP 400.
+- **Env-file path restriction**: `settings.py` rejects any env file path that falls outside the user's home directory.
+- **Agent handler authentication**: `GET /varys/agent/change/<id>` now requires the `@authenticated` decorator (was missing).
+- **SSE stream lock release**: `client.ts` SSE reader now calls `reader.releaseLock()` in a `finally` block; malformed JSON frames are skipped silently instead of breaking the stream.
+- **Tool output truncation**: agent runner caps each tool result at 50 000 chars to prevent oversized payloads from reaching the LLM.
+- **Turn counter accuracy**: `turn_count` is now incremented before the loop-break check so every API call is counted correctly.
+- **Provider error redaction**: raw provider error messages are no longer forwarded to `on_progress` callbacks; a generic string is used instead.
+- **Sidecar file concurrency**: `_write_sidecar_id` / `_remove_sidecar_id` in `paths.py` now hold a `threading.Lock()` during their read-modify-write cycle.
+- **Chat history concurrency**: POST and DELETE in `chat_history.py` now hold an `asyncio.Lock()` across their load→mutate→save cycle.
+- **Bedrock credential refresh**: double-checked locking pattern (`asyncio.Lock()`) prevents redundant refresh calls under concurrent requests.
+- **UUID cache invalidation on migration**: `_BUILT_IN_ID_CACHE` is evicted after a successful notebook UUID migration so stale entries don't persist.
+- **Atomic preference write**: YAML→JSON migration in `preference_store.py` writes via `mkstemp` + `os.replace()` instead of `Path.write_text()`.
+- **Dead `_last_thinking` state removed**: the instance variable was set but never read in `bedrock_provider.py`; removed to eliminate a latent race condition.
+- **AWS auth command not logged**: the auth-refresh shell command string is no longer included in log output.
+- **Drag-resize listener cleanup**: `SidebarWidget` now removes `mousemove`/`mouseup` event listeners on unmount via a `useEffect` cleanup.
+
 #### AWS Bedrock
 - **`ExpiredTokenException` recovery fixed** — two root causes addressed:
   - *SSO profiles* (`AWS_PROFILE`): `_credentials_expired()` was reading

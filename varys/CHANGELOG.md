@@ -61,6 +61,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   focused on a single cell"; now accurately reads "all cells up to and including
   the focused cell".
 
+#### Security & Reliability (code-review hardening)
+- **Path traversal prevention**: `chat_history`, `task`, and `reproducibility_guardian` handlers now contain notebook paths via `os.path.realpath()` — requests that resolve outside the project root are rejected with HTTP 400.
+- **Env-file path restriction**: `settings.py` rejects any env file path that falls outside the user's home directory.
+- **Agent handler authentication**: `GET /varys/agent/change/<id>` now requires the `@authenticated` decorator (was missing).
+- **SSE stream lock release**: `client.ts` SSE reader now calls `reader.releaseLock()` in a `finally` block; malformed JSON frames are skipped silently instead of breaking the stream.
+- **Tool output truncation**: agent runner caps each tool result at 50 000 chars to prevent oversized payloads from reaching the LLM.
+- **Turn counter accuracy**: `turn_count` is now incremented before the loop-break check so every API call is counted correctly.
+- **Provider error redaction**: raw provider error messages are no longer forwarded to `on_progress` callbacks; a generic string is used instead.
+- **Sidecar file concurrency**: `_write_sidecar_id` / `_remove_sidecar_id` in `paths.py` now hold a `threading.Lock()` during their read-modify-write cycle.
+- **Chat history concurrency**: POST and DELETE in `chat_history.py` now hold an `asyncio.Lock()` across their load→mutate→save cycle.
+- **Bedrock credential refresh**: double-checked locking pattern (`asyncio.Lock()`) prevents redundant refresh calls under concurrent requests.
+- **UUID cache invalidation on migration**: `_BUILT_IN_ID_CACHE` is evicted after a successful notebook UUID migration so stale entries don't persist.
+- **Atomic preference write**: YAML→JSON migration in `preference_store.py` writes via `mkstemp` + `os.replace()` instead of `Path.write_text()`.
+- **Dead `_last_thinking` state removed**: the instance variable was set but never read in `bedrock_provider.py`; removed to eliminate a latent race condition.
+- **AWS auth command not logged**: the auth-refresh shell command string is no longer included in log output.
+- **Drag-resize listener cleanup**: `SidebarWidget` now removes `mousemove`/`mouseup` event listeners on unmount via a `useEffect` cleanup.
+
 #### AWS Bedrock
 - **`ExpiredTokenException` recovery fixed** — two root causes addressed:
   - *SSO profiles* (`AWS_PROFILE`): `_credentials_expired()` was reading
@@ -87,106 +104,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Silent save promise (`context.save()`) now has a `.catch()` handler instead of
   bare `void`.
 - Duplicate step-label comment ("3." appearing twice) in `paths.py` fixed.
-
-#### macOS / Remote-install 404 on webpack lazy chunks
-- A missing lazy chunk (`181.ceebfd…js`) that was never committed to git caused
-  404 errors and a broken UI on any machine that installed from git (macOS, CI,
-  `pip install git+https://…`).  The chunk was staged and committed, and stale
-  old chunks were removed.
-- `deploy.sh` now prints a warning after every build that lists any untracked
-  files in `varys/labextension/static/`, prompting the developer to stage them
-  before committing.  The deploy / commit rules in `CLAUDE.md` were tightened to
-  require `git add varys/labextension/static/` (entire directory) and a
-  zero-untracked verification step before every commit.
-
-#### Maintenance Panel — Dark Mode Text
-- All text in the Notebooks maintenance panel was rendering black on dark
-  backgrounds.  Fixed by replacing hard-coded `--jp-ui-font-color*` /
-  `--jp-layout-color*` tokens with the theme-aware custom properties
-  `--ds-text`, `--ds-text-dim`, and `--ds-surface2` (defined for both
-  `.ds-chat-day` and `.ds-chat-night`).
-
-#### Notebook ID — Direct Backend Stamp from Sidecar
-- The frontend "silent save" (Option C) had a race condition: if the user
-  clicked a notebook tab during the `await loadChatHistory()` call,
-  `notebookTracker.currentWidget` was null and the save never fired, leaving
-  the notebook without `metadata.id` permanently.
-- **Fixed by moving the stamp to the backend**: when `get_or_create_notebook_id`
-  resolves the ID from the sidecar, it now calls `_stamp_metadata_id()` to
-  write `metadata.id` directly into the notebook file (atomic rename, `indent=1`
-  to match nbformat convention).  The frontend silent-save mechanism was removed.
-- The same sidecar UUID is written as `metadata.id`, so the existing
-  `.jupyter-assistant/<uuid>/` data directory is seamlessly reused with no
-  migration.
-
-#### Performance — Eliminate Double Notebook Parse per Tab Focus
-- `GET /varys/chat` was parsing the notebook file twice per request: once inside
-  `get_or_create_notebook_id` (to get the UUID) and a second time in
-  `_notebook_has_built_in_id` (to check ID provenance).
-- Added `_BUILT_IN_ID_CACHE: Dict[str, bool]` — a module-level dict in
-  `paths.py` that records whether a notebook's ID lives inside the file (`True`)
-  or only in the sidecar (`False`).  The cache is populated on the first call and
-  consulted on all subsequent requests, eliminating the redundant file read.
-  The two `asyncio.to_thread` calls in the chat handler were also merged into one.
-
-#### Chat Input — Block Image Paste
-- Pasting clipboard content that contained image data (e.g. a screenshot) was
-  silently ignored but could corrupt the input state.  An `onPaste` handler now
-  rejects any paste that contains `image/*` items, allowing only plain text
-  through via `document.execCommand('insertText')`.
-
-#### Cell Editor — Green Pending Bar Clears on Execution
-- The green left-border bar (`ds-assistant-pending`) that marks AI-generated
-  cells was only removed when the user clicked Accept or Undo, not when the cell
-  was actually run.  Fixed by connecting `NotebookActions.executed` in the
-  `CellEditor` constructor; when any cell fires the signal its pending class and
-  `highlightedCells` entry are cleared regardless of how the execution was
-  triggered (keyboard, toolbar, Agent, etc.).
-
-#### DiffView — Low-Profile Undo Button
-- The solid orange `✕ Undo` button in `DiffView` was visually heavy and drew
-  attention away from the primary Accept action.  Replaced with a transparent
-  ghost `↺` icon button: no background, faint text color, 1 px transparent
-  border that appears on hover.  Dark-mode variant uses `--ds-text-dim` /
-  `rgba(255,255,255,0.08)` hover.  Hint text and `FileChangeCard` copy updated
-  to use `↺` throughout.
-
-#### Chat Input — Ctrl+Enter Splits Backtick Blocks
-- Pressing `Ctrl+Enter` with the cursor inside or after triple backticks caused
-  the backtick characters to split to a new line instead of sending the message.
-  Root cause: Chrome fires `beforeinput(insertParagraph)` for `Ctrl+Enter` even
-  after `keydown` calls `e.preventDefault()`, mutating the DOM before React's
-  handler could act.
-- Fixed with an `onBeforeInput` handler that cancels `insertParagraph` and
-  `insertLineBreak` browser events unconditionally, and an explicit
-  `Ctrl/Cmd+Enter → send` branch added at the top of `handleKeyDown` (before the
-  general `!shiftKey` check).
-
-#### Chat Input — Shift+Enter Newline Displaced Last Character
-- Pressing `Shift+Enter` after text containing existing newlines moved the
-  character immediately before the cursor to the new line instead of creating an
-  empty new line.  Three layered bugs were fixed:
-  1. **`getCursorCharOffset`** used `Range.toString()` which silently ignores
-     `<br>` elements — so after N newlines the reported offset was N positions
-     too low.  Replaced with a recursive DOM walk that counts text-node
-     characters and `<br>` nodes (= `\n`) correctly.
-  2. **`setCursorCharOffset`** used `NodeFilter.SHOW_TEXT` which also skipped
-     `<br>` nodes, making the restored cursor land one position past the target
-     when newlines preceded it.  Replaced with the same recursive walk approach.
-  3. **innerHTML rebuild race**: Chrome fires the `input` event for programmatic
-     `innerHTML` changes to `contenteditable` elements; this caused the `onInput`
-     handler to re-run, strip a trailing `\n`, rebuild HTML, and call
-     `setCursorCharOffset` again — defeating the cursor fix before it could take
-     effect.  Fixed by replacing the `getCursorCharOffset → slice input → rebuild
-     innerHTML → setCursorCharOffset` cycle with `range.insertNode(br)` (direct
-     DOM insertion via the Selection API), which requires no HTML rebuild or
-     offset calculation in the keydown handler.
-  4. **Empty Text sibling from `insertNode`**: the DOM spec requires
-     `range.insertNode` to call `splitText(offset)` on text nodes, which creates
-     an empty `Text("")` next sibling when the cursor is at the very end of a
-     text node.  This non-null but empty sibling fooled the spacer-`<br>` check,
-     so no spacer was added and the trailing `\n` was stripped.  Fixed by
-     removing the empty sibling before the spacer check.
 
 ---
 
