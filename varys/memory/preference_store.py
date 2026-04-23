@@ -37,6 +37,8 @@ from __future__ import annotations
 import datetime
 import hashlib
 import logging
+import os
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -140,12 +142,21 @@ def _load_json_file(path: Path) -> List[Dict[str, Any]]:
 
 
 def _save_json_file(path: Path, entries: List[Dict[str, Any]]) -> None:
-    """Write *entries* as a JSON array to *path*, creating parent dirs as needed."""
+    """Write *entries* as a JSON array to *path* atomically (temp + rename)."""
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        content = json.dumps(entries, ensure_ascii=False, indent=2)
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".tmp_varys_", suffix=".json")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(content)
+            os.replace(tmp, path)
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
         # Invalidate cache
         _JSON_CACHE.pop(str(path), None)
     except Exception as exc:

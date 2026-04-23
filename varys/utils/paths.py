@@ -41,6 +41,7 @@ import logging
 import os
 import shutil
 import tempfile
+import threading
 import uuid as _uuid_mod
 from pathlib import Path
 from typing import Dict, Optional, Set
@@ -69,6 +70,9 @@ _NB_SCOPED_DIRS = {"context", "chats", "memory", "logs"}
 # Sidecar filename that stores generated notebook IDs (avoids writing to .ipynb)
 _SIDECAR_NAME = "_notebook_ids.json"
 
+# Serialises concurrent read-modify-write cycles on the sidecar file.
+_SIDECAR_LOCK = threading.Lock()
+
 
 def _sidecar_path(nb_dir: Path) -> Path:
     return nb_dir / ".jupyter-assistant" / _SIDECAR_NAME
@@ -88,30 +92,32 @@ def _read_sidecar_id(nb_dir: Path, nb_filename: str) -> Optional[str]:
 def _write_sidecar_id(nb_dir: Path, nb_filename: str, uuid_str: str) -> None:
     """Persist *uuid_str* for *nb_filename* in the sidecar (atomic write)."""
     p = _sidecar_path(nb_dir)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    data: Dict[str, str] = {}
-    if p.exists():
-        try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    data[nb_filename] = uuid_str
-    _atomic_write_text(p, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    with _SIDECAR_LOCK:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        data: Dict[str, str] = {}
+        if p.exists():
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        data[nb_filename] = uuid_str
+        _atomic_write_text(p, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
 
 def _remove_sidecar_id(nb_dir: Path, nb_filename: str) -> None:
     """Remove the sidecar entry for *nb_filename* (no-op if absent)."""
     p = _sidecar_path(nb_dir)
-    if not p.exists():
-        return
-    try:
-        data: Dict[str, str] = json.loads(p.read_text(encoding="utf-8"))
-        if nb_filename not in data:
+    with _SIDECAR_LOCK:
+        if not p.exists():
             return
-        del data[nb_filename]
-        _atomic_write_text(p, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
-    except Exception as exc:
-        log.debug("paths: could not remove sidecar entry for %s — %s", nb_filename, exc)
+        try:
+            data: Dict[str, str] = json.loads(p.read_text(encoding="utf-8"))
+            if nb_filename not in data:
+                return
+            del data[nb_filename]
+            _atomic_write_text(p, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+        except Exception as exc:
+            log.debug("paths: could not remove sidecar entry for %s — %s", nb_filename, exc)
 
 
 def _stamp_metadata_id(nb_path: Path, nb_id: str) -> bool:

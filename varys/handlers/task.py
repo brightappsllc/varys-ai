@@ -663,18 +663,22 @@ class TaskHandler(JupyterHandler):
         _file_ctx_path: str = (notebook_context.get("fileContextPath") or "").strip()
         if _file_ctx_path:
             import os as _os
-            _fc_root = self.settings.get("ds_assistant_root_dir", ".")
-            _full_path = _os.path.join(_fc_root, _file_ctx_path)
-            try:
-                with open(_full_path, "r", encoding="utf-8", errors="replace") as _fh:
-                    _file_content = _fh.read()
-                notebook_context = dict(notebook_context)
-                notebook_context["_file_context"] = {
-                    "path": _file_ctx_path,
-                    "content": _file_content,
-                }
-            except Exception as _fe:
-                log.warning("Could not read file context %s: %s", _file_ctx_path, _fe)
+            _fc_root  = self.settings.get("ds_assistant_root_dir", ".")
+            _real_root = _os.path.realpath(_fc_root)
+            _full_path = _os.path.realpath(_os.path.join(_fc_root, _file_ctx_path))
+            if not (_full_path == _real_root or _full_path.startswith(_real_root + _os.sep)):
+                log.warning("Rejected fileContextPath outside root: %r", _file_ctx_path)
+            else:
+                try:
+                    with open(_full_path, "r", encoding="utf-8", errors="replace") as _fh:
+                        _file_content = _fh.read()
+                    notebook_context = dict(notebook_context)
+                    notebook_context["_file_context"] = {
+                        "path": _file_ctx_path,
+                        "content": _file_content,
+                    }
+                except Exception as _fe:
+                    log.warning("Could not read file context %s: %s", _file_ctx_path, _fe)
 
         # Apply image mode to notebook_context before anything else reads cells.
         # Always work on a mutable copy so we never mutate the original.

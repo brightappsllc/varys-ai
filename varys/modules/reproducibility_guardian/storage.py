@@ -43,7 +43,15 @@ def _db_path(root_dir: str, notebook_path: str) -> Path:
     if nb.is_absolute():
         project = nb.parent
     else:
-        project = Path(root_dir) / nb.parent if notebook_path else Path(root_dir)
+        # Resolve to catch '..' traversal; fall back to root_dir if the
+        # notebook path escapes the project root.
+        real_root = Path(root_dir).resolve()
+        resolved_nb = (real_root / nb).resolve()
+        try:
+            resolved_nb.relative_to(real_root)  # raises ValueError if outside
+            project = resolved_nb.parent
+        except ValueError:
+            project = real_root
     db_dir = project / '.jupyter-assistant'
     db_dir.mkdir(parents=True, exist_ok=True)
     return db_dir / 'reproducibility.db'

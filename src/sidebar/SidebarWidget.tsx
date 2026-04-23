@@ -2220,8 +2220,18 @@ const SkillsPanel: React.FC<{ apiClient: APIClient; notebookPath?: string }> = (
 
   // Resizable splitter
   const [listWidth, setListWidth] = useState(160);
-  const panelRef   = useRef<HTMLDivElement>(null);
-  const dragging   = useRef(false);
+  const panelRef        = useRef<HTMLDivElement>(null);
+  const dragging        = useRef(false);
+  const dragMoveRef     = useRef<((ev: MouseEvent) => void) | null>(null);
+  const dragUpRef       = useRef<(() => void) | null>(null);
+
+  // Clean up drag listeners if the component unmounts mid-drag.
+  useEffect(() => {
+    return () => {
+      if (dragMoveRef.current) window.removeEventListener('mousemove', dragMoveRef.current);
+      if (dragUpRef.current)   window.removeEventListener('mouseup',   dragUpRef.current);
+    };
+  }, []);
 
   const onSplitterMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -2236,7 +2246,11 @@ const SkillsPanel: React.FC<{ apiClient: APIClient; notebookPath?: string }> = (
       dragging.current = false;
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
+      dragMoveRef.current = null;
+      dragUpRef.current   = null;
     };
+    dragMoveRef.current = onMove;
+    dragUpRef.current   = onUp;
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   };
