@@ -58,6 +58,10 @@ from ..utils.paths import nb_base
 
 log = logging.getLogger(__name__)
 
+# Per-process lock that serialises chat-file load+save pairs.
+# Prevents two concurrent POST requests from overwriting each other's thread updates.
+_CHAT_LOCK = asyncio.Lock()
+
 # ── File helpers ──────────────────────────────────────────────────────────────
 
 def _notebook_has_built_in_id(abs_nb_path: str) -> bool:
@@ -248,6 +252,21 @@ def _normalize_path(root_dir: str, notebook_path: str) -> str:
     return notebook_path
 
 
+def _safe_rel_path(root_dir: str, notebook_path: str) -> str | None:
+    """Return a root-relative path, or None if it would escape root_dir.
+
+    Resolves symlinks and ``..`` components so that a crafted path like
+    ``../../../../etc/passwd`` is detected and rejected before any file I/O.
+    """
+    rel = _normalize_path(root_dir, notebook_path)
+    real_root = os.path.realpath(root_dir)
+    resolved  = os.path.realpath(os.path.join(root_dir, rel))
+    if resolved == real_root or resolved.startswith(real_root + os.sep):
+        return rel
+    log.warning("Chat: rejected path outside root: %r (resolved=%r)", notebook_path, resolved)
+    return None
+
+
 # ── Handler ───────────────────────────────────────────────────────────────────
 
 class ChatHistoryHandler(JupyterHandler):
@@ -266,7 +285,11 @@ class ChatHistoryHandler(JupyterHandler):
             return
 
         root = self._root()
-        notebook_rel = _normalize_path(root, notebook)
+        notebook_rel = _safe_rel_path(root, notebook)
+        if notebook_rel is None:
+            self.set_status(400)
+            self.finish(json.dumps({"error": "Invalid notebook path"}))
+            return
 
         # Run both the chat load and the built-in-ID check in a single thread
         # call so the notebook file is read at most once (the provenance cache
@@ -305,26 +328,31 @@ class ChatHistoryHandler(JupyterHandler):
             return
 
         root = self._root()
-        notebook_rel = _normalize_path(root, notebook_path)
-        data = await asyncio.to_thread(_load, root, notebook_rel)
+        notebook_rel = _safe_rel_path(root, notebook_path)
+        if notebook_rel is None:
+            self.set_status(400)
+            self.finish(json.dumps({"error": "Invalid notebook path"}))
+            return
+        async with _CHAT_LOCK:
+            data = await asyncio.to_thread(_load, root, notebook_rel)
 
-        threads: List[Dict] = data.get("threads", [])
-        # Upsert: replace existing thread with matching id or append
-        thread["updated_at"] = _now()
-        if not thread.get("created_at"):
-            thread["created_at"] = thread["updated_at"]
-        idx = next((i for i, t in enumerate(threads) if t["id"] == thread["id"]), None)
-        if idx is not None:
-            threads[idx] = thread
-        else:
-            threads.append(thread)
+            threads: List[Dict] = data.get("threads", [])
+            # Upsert: replace existing thread with matching id or append
+            thread["updated_at"] = _now()
+            if not thread.get("created_at"):
+                thread["created_at"] = thread["updated_at"]
+            idx = next((i for i, t in enumerate(threads) if t["id"] == thread["id"]), None)
+            if idx is not None:
+                threads[idx] = thread
+            else:
+                threads.append(thread)
 
-        data["threads"] = threads
-        data["last_thread_id"] = thread["id"]
-        data["notebook_path"] = notebook_rel
+            data["threads"] = threads
+            data["last_thread_id"] = thread["id"]
+            data["notebook_path"] = notebook_rel
 
-        chat_path = await asyncio.to_thread(_chat_path, root, notebook_rel)
-        await asyncio.to_thread(_save, root, notebook_rel, data)
+            chat_path = await asyncio.to_thread(_chat_path, root, notebook_rel)
+            await asyncio.to_thread(_save, root, notebook_rel, data)
         self.set_header("Content-Type", "application/json")
         self.finish(json.dumps({"ok": True, "filename": chat_path.name}))
 
@@ -339,15 +367,20 @@ class ChatHistoryHandler(JupyterHandler):
             return
 
         root = self._root()
-        notebook_rel = _normalize_path(root, notebook)
-        data = await asyncio.to_thread(_load, root, notebook_rel)
+        notebook_rel = _safe_rel_path(root, notebook)
+        if notebook_rel is None:
+            self.set_status(400)
+            self.finish(json.dumps({"error": "Invalid notebook path"}))
+            return
+        async with _CHAT_LOCK:
+            data = await asyncio.to_thread(_load, root, notebook_rel)
 
-        threads: List[Dict] = [t for t in data.get("threads", []) if t["id"] != thread_id]
-        data["threads"] = threads
+            threads: List[Dict] = [t for t in data.get("threads", []) if t["id"] != thread_id]
+            data["threads"] = threads
 
-        if data.get("last_thread_id") == thread_id:
-            data["last_thread_id"] = threads[-1]["id"] if threads else None
+            if data.get("last_thread_id") == thread_id:
+                data["last_thread_id"] = threads[-1]["id"] if threads else None
 
-        await asyncio.to_thread(_save, root, notebook_rel, data)
+            await asyncio.to_thread(_save, root, notebook_rel, data)
         self.set_header("Content-Type", "application/json")
         self.finish(json.dumps({"ok": True, "remaining": len(threads)}))

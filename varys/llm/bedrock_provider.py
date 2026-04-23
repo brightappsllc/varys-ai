@@ -96,8 +96,8 @@ class BedrockProvider(BaseLLMProvider):
         self.thinking_budget = max(1024, int(thinking_budget or 8000))
         # User-configured override; None means "use the model-aware default".
         self._max_tokens_override: Optional[int] = int(max_tokens) if max_tokens else None
-        # Set by chat() when thinking is enabled; consumed by stream_chat().
-        self._last_thinking: str = ""
+        # Prevents concurrent requests from rebuilding the boto3 client simultaneously.
+        self._refresh_lock = asyncio.Lock()
         self._cache = CompletionCache()
         self._boto_client = self._make_client()
 
@@ -223,7 +223,8 @@ class BedrockProvider(BaseLLMProvider):
 
     def _run_auth_refresh(self) -> None:
         """Run the auth-refresh command synchronously and rebuild the boto3 client."""
-        log.info("Bedrock: credentials expired, running auth refresh: %s", self.aws_auth_refresh)
+        # Do NOT log the command string — it may contain embedded credentials.
+        log.info("Bedrock: credentials expired, running auth refresh command")
         try:
             subprocess.run(
                 self.aws_auth_refresh,
@@ -246,7 +247,11 @@ class BedrockProvider(BaseLLMProvider):
     async def _ensure_credentials(self) -> None:
         """Refresh credentials lazily — only when expired and a refresh command is set."""
         if self.aws_auth_refresh and self._credentials_expired():
-            await asyncio.get_running_loop().run_in_executor(None, self._run_auth_refresh)
+            async with self._refresh_lock:
+                # Double-check after acquiring the lock: another coroutine may
+                # have already refreshed while we were waiting.
+                if self._credentials_expired():
+                    await asyncio.get_running_loop().run_in_executor(None, self._run_auth_refresh)
 
     @staticmethod
     def _is_expired_token(exc: Exception) -> bool:
@@ -907,14 +912,10 @@ class BedrockProvider(BaseLLMProvider):
                     "Bedrock: thinking returned thinking_len=%d text_len=%d",
                     len(_thinking), len(_text),
                 )
-                # Store thinking for stream_chat() to forward to on_thought callback.
-                self._last_thinking = _thinking
                 return _text
             except Exception as e:
                 log.error("Bedrock chat (thinking) error: %s", e)
                 raise RuntimeError(f"AWS Bedrock error: {e}") from e
-
-        self._last_thinking = ""
 
         system_blocks = self._to_converse_system_blocks(system)
 
@@ -1460,7 +1461,6 @@ class BedrockProvider(BaseLLMProvider):
             return
 
         # Plain converse_stream path (no thinking).
-        self._last_thinking = ""
         msgs: List[Dict[str, Any]] = [
             {"role": h["role"], "content": [{"text": h["content"]}]} for h in history
         ]

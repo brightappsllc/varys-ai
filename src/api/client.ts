@@ -415,18 +415,24 @@ export class APIClient {
       let buffer = '';
       let lastDone: TaskResponse | null = null;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split('\n\n');
-        buffer = parts.pop() ?? '';
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split('\n\n');
+          buffer = parts.pop() ?? '';
 
-        for (const part of parts) {
-          if (!part.startsWith('data: ')) continue;
-          try {
-            const event = JSON.parse(part.slice(6));
+          for (const part of parts) {
+            if (!part.startsWith('data: ')) continue;
+            let event: any;
+            try {
+              event = JSON.parse(part.slice(6));
+            } catch {
+              // Malformed SSE frame — skip silently.
+              continue;
+            }
             if (event.type === 'chunk' && event.text) {
               onChunk(event.text as string);
             } else if (event.type === 'thought' && event.text) {
@@ -483,11 +489,12 @@ export class APIClient {
               const errMsg: string = (event as any).error ?? 'An API error occurred.';
               throw new Error(errMsg);
             }
-          } catch (e) {
-            // Re-throw intentional API errors; silently drop JSON parse failures.
-            if (e instanceof Error) throw e;
           }
         }
+      } finally {
+        // Always release the reader so the underlying stream is closed,
+        // even when we exit via an exception or AbortController signal.
+        reader.releaseLock();
       }
 
       return lastDone ?? ({

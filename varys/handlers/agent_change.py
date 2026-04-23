@@ -5,6 +5,7 @@ import json
 import logging
 
 from jupyter_server.base.handlers import JupyterHandler
+from tornado.web import authenticated
 
 log = logging.getLogger(__name__)
 
@@ -12,6 +13,7 @@ log = logging.getLogger(__name__)
 class AgentChangeHandler(JupyterHandler):
     """GET /varys/agent/change/<change_id>"""
 
+    @authenticated
     async def get(self, change_id: str):
         sessions = self.settings.get("agent_sessions", {})
 

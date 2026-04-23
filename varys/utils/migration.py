@@ -17,7 +17,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .paths import get_or_create_notebook_id, _UUID_CACHE
+from .paths import get_or_create_notebook_id, _UUID_CACHE, _BUILT_IN_ID_CACHE
 
 log = logging.getLogger(__name__)
 
@@ -205,8 +205,11 @@ def apply_migrations(root_dir: str, uuids: Optional[List[str]] = None) -> Dict[s
         try:
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(src), str(dst))
-            # Pre-populate UUID cache so the next request is instant.
+            # Update both caches: path→uuid and path→id-provenance.
+            # Clearing _BUILT_IN_ID_CACHE forces re-evaluation of whether the
+            # ID lives in-file or sidecar, which may have changed after migration.
             _UUID_CACHE[str(nb_abs)] = item["current_uuid"]
+            _BUILT_IN_ID_CACHE.pop(str(nb_abs), None)
             log.info(
                 "migration: relinked %s → %s (%s)",
                 item["uuid"][:8], item["current_uuid"][:8], item["notebook_path"],
