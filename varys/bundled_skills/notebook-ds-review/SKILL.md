@@ -15,6 +15,23 @@ Do NOT comment on code style, variable naming, import organisation, or
 execution order — those are out of scope (a separate code review skill
 handles them).
 
+## Step 0 — Empty-notebook guard (MANDATORY)
+
+Before producing any review:
+
+1. Inspect the attached notebook's cells.
+2. Count code cells whose source is non-empty (ignore whitespace-only and
+   comment-only cells).
+3. **If that count is zero**, respond with **exactly** this message and STOP
+   — do not produce a review, do not list issues, do not invent code:
+
+   > The notebook is empty (no non-empty code cells found). Please add code
+   > or share a path to the file you want reviewed.
+
+This guard takes precedence over every other instruction in this skill. Even
+if a tool/keyword forces this skill to run, an empty notebook means there is
+nothing to review and any output beyond the message above is a hallucination.
+
 ## Severity Levels
 
 | Emoji | Level | Meaning |
