@@ -1,0 +1,1073 @@
+version: 1
+varys_sha: 14b0a526f38f64a5fe755aedde67de4fc13d6fb9
+extracted_at: 2026-04-24T00:05:28Z
+primitives:
+- id: cell.delete
+  category: cell_structure
+  description: Delete the currently selected cell.
+  preconditions:
+  - notebook_open
+  - cell_selected
+  postconditions:
+  - cell_count_decreased_by_1
+  invocation:
+    type: jupyter_command
+    command: notebook:delete-cell
+  parameters: []
+- id: cell.duplicate_below
+  category: cell_structure
+  description: Duplicate the selected cell and insert the copy immediately below it.
+  preconditions:
+  - notebook_open
+  - cell_selected
+  postconditions:
+  - cell_count_increased_by_1
+  invocation:
+    type: jupyter_command
+    command: notebook:duplicate-below
+  parameters: []
+- id: cell.insert_above
+  category: cell_structure
+  description: Insert a new empty code cell above the currently selected cell.
+  preconditions:
+  - notebook_open
+  - cell_selected
+  postconditions:
+  - cell_count_increased_by_1
+  invocation:
+    type: jupyter_command
+    command: notebook:insert-cell-above
+  parameters: []
+- id: cell.insert_below
+  category: cell_structure
+  description: Insert a new empty code cell below the currently selected cell.
+  preconditions:
+  - notebook_open
+  - cell_selected
+  postconditions:
+  - cell_count_increased_by_1
+  invocation:
+    type: jupyter_command
+    command: notebook:insert-cell-below
+  parameters: []
+- id: cell.merge
+  category: cell_structure
+  description: Merge the selected cells into a single cell.
+  preconditions:
+  - notebook_open
+  - cell_selected
+  postconditions:
+  - cell_count_decreased_by_1
+  invocation:
+    type: jupyter_command
+    command: notebook:merge-cells
+  parameters: []
+- id: cell.move_down
+  category: cell_structure
+  description: Move the selected cell one position down.
+  preconditions:
+  - notebook_open
+  - cell_selected
+  postconditions: []
+  invocation:
+    type: jupyter_command
+    command: notebook:move-cell-down
+  parameters: []
+- id: cell.move_up
+  category: cell_structure
+  description: Move the selected cell one position up.
+  preconditions:
+  - notebook_open
+  - cell_selected
+  postconditions: []
+  invocation:
+    type: jupyter_command
+    command: notebook:move-cell-up
+  parameters: []
+- id: cell.split
+  category: cell_structure
+  description: Split the selected cell at the cursor position.
+  preconditions:
+  - notebook_open
+  - cell_selected
+  postconditions:
+  - cell_count_increased_by_1
+  invocation:
+    type: jupyter_command
+    command: notebook:split-cell-at-cursor
+  parameters: []
+- id: cell.to_code
+  category: cell_structure
+  description: Change the selected cell type to Code.
+  preconditions:
+  - notebook_open
+  - cell_selected
+  postconditions: []
+  invocation:
+    type: jupyter_command
+    command: notebook:change-cell-to-code
+  parameters: []
+- id: cell.to_markdown
+  category: cell_structure
+  description: Change the selected cell type to Markdown.
+  preconditions:
+  - notebook_open
+  - cell_selected
+  postconditions: []
+  invocation:
+    type: jupyter_command
+    command: notebook:change-cell-to-markdown
+  parameters: []
+- id: cell.to_raw
+  category: cell_structure
+  description: Change the selected cell type to Raw.
+  preconditions:
+  - notebook_open
+  - cell_selected
+  postconditions: []
+  invocation:
+    type: jupyter_command
+    command: notebook:change-cell-to-raw
+  parameters: []
+- id: cell.write_code
+  category: cell_content
+  description: Type Python code into the currently selected code cell.
+  preconditions:
+  - notebook_open
+  - cell_selected
+  - cell_type_is_code
+  postconditions:
+  - cell_source_set
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: .jp-Cell.jp-mod-selected .cm-content
+    - action: type
+      selector: .jp-Cell.jp-mod-selected .cm-content
+      content: '{code}'
+  parameters:
+  - name: code
+    type: string
+    required: true
+    example: |-
+      import pandas as pd
+      df = pd.read_csv('data.csv')
+- id: cell.clear_output
+  category: cell_execution
+  description: Clear the output of the selected cell.
+  preconditions:
+  - notebook_open
+  - cell_selected
+  postconditions: []
+  invocation:
+    type: jupyter_command
+    command: notebook:clear-cell-output
+  parameters: []
+- id: cell.interrupt_kernel
+  category: cell_execution
+  description: Interrupt the running kernel, stopping the current cell execution.
+  preconditions:
+  - notebook_open
+  - kernel_running
+  postconditions:
+  - kernel_restarted
+  invocation:
+    type: jupyter_command
+    command: notebook:interrupt-kernel
+  parameters: []
+- id: cell.restart_kernel
+  category: cell_execution
+  description: Restart the notebook kernel.
+  preconditions:
+  - notebook_open
+  postconditions:
+  - kernel_restarted
+  invocation:
+    type: jupyter_command
+    command: notebook:restart-kernel
+  parameters: []
+- id: cell.run
+  category: cell_execution
+  description: Run the selected cell.
+  preconditions:
+  - notebook_open
+  - kernel_running
+  - cell_selected
+  postconditions:
+  - cell_executed
+  invocation:
+    type: jupyter_command
+    command: notebook:run-cell
+  parameters: []
+- id: cell.run_all_above
+  category: cell_execution
+  description: Run all cells above the selected cell.
+  preconditions:
+  - notebook_open
+  - kernel_running
+  - cell_selected
+  postconditions:
+  - cell_executed
+  invocation:
+    type: jupyter_command
+    command: notebook:run-all-above
+  parameters: []
+- id: cell.run_all_below
+  category: cell_execution
+  description: Run all cells below and including the selected cell.
+  preconditions:
+  - notebook_open
+  - kernel_running
+  - cell_selected
+  postconditions:
+  - cell_executed
+  invocation:
+    type: jupyter_command
+    command: notebook:run-all-below
+  parameters: []
+- id: cell.run_and_advance
+  category: cell_execution
+  description: Run the selected cell and move focus to the next cell.
+  preconditions:
+  - notebook_open
+  - kernel_running
+  - cell_selected
+  postconditions:
+  - cell_executed
+  invocation:
+    type: jupyter_command
+    command: notebook:run-cell-and-select-next
+  parameters: []
+- id: varys.accept_notebook_edit
+  category: varys_chat
+  description: Accept a pending AI-proposed notebook edit via the Apply button.
+  preconditions:
+  - varys_sidebar_open
+  - notebook_open
+  postconditions: []
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: .ds-diff-view:not(.ds-diff-view--resolved) .ds-assistant-btn-accept
+  parameters: []
+- id: varys.delete_thread
+  category: varys_chat
+  description: Delete the active thread (only available when more than one thread exists).
+  preconditions:
+  - varys_sidebar_open
+  postconditions: []
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: .ds-thread-pill--active .ds-thread-pill-btn--delete
+  parameters: []
+- id: varys.duplicate_thread
+  category: varys_chat
+  description: Duplicate the active thread.
+  preconditions:
+  - varys_sidebar_open
+  postconditions:
+  - thread_created
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: .ds-thread-pill--active .ds-thread-pill-btn:nth-child(2)
+  parameters: []
+- id: varys.file_agent.accept_change
+  category: varys_chat
+  description: Accept a pending file-agent change, writing it to disk.
+  preconditions:
+  - varys_sidebar_open
+  postconditions: []
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: .ds-file-change-card:not(.ds-file-change-card--resolved) .ds-assistant-btn-accept
+  parameters: []
+- id: varys.file_agent.reject_change
+  category: varys_chat
+  description: Reject a pending file-agent change, reverting the preview.
+  preconditions:
+  - varys_sidebar_open
+  postconditions: []
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: .ds-file-change-card:not(.ds-file-change-card--resolved) .ds-assistant-btn-undo
+  parameters: []
+- id: varys.graph.refresh
+  category: varys_chat
+  description: Recompute and refresh the notebook dependency graph.
+  preconditions:
+  - varys_sidebar_open
+  - notebook_open
+  postconditions: []
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: button.ds-graph-refresh-btn
+  completion_signal:
+    type: selector_disappears
+    selector: .ds-graph-loading
+    timeout_seconds: 30
+  parameters: []
+- id: varys.graph.select_node
+  category: varys_chat
+  description: Click a dependency-graph node to highlight its upstream and downstream paths.
+  preconditions:
+  - varys_sidebar_open
+  - notebook_open
+  postconditions: []
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: div.ds-graph-node
+  parameters: []
+- id: varys.new_thread
+  category: varys_chat
+  description: Create a new chat thread.
+  preconditions:
+  - varys_sidebar_open
+  postconditions:
+  - thread_created
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: button.ds-thread-add-btn
+  parameters: []
+- id: varys.open_graph_panel
+  category: varys_chat
+  description: Open the Notebook Dependency Graph panel.
+  preconditions:
+  - varys_sidebar_open
+  - notebook_open
+  postconditions: []
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: button.ds-graph-open-btn
+  parameters: []
+- id: varys.open_repro_panel
+  category: varys_chat
+  description: Open the Reproducibility Guardian panel.
+  preconditions:
+  - varys_sidebar_open
+  - notebook_open
+  postconditions: []
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: button.ds-repro-shield-btn
+  parameters: []
+- id: varys.open_settings
+  category: varys_chat
+  description: Open the Varys Settings panel.
+  preconditions:
+  - varys_sidebar_open
+  postconditions: []
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: button.ds-settings-gear-btn
+  parameters: []
+- id: varys.open_tags_panel
+  category: varys_chat
+  description: Open the Cell Tags & Metadata panel.
+  preconditions:
+  - varys_sidebar_open
+  postconditions: []
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: button.ds-tags-panel-btn
+  parameters: []
+- id: varys.rename_thread
+  category: varys_chat
+  description: Rename the active thread via the pen icon.
+  preconditions:
+  - varys_sidebar_open
+  postconditions: []
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: .ds-thread-pill--active .ds-thread-pill-btn:first-child
+    - action: fill
+      selector: .ds-thread-rename-input
+      content: '{new_name}'
+    - action: press
+      selector: .ds-thread-rename-input
+      content: Enter
+  parameters:
+  - name: new_name
+    type: string
+    required: true
+    example: EDA session
+- id: varys.repro.analyze
+  category: varys_chat
+  description: Trigger a Reproducibility Guardian analysis of the current notebook.
+  preconditions:
+  - varys_sidebar_open
+  - notebook_open
+  postconditions: []
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: button.ds-repro-btn--analyze
+  completion_signal:
+    type: selector_disappears
+    selector: button.ds-repro-btn--analyze[disabled]
+    timeout_seconds: 60
+  parameters: []
+- id: varys.repro.dismiss_issue
+  category: varys_chat
+  description: Dismiss a single Reproducibility Guardian issue card.
+  preconditions:
+  - varys_sidebar_open
+  - notebook_open
+  postconditions: []
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: button.ds-repro-btn--dismiss
+  parameters: []
+- id: varys.repro.fix_all
+  category: varys_chat
+  description: Ask Varys to fix all Reproducibility Guardian issues at once.
+  preconditions:
+  - varys_sidebar_open
+  - notebook_open
+  postconditions:
+  - varys_loading_until_response
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: button.ds-repro-btn--fixall
+  completion_signal:
+    type: dom_swap
+    from_selector: '[data-testid=''varys-stop-button'']'
+    to_selector: '[data-testid=''varys-send-button'']'
+    timeout_seconds: 180
+  parameters: []
+- id: varys.repro.fix_issue
+  category: varys_chat
+  description: Ask Varys to auto-fix a single Reproducibility Guardian issue.
+  preconditions:
+  - varys_sidebar_open
+  - notebook_open
+  postconditions:
+  - varys_loading_until_response
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: button.ds-repro-btn--fix
+  completion_signal:
+    type: dom_swap
+    from_selector: '[data-testid=''varys-stop-button'']'
+    to_selector: '[data-testid=''varys-send-button'']'
+    timeout_seconds: 120
+  parameters: []
+- id: varys.send_prompt
+  category: varys_chat
+  description: Send a prompt to the Varys sidebar and wait for the streaming response.
+  preconditions:
+  - varys_sidebar_open
+  - varys_idle
+  postconditions:
+  - varys_loading_until_response
+  invocation:
+    type: playwright
+    steps:
+    - action: fill
+      selector: '[data-testid=''varys-chat-input'']'
+      content: '{prompt}'
+    - action: click
+      selector: '[data-testid=''varys-send-button'']'
+  completion_signal:
+    type: dom_swap
+    from_selector: '[data-testid=''varys-stop-button'']'
+    to_selector: '[data-testid=''varys-send-button'']'
+    timeout_seconds: 120
+  parameters:
+  - name: prompt
+    type: string
+    required: true
+    example: Summarize the dataframe in the current cell.
+- id: varys.set_cell_mode
+  category: varys_chat
+  description: Switch between Chat mode and Agent mode via the mode selector.
+  preconditions:
+  - varys_sidebar_open
+  - notebook_open
+  postconditions: []
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: select.ds-cell-mode-select
+    - action: fill
+      selector: select.ds-cell-mode-select
+      content: '{mode}'
+  parameters:
+  - name: mode
+    type: string
+    required: true
+    example: agent
+- id: varys.set_reasoning_mode
+  category: varys_chat
+  description: Open the chain-of-thought dropdown and select a reasoning mode.
+  preconditions:
+  - varys_sidebar_open
+  postconditions: []
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: button.ds-thinking-chip
+    - action: click
+      selector: .ds-reasoning-item
+      content: '{mode}'
+  parameters:
+  - name: mode
+    type: string
+    required: true
+    example: CoT
+- id: varys.stop_generation
+  category: varys_chat
+  description: Stop an in-progress Varys response by clicking the Stop button.
+  preconditions:
+  - varys_sidebar_open
+  postconditions: []
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: '[data-testid=''varys-stop-button'']'
+  completion_signal:
+    type: selector_appears
+    selector: '[data-testid=''varys-send-button'']'
+    timeout_seconds: 10
+  parameters: []
+- id: varys.switch_model
+  category: varys_chat
+  description: Switch the active chat model via the model-switcher dropdown.
+  preconditions:
+  - varys_sidebar_open
+  postconditions: []
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: button.ds-model-switcher-btn
+    - action: click
+      selector: .ds-model-switcher-option
+      content: '{model_name}'
+  parameters:
+  - name: model_name
+    type: string
+    required: true
+    example: claude-sonnet-4-6
+- id: varys.switch_thread
+  category: varys_chat
+  description: Switch to a different chat thread by clicking its pill.
+  preconditions:
+  - varys_sidebar_open
+  postconditions: []
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: .ds-thread-pill-name
+      content: '{thread_name}'
+  parameters:
+  - name: thread_name
+    type: string
+    required: true
+    example: Thread 2
+- id: varys.tags.apply_tag
+  category: varys_chat
+  description: Apply a tag from the tag library to the currently selected cell.
+  preconditions:
+  - varys_sidebar_open
+  - notebook_open
+  - cell_selected
+  postconditions: []
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: button.ds-tp-pill
+      content: '{tag_value}'
+  parameters:
+  - name: tag_value
+    type: string
+    required: true
+    example: data-loading
+- id: varys.tags.create_custom_tag
+  category: varys_chat
+  description: Create a new custom tag definition in the Tags panel.
+  preconditions:
+  - varys_sidebar_open
+  postconditions: []
+  invocation:
+    type: playwright
+    steps:
+    - action: fill
+      selector: input.ds-tp-name-input
+      content: '{tag_value}'
+    - action: click
+      selector: button.ds-tp-create-btn
+  parameters:
+  - name: tag_value
+    type: string
+    required: true
+    example: model-training
+- id: varys.toggle_notebook_context
+  category: varys_chat
+  description: Toggle whether the current notebook's cell context is included in queries.
+  preconditions:
+  - varys_sidebar_open
+  - notebook_open
+  postconditions: []
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: button.ds-nb-ctx-chip
+  parameters: []
+- id: varys.toggle_theme
+  category: varys_chat
+  description: Toggle the Varys sidebar between day mode and night mode.
+  preconditions:
+  - varys_sidebar_open
+  postconditions: []
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: button.ds-theme-toggle-btn
+  parameters: []
+- id: varys.undo_notebook_edit
+  category: varys_chat
+  description: Undo a pending or applied AI-proposed notebook edit.
+  preconditions:
+  - varys_sidebar_open
+  - notebook_open
+  postconditions: []
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: .ds-diff-view:not(.ds-diff-view--resolved) .ds-assistant-btn-undo
+  parameters: []
+- id: varys.slash.annotate
+  category: varys_commands
+  description: 'Invoke the /annotate slash command: Number and title every code cell with a short markdown description'
+  preconditions:
+  - varys_sidebar_open
+  - varys_idle
+  postconditions:
+  - varys_loading_until_response
+  invocation:
+    type: playwright
+    steps:
+    - action: fill
+      selector: '[data-testid=''varys-chat-input'']'
+      content: /annotate {prompt}
+    - action: click
+      selector: '[data-testid=''varys-send-button'']'
+  completion_signal:
+    type: dom_swap
+    from_selector: '[data-testid=''varys-stop-button'']'
+    to_selector: '[data-testid=''varys-send-button'']'
+    timeout_seconds: 120
+  parameters:
+  - name: prompt
+    type: string
+    required: true
+    example: Analyze df
+- id: varys.slash.ds_review
+  category: varys_commands
+  description: 'Invoke the /ds-review slash command: Data-science methodology review: leakage, bias, statistical correctness'
+  preconditions:
+  - varys_sidebar_open
+  - varys_idle
+  postconditions:
+  - varys_loading_until_response
+  invocation:
+    type: playwright
+    steps:
+    - action: fill
+      selector: '[data-testid=''varys-chat-input'']'
+      content: /ds-review {prompt}
+    - action: click
+      selector: '[data-testid=''varys-send-button'']'
+  completion_signal:
+    type: dom_swap
+    from_selector: '[data-testid=''varys-stop-button'']'
+    to_selector: '[data-testid=''varys-send-button'']'
+    timeout_seconds: 120
+  parameters:
+  - name: prompt
+    type: string
+    required: true
+    example: Analyze df
+- id: varys.slash.eda
+  category: varys_commands
+  description: 'Invoke the /eda slash command: Run EDA with distribution plots, correlation heatmap and summary statistics'
+  preconditions:
+  - varys_sidebar_open
+  - varys_idle
+  postconditions:
+  - varys_loading_until_response
+  invocation:
+    type: playwright
+    steps:
+    - action: fill
+      selector: '[data-testid=''varys-chat-input'']'
+      content: /eda {prompt}
+    - action: click
+      selector: '[data-testid=''varys-send-button'']'
+  completion_signal:
+    type: dom_swap
+    from_selector: '[data-testid=''varys-stop-button'']'
+    to_selector: '[data-testid=''varys-send-button'']'
+    timeout_seconds: 120
+  parameters:
+  - name: prompt
+    type: string
+    required: true
+    example: Analyze df
+- id: varys.slash.file_agent
+  category: varys_commands
+  description: 'Invoke the /file_agent slash command: Read, write, and edit project files with an AI agent'
+  preconditions:
+  - varys_sidebar_open
+  - varys_idle
+  postconditions:
+  - varys_loading_until_response
+  invocation:
+    type: playwright
+    steps:
+    - action: fill
+      selector: '[data-testid=''varys-chat-input'']'
+      content: /file_agent {prompt}
+    - action: click
+      selector: '[data-testid=''varys-send-button'']'
+  completion_signal:
+    type: dom_swap
+    from_selector: '[data-testid=''varys-stop-button'']'
+    to_selector: '[data-testid=''varys-send-button'']'
+    timeout_seconds: 120
+  parameters:
+  - name: prompt
+    type: string
+    required: true
+    example: Analyze df
+- id: varys.slash.generate
+  category: varys_commands
+  description: 'Invoke the /generate slash command: Full pipeline: load data → EDA → annotate → README (composite)'
+  preconditions:
+  - varys_sidebar_open
+  - varys_idle
+  postconditions:
+  - varys_loading_until_response
+  invocation:
+    type: playwright
+    steps:
+    - action: fill
+      selector: '[data-testid=''varys-chat-input'']'
+      content: /generate {prompt}
+    - action: click
+      selector: '[data-testid=''varys-send-button'']'
+  completion_signal:
+    type: dom_swap
+    from_selector: '[data-testid=''varys-stop-button'']'
+    to_selector: '[data-testid=''varys-send-button'']'
+    timeout_seconds: 180
+  parameters:
+  - name: prompt
+    type: string
+    required: true
+    example: Analyze df
+- id: varys.slash.load
+  category: varys_commands
+  description: 'Invoke the /load slash command: Load a file (CSV/Excel/JSON) as a pandas DataFrame with an overview'
+  preconditions:
+  - varys_sidebar_open
+  - varys_idle
+  postconditions:
+  - varys_loading_until_response
+  invocation:
+    type: playwright
+    steps:
+    - action: fill
+      selector: '[data-testid=''varys-chat-input'']'
+      content: /load {prompt}
+    - action: click
+      selector: '[data-testid=''varys-send-button'']'
+  completion_signal:
+    type: dom_swap
+    from_selector: '[data-testid=''varys-stop-button'']'
+    to_selector: '[data-testid=''varys-send-button'']'
+    timeout_seconds: 120
+  parameters:
+  - name: prompt
+    type: string
+    required: true
+    example: Analyze df
+- id: varys.slash.notebook_to_module
+  category: varys_commands
+  description: 'Invoke the /notebook_to_module slash command: Convert reusable notebook functions to a Python module'
+  preconditions:
+  - varys_sidebar_open
+  - varys_idle
+  postconditions:
+  - varys_loading_until_response
+  invocation:
+    type: playwright
+    steps:
+    - action: fill
+      selector: '[data-testid=''varys-chat-input'']'
+      content: /notebook_to_module {prompt}
+    - action: click
+      selector: '[data-testid=''varys-send-button'']'
+  completion_signal:
+    type: dom_swap
+    from_selector: '[data-testid=''varys-stop-button'']'
+    to_selector: '[data-testid=''varys-send-button'']'
+    timeout_seconds: 120
+  parameters:
+  - name: prompt
+    type: string
+    required: true
+    example: Analyze df
+- id: varys.slash.plot
+  category: varys_commands
+  description: 'Invoke the /plot slash command: Generate a publication-quality visualization from a natural language description'
+  preconditions:
+  - varys_sidebar_open
+  - varys_idle
+  postconditions:
+  - varys_loading_until_response
+  invocation:
+    type: playwright
+    steps:
+    - action: fill
+      selector: '[data-testid=''varys-chat-input'']'
+      content: /plot {prompt}
+    - action: click
+      selector: '[data-testid=''varys-send-button'']'
+  completion_signal:
+    type: dom_swap
+    from_selector: '[data-testid=''varys-stop-button'']'
+    to_selector: '[data-testid=''varys-send-button'']'
+    timeout_seconds: 120
+  parameters:
+  - name: prompt
+    type: string
+    required: true
+    example: Analyze df
+- id: varys.slash.readme
+  category: varys_commands
+  description: 'Invoke the /readme slash command: Generate or update the top-cell README for this notebook'
+  preconditions:
+  - varys_sidebar_open
+  - varys_idle
+  postconditions:
+  - varys_loading_until_response
+  invocation:
+    type: playwright
+    steps:
+    - action: fill
+      selector: '[data-testid=''varys-chat-input'']'
+      content: /readme {prompt}
+    - action: click
+      selector: '[data-testid=''varys-send-button'']'
+  completion_signal:
+    type: dom_swap
+    from_selector: '[data-testid=''varys-stop-button'']'
+    to_selector: '[data-testid=''varys-send-button'']'
+    timeout_seconds: 120
+  parameters:
+  - name: prompt
+    type: string
+    required: true
+    example: Analyze df
+- id: varys.slash.report
+  category: varys_commands
+  description: 'Invoke the /report slash command: Generate a downloadable markdown report with embedded visualizations'
+  preconditions:
+  - varys_sidebar_open
+  - varys_idle
+  postconditions:
+  - varys_loading_until_response
+  invocation:
+    type: playwright
+    steps:
+    - action: fill
+      selector: '[data-testid=''varys-chat-input'']'
+      content: /report {prompt}
+    - action: click
+      selector: '[data-testid=''varys-send-button'']'
+  completion_signal:
+    type: dom_swap
+    from_selector: '[data-testid=''varys-stop-button'']'
+    to_selector: '[data-testid=''varys-send-button'']'
+    timeout_seconds: 120
+  parameters:
+  - name: prompt
+    type: string
+    required: true
+    example: Analyze df
+- id: varys.slash.review
+  category: varys_commands
+  description: 'Invoke the /review slash command: Static code-quality review: bugs, style, maintainability'
+  preconditions:
+  - varys_sidebar_open
+  - varys_idle
+  postconditions:
+  - varys_loading_until_response
+  invocation:
+    type: playwright
+    steps:
+    - action: fill
+      selector: '[data-testid=''varys-chat-input'']'
+      content: /review {prompt}
+    - action: click
+      selector: '[data-testid=''varys-send-button'']'
+  completion_signal:
+    type: dom_swap
+    from_selector: '[data-testid=''varys-stop-button'']'
+    to_selector: '[data-testid=''varys-send-button'']'
+    timeout_seconds: 120
+  parameters:
+  - name: prompt
+    type: string
+    required: true
+    example: Analyze df
+- id: varys.slash.unittest
+  category: varys_commands
+  description: 'Invoke the /unittest slash command: Generate comprehensive pytest test cases for functions defined in a notebook
+    cell'
+  preconditions:
+  - varys_sidebar_open
+  - varys_idle
+  postconditions:
+  - varys_loading_until_response
+  invocation:
+    type: playwright
+    steps:
+    - action: fill
+      selector: '[data-testid=''varys-chat-input'']'
+      content: /unittest {prompt}
+    - action: click
+      selector: '[data-testid=''varys-send-button'']'
+  completion_signal:
+    type: dom_swap
+    from_selector: '[data-testid=''varys-stop-button'']'
+    to_selector: '[data-testid=''varys-send-button'']'
+    timeout_seconds: 120
+  parameters:
+  - name: prompt
+    type: string
+    required: true
+    example: Analyze df
+- id: file_ops.create_notebook
+  category: file_ops
+  description: Create a new Jupyter notebook via the JupyterLab file browser.
+  preconditions: []
+  postconditions:
+  - notebook_open
+  invocation:
+    type: jupyter_command
+    command: notebook:create-new
+  parameters: []
+- id: file_ops.delete_file
+  category: file_ops
+  description: Delete a file from the Jupyter workspace via the file browser context menu.
+  preconditions:
+  - file_exists:{path}
+  postconditions: []
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: .jp-DirListing-item[title='{path}']
+    - action: click
+      selector: .jp-ContextMenu li[data-command='filebrowser:delete']
+  parameters:
+  - name: path
+    type: file_path
+    required: true
+    example: old_data.csv
+- id: file_ops.open_notebook
+  category: file_ops
+  description: Open an existing notebook by path in JupyterLab.
+  preconditions:
+  - file_exists:{path}
+  postconditions:
+  - notebook_open
+  invocation:
+    type: playwright
+    steps:
+    - action: click
+      selector: .jp-DirListing-item[title='{path}']
+  parameters:
+  - name: path
+    type: file_path
+    required: true
+    example: analysis.ipynb
+- id: file_ops.upload_file
+  category: file_ops
+  description: Upload a local file to the Jupyter workspace via the file browser upload button.
+  preconditions: []
+  postconditions: []
+  invocation:
+    type: playwright
+    steps:
+    - action: upload
+      selector: input.jp-ToolbarButtonComponent[title='Upload Files']
+      content: '{local_path}'
+  parameters:
+  - name: local_path
+    type: file_path
+    required: true
+    example: /tmp/data.csv
+- id: notebook_ops.close
+  category: notebook_ops
+  description: Close the current notebook tab.
+  preconditions:
+  - notebook_open
+  postconditions: []
+  invocation:
+    type: jupyter_command
+    command: docmanager:close
+  parameters: []
+- id: notebook_ops.save
+  category: notebook_ops
+  description: Save the current notebook.
+  preconditions:
+  - notebook_open
+  postconditions: []
+  invocation:
+    type: jupyter_command
+    command: docmanager:save
+  parameters: []
