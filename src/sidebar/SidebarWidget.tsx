@@ -179,41 +179,126 @@ function buildHighlightHtml(text: string, validSymbols?: Set<string>): string {
   return parts.join('');
 }
 
-/** Returns the cursor's character offset within the element's plain text. */
+/**
+ * Returns the cursor's character offset within the element's plain text.
+ *
+ * Walks the DOM tree and counts both text-node characters AND <br> elements
+ * (each <br> = 1 '\n' in the `input` string).  The old Range.toString()
+ * approach silently ignored <br> nodes, causing an off-by-N displacement when
+ * the user pressed Shift+Enter more than once.
+ */
 function getCursorCharOffset(el: HTMLElement): number {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0) return 0;
-  const pre = sel.getRangeAt(0).cloneRange();
-  pre.selectNodeContents(el);
-  pre.setEnd(sel.getRangeAt(0).endContainer, sel.getRangeAt(0).endOffset);
-  return pre.toString().length;
-}
+  const range   = sel.getRangeAt(0);
+  const endNode = range.endContainer;
+  const endOff  = range.endOffset;
 
-/** Moves the cursor to `offset` characters into the element's plain text. */
-function setCursorCharOffset(el: HTMLElement, offset: number): void {
-  const sel = window.getSelection();
-  if (!sel) return;
-  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-  let charCount = 0;
-  let node: Node | null;
-  while ((node = walker.nextNode())) {
-    const len = (node.textContent ?? '').length;
-    if (charCount + len >= offset) {
-      const range = document.createRange();
-      range.setStart(node, offset - charCount);
-      range.collapse(true);
-      sel.removeAllRanges();
-      sel.addRange(range);
+  let count = 0;
+  let done  = false;
+
+  // Walk the entire subtree of `node`, adding all chars (text + <br>=\n).
+  function countAll(node: Node): void {
+    if (node.nodeType === Node.TEXT_NODE) {
+      count += (node.textContent ?? '').length;
+    } else if ((node as Element).tagName === 'BR') {
+      count += 1;
+    } else {
+      for (let i = 0; i < node.childNodes.length; i++) countAll(node.childNodes[i]);
+    }
+  }
+
+  // Walk until we hit `endNode`, counting chars along the way.
+  function countUpto(node: Node): void {
+    if (done) return;
+    if (node === endNode) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        count += endOff;
+      } else {
+        // Element endContainer: endOff = number of children before cursor
+        for (let i = 0; i < endOff && !done; i++) countAll(node.childNodes[i]);
+      }
+      done = true;
       return;
     }
-    charCount += len;
+    if (node.nodeType === Node.TEXT_NODE) {
+      count += (node.textContent ?? '').length;
+    } else if ((node as Element).tagName === 'BR') {
+      count += 1;
+    } else {
+      for (let i = 0; i < node.childNodes.length && !done; i++) countUpto(node.childNodes[i]);
+    }
+  }
+
+  // Special case: cursor anchored to el itself (between block children)
+  if (el === endNode) {
+    for (let i = 0; i < endOff; i++) countAll(el.childNodes[i]);
+    return count;
+  }
+  for (let i = 0; i < el.childNodes.length && !done; i++) countUpto(el.childNodes[i]);
+  return count;
+}
+
+/**
+ * Moves the cursor to `offset` characters into the element's plain text.
+ *
+ * Counts text-node characters AND <br> elements (each = 1 '\n') so the
+ * offset matches the `input` string representation.
+ */
+function setCursorCharOffset(el: HTMLElement, offset: number): void {
+  const selRaw = window.getSelection();
+  if (!selRaw) return;
+  const sel = selRaw; // non-null alias for use inside closures
+  let count = 0;
+
+  function walk(node: Node): boolean {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const len = (node.textContent ?? '').length;
+      if (count + len >= offset) {
+        const r = document.createRange();
+        r.setStart(node, offset - count);
+        r.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(r);
+        return true;
+      }
+      count += len;
+    } else if (node.nodeType === Node.ELEMENT_NODE && (node as Element).tagName === 'BR') {
+      // Check before incrementing: cursor may land right before this <br>
+      if (count >= offset) {
+        const r = document.createRange();
+        r.setStartBefore(node);
+        r.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(r);
+        return true;
+      }
+      count += 1; // <br> = '\n'
+      if (count >= offset) {
+        const r = document.createRange();
+        r.setStartAfter(node);
+        r.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(r);
+        return true;
+      }
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      for (let i = 0; i < node.childNodes.length; i++) {
+        if (walk(node.childNodes[i])) return true;
+      }
+    }
+    return false;
+  }
+
+  for (let i = 0; i < el.childNodes.length; i++) {
+    if (walk(el.childNodes[i])) return;
   }
   // Fallback: cursor to end
-  const range = document.createRange();
-  range.selectNodeContents(el);
-  range.collapse(false);
+  const r = document.createRange();
+  r.selectNodeContents(el);
+  r.collapse(false);
   sel.removeAllRanges();
-  sel.addRange(range);
+  sel.addRange(r);
 }
 
 /** Moves the cursor to the very end of the element's content. */
@@ -1391,6 +1476,16 @@ const SETTINGS_NAV_GROUPS: NavGroup[] = [
     label: 'Workspace',
     items: [
       {
+        id: 'context',
+        label: 'Context',
+        icon: (
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.3">
+            <rect x="1.5" y="2.5" width="12" height="10" rx="1.2"/>
+            <path d="M4 5.5h7M4 8h7M4 10.5h4"/>
+          </svg>
+        ),
+      },
+      {
         id: 'skills',
         label: 'Skills',
         icon: (
@@ -1451,17 +1546,35 @@ const SETTINGS_NAV_GROUPS: NavGroup[] = [
       },
     ],
   },
+  {
+    label: 'Maintenance',
+    items: [
+      {
+        id: 'maintenance',
+        label: 'Notebooks',
+        icon: (
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.3">
+            <path d="M7.5 1L9.18 5.27L13.78 5.64L10.28 8.63L11.39 13.09L7.5 10.7L3.61 13.09L4.72 8.63L1.22 5.64L5.82 5.27L7.5 1Z" strokeLinejoin="round"/>
+            <line x1="7.5" y1="5" x2="7.5" y2="10"/>
+            <line x1="5" y1="7.5" x2="10" y2="7.5"/>
+          </svg>
+        ),
+      },
+    ],
+  },
 ];
 
 const SECTION_HEADING_MAP: Record<string, string> = {
   'model-routing':   'Model Routing',
   'model-providers': 'Model Providers',
   'mcp':             'MCP',
+  'context':         'Context',
   'skills':          'Skills',
   'commands':        'Commands',
   'tags':            'Tags',
   'memory':          'Long-term memory',
   'usage':           'Usage',
+  'maintenance':     'Notebooks',
 };
 
 const SUB_SECTION_LABEL_MAP: Record<string, string> = {
@@ -2107,8 +2220,18 @@ const SkillsPanel: React.FC<{ apiClient: APIClient; notebookPath?: string }> = (
 
   // Resizable splitter
   const [listWidth, setListWidth] = useState(160);
-  const panelRef   = useRef<HTMLDivElement>(null);
-  const dragging   = useRef(false);
+  const panelRef        = useRef<HTMLDivElement>(null);
+  const dragging        = useRef(false);
+  const dragMoveRef     = useRef<((ev: MouseEvent) => void) | null>(null);
+  const dragUpRef       = useRef<(() => void) | null>(null);
+
+  // Clean up drag listeners if the component unmounts mid-drag.
+  useEffect(() => {
+    return () => {
+      if (dragMoveRef.current) window.removeEventListener('mousemove', dragMoveRef.current);
+      if (dragUpRef.current)   window.removeEventListener('mouseup',   dragUpRef.current);
+    };
+  }, []);
 
   const onSplitterMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -2123,7 +2246,11 @@ const SkillsPanel: React.FC<{ apiClient: APIClient; notebookPath?: string }> = (
       dragging.current = false;
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
+      dragMoveRef.current = null;
+      dragUpRef.current   = null;
     };
+    dragMoveRef.current = onMove;
+    dragUpRef.current   = onUp;
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   };
@@ -2550,6 +2677,72 @@ function tagColorTs(tag: string): string {
   for (let i = 0; i < tag.length; i++) h = (h * 31 + tag.charCodeAt(i)) >>> 0;
   return TAG_PALETTE_TS[h % TAG_PALETTE_TS.length];
 }
+
+// ---------------------------------------------------------------------------
+// ContextPanel — Settings → Workspace → Context
+// Lets the user toggle the focal-cell context cutoff. Source of truth is
+// localStorage 'ds-assistant-limit-to-focal'; the chat input reads it fresh
+// at submit time, so this panel doesn't need to push state anywhere.
+// ---------------------------------------------------------------------------
+const ContextPanel: React.FC = () => {
+  const [limitToFocal, setLimitToFocalState] = useState<boolean>(() => {
+    try { return localStorage.getItem('ds-assistant-limit-to-focal') === '1'; }
+    catch { return false; }
+  });
+
+  const setLimit = (next: boolean) => {
+    setLimitToFocalState(next);
+    try { localStorage.setItem('ds-assistant-limit-to-focal', next ? '1' : '0'); }
+    catch { /* ignore */ }
+  };
+
+  return (
+    <div className="ds-settings-section-body">
+      <div className="ds-settings-row">
+        <div className="ds-settings-row-label">
+          <span className="ds-settings-row-title">
+            Limit context to active cell
+            <span
+              className="ds-info-bubble"
+              tabIndex={0}
+              role="img"
+              aria-label="What does this do?"
+              data-tip={
+                "When ON (Agent mode only): the assistant only sees cells from "
+                + "the top of the notebook through the active (focused) cell. "
+                + "Cells past the active cell are hidden — the agent can still "
+                + "see their existence as a one-line skeleton, but cannot read "
+                + "or edit their contents.\n\n"
+                + "Use this for tasks that act on a single cell and where you "
+                + "don't want the agent to make 'helpful' edits to unrelated "
+                + "downstream cells.\n\n"
+                + "Leave OFF for cross-cell refactors (rename across the whole "
+                + "notebook, insert above a downstream header, etc.) — the "
+                + "agent needs full visibility for those.\n\n"
+                + "No effect in Chat mode — chat already cuts off at the "
+                + "active cell."
+              }
+            >
+              i
+            </span>
+          </span>
+          <span className="ds-settings-row-sub">
+            Agent mode only. Hides cells past the focused cell so the agent
+            stays focused on all cells up to and including the focused cell.
+          </span>
+        </div>
+        <button
+          type="button"
+          className={`ds-toggle-pill${limitToFocal ? ' active' : ''}`}
+          aria-pressed={limitToFocal}
+          onClick={() => setLimit(!limitToFocal)}
+        >
+          {limitToFocal ? '🔒 On' : '🌐 Off'}
+        </button>
+      </div>
+    </div>
+  );
+};
 
 const TagsSettingsPanel: React.FC = () => {
   const [customTags, setCustomTags] = useState<CustomTagDef[]>(loadCustomTags);
@@ -3229,6 +3422,153 @@ const MemoryTab: React.FC = () => (
 );
 
 // ---------------------------------------------------------------------------
+// MaintenancePanel — scan and relink orphaned notebook data dirs
+// ---------------------------------------------------------------------------
+
+type OrphanEntry = {
+  uuid: string;
+  notebook_path: string;
+  message_count: number;
+  current_uuid: string | null;
+  notebook_missing: boolean;
+  needs_migration: boolean;
+  conflict: boolean;
+};
+
+const MaintenancePanel: React.FC<{ apiClient: APIClient }> = ({ apiClient }) => {
+  const [scanning,    setScanning]    = useState(false);
+  const [applying,    setApplying]    = useState(false);
+  const [scanResult,  setScanResult]  = useState<{
+    orphaned: OrphanEntry[];
+    already_linked: number;
+    total_scanned: number;
+  } | null>(null);
+  const [applyResult, setApplyResult] = useState<Array<{
+    uuid: string; status: string; notebook_path: string; new_uuid?: string; error?: string;
+  }> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleScan = async () => {
+    setScanning(true);
+    setError(null);
+    setApplyResult(null);
+    try {
+      const r = await apiClient.scanOrphans();
+      setScanResult(r);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Scan failed');
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const handleRelink = async () => {
+    setApplying(true);
+    setError(null);
+    try {
+      const r = await apiClient.applyOrphanMigration();
+      setApplyResult(r.results);
+      // Refresh scan so counts update
+      const refreshed = await apiClient.scanOrphans();
+      setScanResult(refreshed);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Relink failed');
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const needsMigration = scanResult?.orphaned.filter(o => o.needs_migration) ?? [];
+  const missing        = scanResult?.orphaned.filter(o => o.notebook_missing)  ?? [];
+
+  return (
+    <div className="ds-settings-section-body ds-maintenance-panel">
+      <p className="ds-maintenance-desc">
+        Scan for notebook chat history that became unlinked after an upgrade or
+        schema change. Varys will rename the data directories to match each
+        notebook's current ID so history is restored automatically.
+      </p>
+
+      <div className="ds-maintenance-actions">
+        <button
+          className="ds-settings-save-btn"
+          onClick={handleScan}
+          disabled={scanning || applying}
+        >{scanning ? 'Scanning…' : 'Scan'}</button>
+
+        {needsMigration.length > 0 && (
+          <button
+            className="ds-settings-save-btn"
+            onClick={handleRelink}
+            disabled={applying}
+            style={{ marginLeft: 8 }}
+          >{applying ? 'Relinking…' : `Relink ${needsMigration.length} notebook${needsMigration.length !== 1 ? 's' : ''}`}</button>
+        )}
+      </div>
+
+      {error && <div className="ds-maintenance-error">{error}</div>}
+
+      {scanResult && (
+        <div className="ds-maintenance-results">
+          <div className="ds-maintenance-summary">
+            {scanResult.total_scanned === 0
+              ? 'No notebook data directories found.'
+              : <>
+                  Scanned <strong>{scanResult.total_scanned}</strong> data {scanResult.total_scanned === 1 ? 'dir' : 'dirs'}.
+                  {' '}<strong>{scanResult.already_linked}</strong> already linked.
+                  {needsMigration.length > 0
+                    ? <> <strong>{needsMigration.length}</strong> need relinking.</>
+                    : ' All up to date.'}
+                </>
+            }
+          </div>
+
+          {needsMigration.map(item => (
+            <div key={item.uuid} className="ds-maintenance-item ds-maintenance-item--needs">
+              <div className="ds-maintenance-item-path" title={item.notebook_path}>
+                {item.notebook_path.split('/').pop()}
+              </div>
+              <div className="ds-maintenance-item-meta">
+                {item.message_count} msg{item.message_count !== 1 ? 's' : ''}
+                {item.conflict && <span className="ds-maintenance-warn"> · conflict</span>}
+              </div>
+            </div>
+          ))}
+
+          {missing.length > 0 && (
+            <div className="ds-maintenance-missing">
+              <span className="ds-maintenance-missing-label">
+                {missing.length} notebook{missing.length !== 1 ? 's' : ''} not found on disk
+              </span>
+              {missing.map(item => (
+                <div key={item.uuid} className="ds-maintenance-item ds-maintenance-item--missing" title={item.notebook_path}>
+                  {item.notebook_path.split('/').pop()} · {item.message_count} msg{item.message_count !== 1 ? 's' : ''}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {applyResult && applyResult.length > 0 && (
+        <div className="ds-maintenance-apply-results">
+          {applyResult.filter(r => r.status === 'migrated').map(r => (
+            <div key={r.uuid} className="ds-maintenance-result ds-maintenance-result--ok">
+              ✓ Relinked: {r.notebook_path.split('/').pop()}
+            </div>
+          ))}
+          {applyResult.filter(r => r.status !== 'migrated' && r.status !== 'skipped').map(r => (
+            <div key={r.uuid} className="ds-maintenance-result ds-maintenance-result--err">
+              ✗ {r.notebook_path.split('/').pop()}: {r.error}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
 // SettingsPanel — vertical sidebar nav + content pane
 // ---------------------------------------------------------------------------
 
@@ -3279,6 +3619,8 @@ const SettingsPanel: React.FC<{
             <MCPPanel apiClient={apiClient} />
           </div>
         );
+      case 'context':
+        return <ContextPanel />;
       case 'skills':
         return <SkillsPanel apiClient={apiClient} notebookPath={notebookPath} />;
       case 'commands':
@@ -3301,6 +3643,8 @@ const SettingsPanel: React.FC<{
             <UsageTab apiClient={apiClient} />
           </div>
         );
+      case 'maintenance':
+        return <MaintenancePanel apiClient={apiClient} />;
       default:
         return null;
     }
@@ -3980,9 +4324,9 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
       const stored = localStorage.getItem('ds-varys-reasoning-mode') as ReasoningMode | null;
       // Migrate legacy boolean flag
       if (!stored && localStorage.getItem('ds-varys-thinking') === 'true') return 'sequential';
-      return REASONING_CYCLE.includes(stored as ReasoningMode) ? (stored as ReasoningMode) : 'off';
+      return REASONING_CYCLE.includes(stored as ReasoningMode) ? (stored as ReasoningMode) : 'cot';
     } catch {
-      return 'off';
+      return 'cot';
     }
   });
   // Tracks which message IDs have their thinking section collapsed (true = collapsed)
@@ -4062,6 +4406,10 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   // Ref so closures (e.g. _saveThread) always read the latest mode.
   const cellModeRef = useRef<CellMode>(cellMode);
   useEffect(() => { cellModeRef.current = cellMode; }, [cellMode]);
+
+  // "Focus on active cell" lives in Settings → Context now. The chat
+  // request reads it fresh from localStorage at submit time so changes
+  // there take effect on the next message without prop drilling.
   // Per-thread mode map — the authoritative in-session source.
   // Updated synchronously on every explicit mode change and on thread load,
   // so handleSwitchThread always sees the correct mode regardless of render timing
@@ -4432,7 +4780,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
       mapped !== undefined ? mapped :
       (REASONING_CYCLE.includes(thread.reasoningMode as ReasoningMode)
         ? (thread.reasoningMode as ReasoningMode)
-        : 'off');
+        : 'cot');
     setReasoningMode(mode);
     reasoningModeRef.current = mode;
     threadReasoningMapRef.current.set(thread.id, mode);
@@ -4857,7 +5205,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   // ── Version update check ──────────────────────────────────────────────────
   const [updateVersion,  setUpdateVersion]  = useState<string | null>(null);
   const [updateUrl,      setUpdateUrl]      = useState('');
-  const [currentVersion, setCurrentVersion] = useState('0.8.0');
+  const [currentVersion, setCurrentVersion] = useState('0.8.5');
   const [showChangelog,  setShowChangelog]  = useState(false);
   const [changelogBody,  setChangelogBody]  = useState('');
   const [changelogLoading, setChangelogLoading] = useState(false);
@@ -4871,7 +5219,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
           update_available: boolean; latest: string;
           release_url: string; release_notes: string; current: string;
         };
-        setCurrentVersion(d.current || '0.8.0');
+        setCurrentVersion(d.current || '0.8.5');
         if (d.update_available) {
           setUpdateVersion(d.latest);
           setUpdateUrl(d.release_url || '');
@@ -5570,6 +5918,12 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
           variables: resolvedVariables,
           ...(slashCommand ? { command: slashCommand } : {}),
           cellMode: (notebookAware || !!currentFilePathRef.current) ? cellMode : 'chat',
+          // Read fresh from localStorage so the Settings → Context toggle
+          // takes effect on the very next message without prop drilling.
+          ...((() => {
+            try { return localStorage.getItem('ds-assistant-limit-to-focal') === '1' ? { limitToFocal: true } : {}; }
+            catch { return {}; }
+          })()),
           ...(reasoningModeRef.current !== 'off' ? { reasoningMode: reasoningModeRef.current } : {}),
           ...(imageModeRef.current ? { imageMode: imageModeRef.current } : {}),
         },
@@ -6029,13 +6383,13 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
 
       // Append step summary + review prompt to the streamed explanation bubble
       const reviewPrompt = response.requiresApproval
-        ? '\n\n⚠️ This operation requires approval before execution.'
-        : '\n\nChanges applied. Click Reject below to undo.';
+        ? '\n\nCell populated — review the changes and run manually when ready.'
+        : '\n\nChanges applied. Click Undo below to revert.';
       appendToStream(`\n\n${stepSummary}${reviewPrompt}`);
 
       // Execute cells flagged for auto-run — after the diff block is already visible.
       // executingOpIdRef lets handleUndo interrupt the kernel and break this loop
-      // if the user clicks Reject while a cell is still running.
+      // if the user clicks Undo while a cell is still running.
       if (!response.requiresApproval) {
         executingOpIdRef.current = response.operationId;
         try {
@@ -6129,20 +6483,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
     const op = pendingOps.find(o => o.operationId === operationId);
     if (op) {
       _acceptSingleOrComposite(op);
-      // When the plan required approval, auto-execute was held back.
-      // Run cells now so the user doesn't have to manually execute each one.
-      if (op.requiresApproval) {
-        void (async () => {
-          for (const step of op.steps) {
-            if (
-              step.autoExecute === true &&
-              (step.type === 'insert' || step.type === 'modify' || step.type === 'run_cell')
-            ) {
-              try { await cellEditor.executeCell(step.cellIndex); } catch { /* ignore */ }
-            }
-          }
-        })();
-      }
+      // requiresApproval ops: cell is already populated; user runs it manually.
     }
     setPendingOps(prev =>
       prev.map(o => o.operationId === operationId ? { ...o, resolved: 'accepted' as const } : o)
@@ -6522,44 +6863,61 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
         return;
       }
     }
+    // Ctrl+Enter / Cmd+Enter → send immediately (explicit, before general check).
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      void handleSend();
+      return;
+    }
+
     if (e.key === 'Enter' && e.shiftKey) {
-      // Insert a literal newline at the cursor position.
-      // We must handle this ourselves because the onInput handler strips one
-      // trailing \n (to remove the phantom <br> browsers add), which means
-      // a browser-inserted newline from Shift+Enter gets silently discarded.
+      // Insert a <br> directly at the cursor via the Selection API.
+      // This avoids the "read offset → rebuild innerHTML → reposition" cycle
+      // that was error-prone when existing <br>s caused off-by-N miscounts.
       e.preventDefault();
       const el = textareaRef.current;
       if (!el) return;
+      const sel2 = window.getSelection();
+      if (!sel2 || sel2.rangeCount === 0) return;
 
-      const offset   = getCursorCharOffset(el);
-      const newInput = input.slice(0, offset) + '\n' + input.slice(offset);
+      const rng = sel2.getRangeAt(0);
+      rng.deleteContents(); // collapse any selection first
 
-      // A lone trailing <br> is invisible in a contenteditable; add a second
-      // one so the cursor has a visible blank line to rest on.
-      let newHtml = buildHighlightHtml(newInput, new Set(atSymbols.map(s => s.name)));
-      if (newHtml.endsWith('<br>')) newHtml += '<br>';
+      // Insert the <br> at the cursor — no innerHTML rebuild needed.
+      const br = document.createElement('br');
+      rng.insertNode(br);
 
-      el.innerHTML          = newHtml;
-      ceHtmlRef.current     = newHtml;
-      lastCEText.current    = newInput;
-      setInput(newInput);
-
-      // Place cursor right after the newly inserted newline.
-      if (offset >= input.length) {
-        // Inserted at end: sit between the two trailing <br>s.
-        const brs = Array.from(el.querySelectorAll('br'));
-        const targetBr = brs[brs.length - 2];
-        if (targetBr) {
-          const range = document.createRange();
-          range.setStartAfter(targetBr);
-          range.collapse(true);
-          const sel = window.getSelection();
-          sel?.removeAllRanges();
-          sel?.addRange(range);
-        }
-      } else {
-        setCursorCharOffset(el, offset + 1);
+      // DOM spec: insertNode calls splitText(offset) on text nodes, which
+      // creates an empty Text("") sibling when the cursor is at the very end
+      // of a text node.  Remove it so the spacer check below works correctly.
+      const sib = br.nextSibling;
+      if (sib && sib.nodeType === Node.TEXT_NODE && sib.textContent === '') {
+        sib.parentNode!.removeChild(sib);
       }
+
+      // A lone trailing <br> is invisible: the cursor has no line to rest on.
+      // Add a second one as a visual spacer when we're at the very end.
+      if (!br.nextSibling) {
+        const spacer = document.createElement('br');
+        br.after(spacer);
+      }
+
+      // Move cursor to right after the newly inserted <br>.
+      const after = document.createRange();
+      after.setStartAfter(br);
+      after.collapse(true);
+      sel2.removeAllRanges();
+      sel2.addRange(after);
+
+      // Sync React state.  innerText gives \n per <br>; strip only the LAST
+      // \n (the spacer) when we added one — the user's real newline is kept.
+      const raw = el.innerText;
+      const newInput = raw.endsWith('\n\n')
+        ? raw.slice(0, -1)          // strip spacer's \n, keep user's \n
+        : raw.replace(/\n$/, '');   // strip single phantom trailing \n
+      ceHtmlRef.current  = el.innerHTML;
+      lastCEText.current = newInput;
+      setInput(newInput);
       return;
     }
 
@@ -6696,7 +7054,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
             className="ds-varys-version ds-varys-version--clickable"
             onClick={openChangelog}
             title="View changelog"
-          >v0.8.0</span>
+          >v0.8.5</span>
           {updateVersion && (
             <button
               className="ds-varys-update-pill"
@@ -7133,6 +7491,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                       ) : (
                         <div
                           className="ds-assistant-message-content ds-markdown"
+                          data-testid="varys-assistant-message"
                           dangerouslySetInnerHTML={{ __html: renderMarkdown((msg.displayContent ?? msg.content).replace(/[\r\n\s]+$/, '')) }}
                         />
                       )}
@@ -7217,7 +7576,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                         }
                       }
                     }}
-                  >✓ Accept All</button>
+                  >✓ Apply All</button>
                   <button
                     className="ds-assistant-btn ds-assistant-btn-undo"
                     onClick={async () => {
@@ -7239,7 +7598,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
                         }
                       }
                     }}
-                  >✕ Reject All</button>
+                  >↺ Undo All</button>
                 </div>
               )}
             </div>
@@ -7596,6 +7955,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
             ref={textareaRef}
             role="textbox"
             aria-multiline="true"
+            data-testid="varys-chat-input"
             contentEditable={isLoading ? 'false' : 'true'}
             className="ds-assistant-input ds-assistant-ce"
             style={{ minHeight: MIN_INPUT_HEIGHT, maxHeight: inputHeight }}
@@ -7665,6 +8025,26 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
               }
             }}
             onKeyDown={handleKeyDown}
+            onBeforeInput={(e: React.FormEvent<HTMLDivElement>) => {
+              // Chrome fires beforeinput(insertParagraph/insertLineBreak) for
+              // Enter keys even when keydown called e.preventDefault() — this
+              // causes spurious DOM mutations (e.g. Ctrl+Enter splits backtick
+              // blocks instead of sending).  Block all browser-level newline
+              // injection; our keydown handler is the sole gate.
+              const ie = e.nativeEvent as InputEvent;
+              if (ie.inputType === 'insertParagraph' || ie.inputType === 'insertLineBreak') {
+                e.preventDefault();
+              }
+            }}
+            onPaste={(e: React.ClipboardEvent<HTMLDivElement>) => {
+              e.preventDefault();
+              // Block any paste that contains image data — only plain text is allowed.
+              const items = Array.from(e.clipboardData.items);
+              if (items.some(item => item.type.startsWith('image/'))) return;
+              const text = e.clipboardData.getData('text/plain');
+              if (!text) return;
+              document.execCommand('insertText', false, text);
+            }}
           />
           {/* @-mention autocomplete dropdown */}
           {atAnchorPos >= 0 && atFiltered.length > 0 && (
@@ -7707,13 +8087,6 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
               <option value="agent">✨ Agent</option>
             </select>
           )}
-          <ModelSwitcher
-            provider={chatProvider}
-            model={chatModel}
-            zoo={chatZoo}
-            saving={modelSwitching}
-            onSelect={m => void handleModelSelect(m)}
-          />
           {/* Spacer — pushes token counter and send/stop to the far right */}
           <span className="ds-input-bottom-spacer" />
           {(() => {
@@ -7733,6 +8106,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
           {isLoading ? (
             <button
               className="ds-assistant-send-btn ds-send-stop"
+              data-testid="varys-stop-button"
               onClick={handleStop}
               title="Stop generation"
               aria-label="Stop generation"
@@ -7746,6 +8120,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
           ) : input.trim() ? (
             <button
               className="ds-assistant-send-btn ds-send-arrow"
+              data-testid="varys-send-button"
               onClick={() => void handleSend()}
               title="Send message (Enter)"
               aria-label="Send message"
@@ -7760,6 +8135,18 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
           ) : null}
           </div>{/* end ds-assistant-input-bottom */}
         </div>{/* end ds-input-frame */}
+        {/* Model switcher — sits OUTSIDE the rounded input frame so the
+            model name is visually a separate control, not crammed inside
+            the prompt box. */}
+        <div className="ds-assistant-input-model-row">
+          <ModelSwitcher
+            provider={chatProvider}
+            model={chatModel}
+            zoo={chatZoo}
+            saving={modelSwitching}
+            onSelect={m => void handleModelSelect(m)}
+          />
+        </div>
       </div>
     </div>
   );

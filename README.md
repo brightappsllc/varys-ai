@@ -8,7 +8,7 @@
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
 [![MCP compatible](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io/)
 [![Ollama](https://img.shields.io/badge/Ollama-local%20models-black.svg)](https://ollama.com/)
-[![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.8.5-blue.svg)](CHANGELOG.md)
 
 **Varys-ai** is an AI-powered data science assistant that lives inside JupyterLab.
 Chat with it, ask it to write code, run EDA, generate plots, review your notebook, or complete your code inline — all without leaving the notebook interface.
@@ -19,44 +19,20 @@ No Node.js required on the user's machine. No cloud account lock-in. Works with 
 
 ---
 
-## What's new in v0.5.0
+## What's new in v0.8.5
 
 > Full details in [CHANGELOG.md](CHANGELOG.md).
 
 | Area | What changed |
 |---|---|
-| **Varys File Agent** | New `/file_agent` filesystem agent — read, write, and edit project files (`.py`, `.md`, `.yaml`, …) directly from the chat panel using a multi-turn Anthropic agentic loop |
-| **File diff cards** | Every proposed file change is staged for review with a line-level diff; each card can be individually accepted, edited, or rejected before anything touches disk |
-| **Safe deletion** | Deleted files are moved to `.varys_deleted/` — never permanently removed without an explicit trash step |
-| **Read-only exploration** | `/file_agent_find` runs with `Read` tool only — safe codebase Q&A with no write access |
-| **Notebook → module export** | `/file_agent_save` extracts notebook-developed functions into project source files |
-| **Background project scan** | On notebook open, a lightweight read-only scan builds a `repo_scan.json` that enriches subsequent agent and chat requests with project context |
-| **UI warning system** | Billing/quota errors and background task failures now surface as dismissible banners in the chat panel — no more terminal log watching |
-| **Audit log** | Every agent session is recorded to `.jupyter-assistant/logs/agent_audit.jsonl` with tool calls, file changes, and outcomes |
-
----
-
-## What's new in v0.3.0
-
-> Full details in [CHANGELOG.md](CHANGELOG.md).
-
-| Area | What changed |
-|---|---|
-| **Long-Term Memory** | Structured YAML preference store (global / project / notebook scopes); persists across sessions; preferences are inferred automatically from coding patterns and captured from explicit user statements mid-chat |
-| **Inference Pipeline** | Background pattern detection every 10 cell versions: symbol value consistency (e.g. always `random_state=42`) and import frequency (e.g. always `import pandas as pd`) auto-generate preferences |
-| **Injection Pipeline** | Relevant preferences are selected at query time via keyword matching (+ optional LLM re-rank); formatted memory block replaces flat `preferences.md` in the system prompt |
-| **Background Model** | New `DS_BG_TASK_MODEL` setting — a lighter model within your chat provider for background inference; leave blank to use keyword-only matching |
-| **Smart Cell Context** | Structured, versioned Summary Store replaces the hard 2 000-char truncation; per-cell summaries include symbols, types, live values and error flags; focal cell receives full-fidelity output |
-| **MCP support** | Connect any MCP-compatible server (filesystem, DBs, custom APIs) via Settings → MCP tab |
-| **Sequential Thinking** | Python-native reasoning loop — no Node.js; LLM thinks step-by-step before answering |
-| **Stable cell IDs** | Cells carry persistent UUIDs; references survive insertion/deletion |
-| **Tags panel** | Group cells by tag; built-in presets for EDA, modelling, data cleaning |
-| **Click-to-edit bubbles** | Click any sent message to edit and re-send in place (Cursor-style) |
-| **Smooth streaming** | Character-based adaptive drip + auto-scroll (chat + thinking panel) |
-| **Thread management** | Duplicate, delete, and rename-with-collision-guard |
-| **AWS Bedrock auth** | Profile-based auth (`AWS_PROFILE`) + lazy credential refresh |
-| **Design token system** | All colours migrated to `--ds-*` tokens; day/night themes consistent everywhere |
-| **Cell output overlay** | Outputs numbered `[1]`, `[2]`…; errors show a red `🔴` badge |
+| **Focal-cell context** | New opt-in toggle in Settings → Context — "Limit context to active cell" — restricts cell context to all cells up to and including the focused cell, keeping the agent focused on work-in-progress |
+| **Notebook ID stability** | No more "File Changed on disk" dialog when Varys stamps a new notebook — uses the standard nbformat 4.5 `metadata.id` written by JupyterLab, with a sidecar fallback for older notebooks |
+| **Input toolbar redesign** | Model switcher moved to its own row below the input frame; cleaner visual separation from the prompt box |
+| **"Reject" → "Undo"** | Consistent wording across DiffView, FileChangeCard, ActionBar, and all hint-text surfaces |
+| **Security & reliability hardening** | Path-traversal prevention on chat/task/reproducibility endpoints, home-directory restriction on env-file paths, tool-output truncation (50K chars) to block prompt injection, concurrency locks on chat history + sidecar file writes + Bedrock credential refresh, atomic writes for preference migration, SSE stream lock release on error |
+| **AWS Bedrock fixes** | `ExpiredTokenException` recovery for both SSO profiles and explicit session tokens; "input is too long" now detected as a context-too-large error with a friendly UI advisory |
+| **`/ds-review` empty-notebook guard** | The skill now explicitly checks for zero non-empty code cells and refuses to produce a review on an empty fixture — eliminates a prompt-robustness failure mode |
+| **Varys stress-test framework** | Curriculum-based scenario harness + external stress-test catalog in `stress/primitives.yaml` (65 user-facing primitives, deterministic extractor, consumed by the external `varys-stress` repo) |
 
 ---
 

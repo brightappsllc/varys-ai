@@ -48,7 +48,6 @@ import json
 import logging
 import os
 import tempfile
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
@@ -59,19 +58,55 @@ from ..utils.paths import nb_base
 
 log = logging.getLogger(__name__)
 
+# Per-process lock that serialises chat-file load+save pairs.
+# Prevents two concurrent POST requests from overwriting each other's thread updates.
+_CHAT_LOCK = asyncio.Lock()
+
 # ── File helpers ──────────────────────────────────────────────────────────────
 
+def _notebook_has_built_in_id(abs_nb_path: str) -> bool:
+    """Return True if the notebook carries a stable, rename-proof ID in its metadata.
+
+    'Built-in' means ``metadata.id`` (nbformat 4.5 / JupyterLab 4+),
+    ``metadata.varys_notebook_id``, or the legacy ``metadata.varys_id`` written
+    by older Varys.  All survive rename because they travel inside the file.
+
+    When False the ID lives only in the sidecar (keyed by filename), so the
+    frontend should trigger a silent JupyterLab save to embed ``metadata.id``.
+
+    Fast path: ``get_or_create_notebook_id`` records provenance in
+    ``_BUILT_IN_ID_CACHE`` when it first reads the file.  On the same request
+    ``_chat_path`` already called that function, so we avoid a second full
+    notebook parse here.
+    """
+    from ..utils.paths import notebook_has_built_in_id as _cached
+    cached = _cached(abs_nb_path)
+    if cached is not None:
+        return cached
+
+    # Slow path — first access or path not yet resolved (rare).
+    if not os.path.isfile(abs_nb_path):
+        return True   # can't do anything — suppress spurious save requests
+    try:
+        with open(abs_nb_path, "r", encoding="utf-8") as fh:
+            meta = json.load(fh).get("metadata", {})
+        if not isinstance(meta, dict):
+            return False
+        return bool(meta.get("id") or meta.get("varys_notebook_id") or meta.get("varys_id"))
+    except Exception:
+        return True   # can't tell — suppress spurious save requests
+
+
 def _ensure_notebook_id(abs_nb_path: str) -> str | None:
-    """Return (and lazily create) a stable 8-char hex ID for a notebook.
+    """Return a stable 8-char hex ID for a notebook.
 
     Priority:
-      1. metadata.id      — standard nbformat 4.5 field; written by JupyterLab 4+.
+      1. metadata.id       — standard nbformat 4.5 field; written by JupyterLab 4+.
       2. metadata.varys_id — written by older versions of Varys (kept for back-compat).
-      3. Generate + write  — if neither exists, a UUID4 is generated and written
-                            as the standard metadata.id so the notebook becomes
-                            fully compliant and the ID survives any future rename.
+      3. varys_notebook_id — the per-notebook UUID managed by paths.get_or_create_notebook_id,
+                             stored in the sidecar (never writes to the .ipynb file).
 
-    Returns None only when the file is missing or cannot be written.
+    Returns None only when the file is missing or cannot be read.
     """
     if not os.path.isfile(abs_nb_path):
         return None
@@ -88,47 +123,23 @@ def _ensure_notebook_id(abs_nb_path: str) -> str | None:
             if len(clean) >= 8:
                 return clean[:8]
 
-        # 2. our own varys_id fallback (written by older versions of Varys)
+        # 2. legacy varys_id fallback
         varys_id = meta.get("varys_id", "")
         if varys_id and isinstance(varys_id, str):
             clean = varys_id.replace("-", "")
             if len(clean) >= 8:
                 return clean[:8]
 
-        # 3. generate and persist a standard metadata.id
-        new_id = str(uuid.uuid4())
-        nb.setdefault("metadata", {})["id"] = new_id
+        # 3. Derive from varys_notebook_id (stored in sidecar, never writes to
+        #    the .ipynb file — avoids JupyterLab's "File Changed on disk" dialog).
+        from ..utils.paths import get_or_create_notebook_id
+        fallback_id = get_or_create_notebook_id(abs_nb_path)
+        if fallback_id:
+            clean = fallback_id.replace("-", "")
+            if len(clean) >= 8:
+                return clean[:8]
 
-        # Safety: verify the cell count in memory matches what we loaded.
-        # If something went wrong during json.load this guard catches it.
-        orig_cells = nb.get("cells", [])
-        if not isinstance(orig_cells, list):
-            log.warning("Chat: unexpected cells structure in %s — skipping id write",
-                        os.path.basename(abs_nb_path))
-            return None
-
-        # Atomic write: dump to a sibling temp file, then os.replace() so that
-        # a crash, OOM, or disk-full event can never leave a 0-byte or partial
-        # notebook.  We intentionally use plain json.dump (not nbformat.write +
-        # nbformat.from_dict) to avoid any schema-normalization that could
-        # silently drop cells or outputs from notebooks that predate nbformat 4.5.
-        tmp_path = abs_nb_path + ".varys_id_tmp"
-        try:
-            with open(tmp_path, "w", encoding="utf-8") as fh:
-                json.dump(nb, fh, indent=1, ensure_ascii=False)
-                fh.write("\n")
-            os.replace(tmp_path, abs_nb_path)   # atomic rename on POSIX & Windows
-            log.info("Chat: wrote metadata.id to %s", os.path.basename(abs_nb_path))
-        except Exception as exc:
-            log.warning("Chat: could not write notebook id for %s — %s",
-                        os.path.basename(abs_nb_path), exc)
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            return None
-
-        return new_id.replace("-", "")[:8]
+        return None
 
     except Exception as exc:
         log.warning("Chat: could not ensure notebook id for %s — %s", abs_nb_path, exc)
@@ -241,6 +252,21 @@ def _normalize_path(root_dir: str, notebook_path: str) -> str:
     return notebook_path
 
 
+def _safe_rel_path(root_dir: str, notebook_path: str) -> str | None:
+    """Return a root-relative path, or None if it would escape root_dir.
+
+    Resolves symlinks and ``..`` components so that a crafted path like
+    ``../../../../etc/passwd`` is detected and rejected before any file I/O.
+    """
+    rel = _normalize_path(root_dir, notebook_path)
+    real_root = os.path.realpath(root_dir)
+    resolved  = os.path.realpath(os.path.join(root_dir, rel))
+    if resolved == real_root or resolved.startswith(real_root + os.sep):
+        return rel
+    log.warning("Chat: rejected path outside root: %r (resolved=%r)", notebook_path, resolved)
+    return None
+
+
 # ── Handler ───────────────────────────────────────────────────────────────────
 
 class ChatHistoryHandler(JupyterHandler):
@@ -259,10 +285,28 @@ class ChatHistoryHandler(JupyterHandler):
             return
 
         root = self._root()
-        notebook_rel = _normalize_path(root, notebook)
-        # _load reads the .ipynb file (via _ensure_notebook_id) and the chat
-        # JSON — run in a thread so the event loop stays responsive.
-        data = await asyncio.to_thread(_load, root, notebook_rel)
+        notebook_rel = _safe_rel_path(root, notebook)
+        if notebook_rel is None:
+            self.set_status(400)
+            self.finish(json.dumps({"error": "Invalid notebook path"}))
+            return
+
+        # Run both the chat load and the built-in-ID check in a single thread
+        # call so the notebook file is read at most once (the provenance cache
+        # in paths._BUILT_IN_ID_CACHE makes the second check free after the
+        # first read).
+        def _load_and_check() -> tuple:
+            d = _load(root, notebook_rel)
+            has_id = True  # default: don't request a stamp for non-notebooks
+            if notebook_rel.lower().endswith(".ipynb"):
+                abs_nb = os.path.join(root, notebook_rel)
+                has_id = _notebook_has_built_in_id(abs_nb)
+            return d, has_id
+
+        data, has_id = await asyncio.to_thread(_load_and_check)
+        if notebook_rel.lower().endswith(".ipynb"):
+            data["needs_id_stamp"] = not has_id
+
         self.set_header("Content-Type", "application/json")
         self.finish(json.dumps(data))
 
@@ -284,26 +328,31 @@ class ChatHistoryHandler(JupyterHandler):
             return
 
         root = self._root()
-        notebook_rel = _normalize_path(root, notebook_path)
-        data = await asyncio.to_thread(_load, root, notebook_rel)
+        notebook_rel = _safe_rel_path(root, notebook_path)
+        if notebook_rel is None:
+            self.set_status(400)
+            self.finish(json.dumps({"error": "Invalid notebook path"}))
+            return
+        async with _CHAT_LOCK:
+            data = await asyncio.to_thread(_load, root, notebook_rel)
 
-        threads: List[Dict] = data.get("threads", [])
-        # Upsert: replace existing thread with matching id or append
-        thread["updated_at"] = _now()
-        if not thread.get("created_at"):
-            thread["created_at"] = thread["updated_at"]
-        idx = next((i for i, t in enumerate(threads) if t["id"] == thread["id"]), None)
-        if idx is not None:
-            threads[idx] = thread
-        else:
-            threads.append(thread)
+            threads: List[Dict] = data.get("threads", [])
+            # Upsert: replace existing thread with matching id or append
+            thread["updated_at"] = _now()
+            if not thread.get("created_at"):
+                thread["created_at"] = thread["updated_at"]
+            idx = next((i for i, t in enumerate(threads) if t["id"] == thread["id"]), None)
+            if idx is not None:
+                threads[idx] = thread
+            else:
+                threads.append(thread)
 
-        data["threads"] = threads
-        data["last_thread_id"] = thread["id"]
-        data["notebook_path"] = notebook_rel
+            data["threads"] = threads
+            data["last_thread_id"] = thread["id"]
+            data["notebook_path"] = notebook_rel
 
-        chat_path = await asyncio.to_thread(_chat_path, root, notebook_rel)
-        await asyncio.to_thread(_save, root, notebook_rel, data)
+            chat_path = await asyncio.to_thread(_chat_path, root, notebook_rel)
+            await asyncio.to_thread(_save, root, notebook_rel, data)
         self.set_header("Content-Type", "application/json")
         self.finish(json.dumps({"ok": True, "filename": chat_path.name}))
 
@@ -318,15 +367,20 @@ class ChatHistoryHandler(JupyterHandler):
             return
 
         root = self._root()
-        notebook_rel = _normalize_path(root, notebook)
-        data = await asyncio.to_thread(_load, root, notebook_rel)
+        notebook_rel = _safe_rel_path(root, notebook)
+        if notebook_rel is None:
+            self.set_status(400)
+            self.finish(json.dumps({"error": "Invalid notebook path"}))
+            return
+        async with _CHAT_LOCK:
+            data = await asyncio.to_thread(_load, root, notebook_rel)
 
-        threads: List[Dict] = [t for t in data.get("threads", []) if t["id"] != thread_id]
-        data["threads"] = threads
+            threads: List[Dict] = [t for t in data.get("threads", []) if t["id"] != thread_id]
+            data["threads"] = threads
 
-        if data.get("last_thread_id") == thread_id:
-            data["last_thread_id"] = threads[-1]["id"] if threads else None
+            if data.get("last_thread_id") == thread_id:
+                data["last_thread_id"] = threads[-1]["id"] if threads else None
 
-        await asyncio.to_thread(_save, root, notebook_rel, data)
+            await asyncio.to_thread(_save, root, notebook_rel, data)
         self.set_header("Content-Type", "application/json")
         self.finish(json.dumps({"ok": True, "remaining": len(threads)}))

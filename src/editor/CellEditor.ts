@@ -32,6 +32,19 @@ export class CellEditor {
 
   constructor(tracker: INotebookTracker) {
     this.tracker = tracker;
+
+    // Remove the green pending bar when a cell is executed — either manually
+    // (Shift+Enter, toolbar) or programmatically by the Agent.
+    NotebookActions.executed.connect((_sender, { cell }) => {
+      if (!this.highlightedCells.size) return;
+      const panel = this.tracker.currentWidget;
+      if (!panel) return;
+      const idx = panel.content.widgets.indexOf(cell as any);
+      if (idx >= 0 && this.highlightedCells.has(idx)) {
+        cell.node.classList.remove('ds-assistant-pending');
+        this.highlightedCells.delete(idx);
+      }
+    });
   }
 
   /**

@@ -62,6 +62,13 @@ export interface ChatFile {
     notebookPath: string;
     lastThreadId: string | null;
     threads: ChatThread[];
+    /**
+     * True when the notebook has no built-in rename-stable ID (metadata.id /
+     * varys_notebook_id) — the ID lives only in a sidecar file keyed by filename.
+     * The frontend should trigger a silent context.save() so JupyterLab writes
+     * metadata.id into the notebook, making the ID portable across renames.
+     */
+    needsIdStamp?: boolean;
 }
 export interface CellInfo {
     index: number;
@@ -199,6 +206,12 @@ export interface TaskRequest {
      * 'doc'   — always write cells freely regardless of skill settings
      */
     cellMode?: 'chat' | 'agent';
+    /**
+     * When true, the backend assembler hides cells past the active (focal) cell
+     * even in agent mode. Controlled by the sidebar "Focus on active cell"
+     * toggle. Default: false (full notebook visible).
+     */
+    limitToFocal?: boolean;
     /**
      * When true, the backend injects sequential-thinking instructions so the LLM
      * reasons step-by-step before answering.  Thought tokens are streamed as
@@ -503,6 +516,36 @@ export declare class APIClient {
         tags: string[];
     }>;
     toggleMCPServer(name: string, disabled: boolean): Promise<void>;
+    /** Scan root dir for orphaned notebook UUID data dirs. */
+    scanOrphans(): Promise<{
+        orphaned: Array<{
+            uuid: string;
+            notebook_path: string;
+            message_count: number;
+            current_uuid: string | null;
+            notebook_missing: boolean;
+            needs_migration: boolean;
+            conflict: boolean;
+        }>;
+        already_linked: number;
+        total_scanned: number;
+    }>;
+    /** Apply pending orphan migrations (rename UUID dirs to match current notebook IDs). */
+    applyOrphanMigration(uuids?: string[]): Promise<{
+        results: Array<{
+            uuid: string;
+            status: 'migrated' | 'conflict' | 'missing' | 'error' | 'skipped';
+            notebook_path: string;
+            new_uuid?: string;
+            error?: string;
+        }>;
+    }>;
+    /**
+     * Notify the backend that JupyterLab renamed (or moved) a notebook so that
+     * the Varys sidecar ID mapping and UUID cache stay in sync.  Fire-and-forget
+     * — always resolves so callers never need to handle exceptions.
+     */
+    notifyRenamed(src: string, dst: string): Promise<void>;
     private getXSRFToken;
 }
 //# sourceMappingURL=client.d.ts.map

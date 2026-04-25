@@ -26,6 +26,10 @@ from .tools import (
 
 log = logging.getLogger(__name__)
 
+# Maximum tool-output size passed back to the LLM per call.  Prevents
+# prompt-injection via huge tool results and limits accidental secret exposure.
+_MAX_TOOL_OUTPUT_CHARS = 50_000
+
 
 # ── SCAN_SYSTEM_PROMPT (module-level constant, not a skill file) ──────────────
 
@@ -347,6 +351,8 @@ async def run(
                     else:
                         result_str = f"[Error: tool '{event.tool_name}' is not permitted in this session]"
 
+                    if len(result_str) > _MAX_TOOL_OUTPUT_CHARS:
+                        result_str = result_str[:_MAX_TOOL_OUTPUT_CHARS] + "\n[...output truncated]"
                     collected_calls.append((event, result_str))
 
                 elif isinstance(event, TurnEnd):
@@ -374,14 +380,13 @@ async def run(
 
                     elif event.stop_reason == "error":
                         log.error("Agent provider error (turn %d): %s", turn_count, event.error_message)
-                        await callbacks.on_progress(f"API error: {event.error_message}. Stopping.")
+                        await callbacks.on_progress("API error from provider. Stopping.")
                         incomplete = True
                         _provider_error = event.error_message
 
+            turn_count += 1
             if not continue_loop:
                 break
-
-            turn_count += 1
 
         else:
             # Safety backstop: exited via turn_count >= max_turns
@@ -552,6 +557,8 @@ async def run_read_only(
                             result_str = f"[Tool error: {exc}]"
                     else:
                         result_str = "Tool not permitted in read-only mode."
+                    if len(result_str) > _MAX_TOOL_OUTPUT_CHARS:
+                        result_str = result_str[:_MAX_TOOL_OUTPUT_CHARS] + "\n[...output truncated]"
                     collected_calls.append((event, result_str))
 
                 elif isinstance(event, TurnEnd):
@@ -576,10 +583,9 @@ async def run_read_only(
                         log.error("run_read_only provider error: %s", event.error_message)
                         return ""
 
+            turn_count += 1
             if not continue_loop:
                 break
-
-            turn_count += 1
 
     except Exception as exc:
         log.error("run_read_only unexpected error: %s", exc, exc_info=True)

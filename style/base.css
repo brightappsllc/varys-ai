@@ -1025,8 +1025,18 @@
 }
 
 .ds-assistant-btn-undo {
-  background: #fd7e14;
-  color: #ffffff;
+  background: transparent;
+  color: var(--ds-text-dim, #666);
+  border: 1px solid transparent;
+  font-size: 15px;
+  padding: 1px 5px;
+  line-height: 1.4;
+  border-radius: 4px;
+}
+.ds-assistant-btn-undo:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--ds-text, #333);
+  opacity: 1;
 }
 
 /* Apply selection (partial hunk accept) */
@@ -1152,10 +1162,14 @@
 }
 .ds-chat-night .ds-assistant-btn-accept-run:hover { background: #1f4272; }
 .ds-chat-night .ds-assistant-btn-undo {
-  background: #6b3810;
-  color: var(--ds-text, #c5c5cc);
+  background: transparent;
+  color: var(--ds-text-dim, #8890a8);
 }
-.ds-chat-night .ds-assistant-btn-undo:hover { background: #7a4214; }
+.ds-chat-night .ds-assistant-btn-undo:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ds-text, #c5c5cc);
+  opacity: 1;
+}
 .ds-chat-night .ds-assistant-btn-apply {
   background: var(--ds-surface2, #28283a);
   color: var(--ds-text, #c5c5cc);
@@ -1546,8 +1560,9 @@
    Must visually match the textarea's metrics exactly.
    ───────────────────────────────────────────────────────────────────────── */
 .ds-assistant-ce {
-  white-space: pre-wrap;   /* preserve newlines & spaces like a textarea */
-  word-break: break-word;
+  white-space: pre-wrap;      /* preserve newlines & spaces like a textarea */
+  word-break: normal;         /* don't split words mid-character on wrap */
+  overflow-wrap: break-word;  /* only break if a single token is too wide to fit */
   cursor: text;
   outline: none;
   overflow-y: auto;
@@ -1758,6 +1773,147 @@
 .ds-chat-night .ds-cell-mode-select option {
   background: var(--ds-surface, #1e1e2a);
   color: var(--ds-text, #c5c5cc);
+}
+
+/* Model switcher row — sits below .ds-assistant-input-bottom so the model
+   name gets the full input-frame width. */
+.ds-assistant-input-model-row {
+  display: flex;
+  align-items: center;
+  padding: 1px 4px 0 4px;
+  margin-top: 0;
+}
+
+/* Generic settings row: label block on left, control on the right. */
+.ds-settings-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--ds-border, rgba(0,0,0,0.08));
+}
+.ds-settings-row:last-child { border-bottom: none; }
+.ds-settings-row-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ds-settings-row-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ds-text, #3b3e55);
+}
+.ds-settings-row-sub {
+  font-size: 11px;
+  color: var(--ds-text-muted, #6b6e85);
+  line-height: 1.4;
+}
+.ds-chat-night .ds-settings-row-title { color: var(--ds-text, #c5c5cc); }
+.ds-chat-night .ds-settings-row-sub   { color: var(--ds-text-muted, #8b8e9b); }
+.ds-chat-night .ds-settings-row {
+  border-bottom-color: var(--ds-border, rgba(255,255,255,0.08));
+}
+
+/* Generic toggle pill — used by ContextPanel and any future on/off setting. */
+.ds-toggle-pill {
+  flex-shrink: 0;
+  background: var(--ds-btn-bg, #e4e5ed);
+  border: 1px solid var(--ds-btn-border, #c6c8d4);
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 12px;
+  color: var(--ds-btn-text, #3b3e55);
+  white-space: nowrap;
+}
+.ds-toggle-pill:hover { background: var(--ds-surface2, #d8d9e4); }
+.ds-toggle-pill.active {
+  background: #f3c969;
+  border-color: #d4a93f;
+  color: #3b3e55;
+}
+.ds-chat-night .ds-toggle-pill {
+  background: var(--ds-surface, #1e1e2a);
+  border-color: var(--ds-border, rgba(255,255,255,0.12));
+  color: var(--ds-text, #c5c5cc);
+}
+.ds-chat-night .ds-toggle-pill:hover { background: var(--ds-surface2, #28283a); }
+.ds-chat-night .ds-toggle-pill.active {
+  background: #b08a2e;
+  border-color: #d4a93f;
+  color: #fffceb;
+}
+
+/* Info bubble — small (i) badge with a hover/focus tooltip from data-tip. */
+.ds-info-bubble {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--ds-surface2, #d8d9e4);
+  color: var(--ds-text-muted, #6b6e85);
+  border: 1px solid var(--ds-border, rgba(0,0,0,0.12));
+  font-size: 9px;
+  font-weight: 700;
+  font-style: italic;
+  font-family: Georgia, serif;
+  cursor: help;
+  position: relative;
+  outline: none;
+}
+.ds-info-bubble:hover,
+.ds-info-bubble:focus {
+  background: #f3c969;
+  color: #3b3e55;
+  border-color: #d4a93f;
+}
+.ds-info-bubble:hover::after,
+.ds-info-bubble:focus::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  background: #2a2d3f;
+  color: #f5f5fa;
+  font-size: 11px;
+  font-weight: 400;
+  font-style: normal;
+  font-family: inherit;
+  line-height: 1.45;
+  padding: 8px 10px;
+  border-radius: 6px;
+  width: 280px;
+  white-space: pre-line;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+  z-index: 1000;
+  pointer-events: none;
+}
+.ds-info-bubble:hover::before,
+.ds-info-bubble:focus::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 2px);
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: #2a2d3f;
+  z-index: 1000;
+  pointer-events: none;
+}
+.ds-chat-night .ds-info-bubble {
+  background: var(--ds-surface2, #28283a);
+  color: var(--ds-text-muted, #8b8e9b);
+  border-color: var(--ds-border, rgba(255,255,255,0.12));
 }
 
 /* =============================================================
@@ -9414,3 +9570,91 @@ body[data-jp-theme-light="false"] .ds-tag-add-input::placeholder {
 
 /* ── Dark mode (graph panel uses jp-* tokens which already adapt) ────────────── */
 /* .ds-graph-open-btn color is handled by the shared button rule + ds-chat-night overrides above */
+
+/* ── Maintenance panel ─────────────────────────────────────────────────────── */
+.ds-maintenance-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ds-maintenance-desc {
+  font-size: 12px;
+  color: var(--ds-text-dim, var(--jp-ui-font-color2));
+  line-height: 1.5;
+  margin: 0;
+}
+.ds-maintenance-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ds-maintenance-error {
+  font-size: 12px;
+  color: #D94040;
+  padding: 6px 8px;
+  background: rgba(217,64,64,.08);
+  border-radius: 4px;
+}
+.ds-maintenance-results {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ds-maintenance-summary {
+  font-size: 12px;
+  color: var(--ds-text, var(--jp-ui-font-color1));
+  padding: 6px 8px;
+  background: var(--ds-surface2, var(--jp-layout-color2));
+  border-radius: 4px;
+}
+.ds-maintenance-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+.ds-maintenance-item--needs {
+  background: rgba(255,200,0,.08);
+  border: 1px solid rgba(255,200,0,.2);
+}
+.ds-maintenance-item--missing {
+  background: var(--ds-surface2, var(--jp-layout-color2));
+  color: var(--ds-text-dim, var(--jp-ui-font-color2));
+}
+.ds-maintenance-item-path {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 65%;
+}
+.ds-maintenance-item-meta {
+  color: var(--ds-text-dim, var(--jp-ui-font-color2));
+  white-space: nowrap;
+}
+.ds-maintenance-warn { color: #D94040; }
+.ds-maintenance-missing {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ds-maintenance-missing-label {
+  font-size: 11px;
+  color: var(--ds-text-dim, var(--jp-ui-font-color2));
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.ds-maintenance-apply-results {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ds-maintenance-result {
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.ds-maintenance-result--ok  { background: rgba(29,158,117,.1); color: #1D9E75; }
+.ds-maintenance-result--err { background: rgba(217,64,64,.08); color: #D94040; }

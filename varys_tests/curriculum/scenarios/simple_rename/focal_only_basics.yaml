@@ -1,0 +1,78 @@
+name: focal_only_basics
+description: |
+  Exercises `limit_to_focal: true`. Every task is self-contained — the
+  fix only needs the focal cell + its upstream context, never any
+  downstream cell. This is the scenario shape that the focal-cutoff
+  policy is designed for.
+
+  The cutoff slices visible context to cells 1..target_cell, so any task
+  whose prompt requires editing/inspecting downstream cells will (correctly)
+  fail. See `rename_basics.yaml` for the full-notebook counterpart.
+
+notebook: simple_rename.ipynb
+
+mode: "agent"
+reasoning: "cot"
+limit_to_focal: true
+
+# Setup mirrors a real user: open the notebook, run all cells (so any
+# upstream state Varys references via summaries is populated), then click
+# the cell to be edited.
+setup:
+  run_all: true
+  focus_cell: 4                     # 1-indexed: the syntax-error cell
+
+tasks:
+  # ────────────────────────────────────────────────────────────────────
+  # Task 1 — fix the syntax error in the focal cell.
+  # Self-contained: needs only this cell + the upstream df_north definition
+  # (which IS visible because it's above the focal cell).
+  # ────────────────────────────────────────────────────────────────────
+  - id: fix_syntax_focal
+    tier: 1
+    target_cell: 4                  # cell #4 = the syntax-error cell
+    prompt: |
+      There is a syntax error in this cell — a missing closing parenthesis
+      on the `.sum(` call. Fix it. Do not touch any other cell.
+    timeout_s: 180
+    assertions:
+      structural:
+        # Upstream cells must remain untouched ────────────────────────
+        - markdown_header_present: "Simple Rename Fixture"
+        - symbol_present: df_north
+        - markdown_header_present: "Section 1"
+        # The fix itself: `total` is still defined and the cell is no
+        # longer a syntax error (execution layer verifies that).
+        - symbol_present: total
+        # Downstream mean cell must remain untouched ──────────────────
+        - symbol_present: mean_sales
+        - symbols_in_order: ["Simple Rename Fixture", df_north, "Section 1", total, mean_sales]
+        - cell_count_between: [4, 6]
+      execution: true                # if syntax fix worked, the notebook now runs
+      judge: true
+
+  # ────────────────────────────────────────────────────────────────────
+  # Task 2 — add an inline comment at the top of the data-gen cell.
+  # Focal cell #2; cutoff hides cells #3..#5. The task references nothing
+  # outside the focal cell, so the cutoff doesn't get in the way.
+  # ────────────────────────────────────────────────────────────────────
+  - id: comment_focal
+    tier: 1
+    target_cell: 2                  # cell #2 = data generation
+    prompt: |
+      Add a single-line comment `# Synthetic daily sales data for the
+      north region` as the very first line of this cell. Do not change
+      any code. Do not touch any other cell.
+    timeout_s: 180
+    assertions:
+      structural:
+        - markdown_header_present: "Simple Rename Fixture"
+        - symbol_present: df_north
+        - cell_defining_symbol_nonempty: df_north
+        - markdown_header_present: "Section 1"
+        - symbol_present: total
+        - symbol_present: mean_sales
+        - symbols_in_order: ["Simple Rename Fixture", df_north, "Section 1", total, mean_sales]
+        - cell_count_between: [4, 6]
+      execution: false               # already-broken syntax cell unrelated to this task
+      judge: true

@@ -72,6 +72,13 @@ export interface ChatFile {
   notebookPath: string;
   lastThreadId: string | null;
   threads: ChatThread[];
+  /**
+   * True when the notebook has no built-in rename-stable ID (metadata.id /
+   * varys_notebook_id) — the ID lives only in a sidecar file keyed by filename.
+   * The frontend should trigger a silent context.save() so JupyterLab writes
+   * metadata.id into the notebook, making the ID portable across renames.
+   */
+  needsIdStamp?: boolean;
 }
 
 export interface CellInfo {
@@ -215,6 +222,12 @@ export interface TaskRequest {
    * 'doc'   — always write cells freely regardless of skill settings
    */
   cellMode?: 'chat' | 'agent';
+  /**
+   * When true, the backend assembler hides cells past the active (focal) cell
+   * even in agent mode. Controlled by the sidebar "Focus on active cell"
+   * toggle. Default: false (full notebook visible).
+   */
+  limitToFocal?: boolean;
   /**
    * When true, the backend injects sequential-thinking instructions so the LLM
    * reasons step-by-step before answering.  Thought tokens are streamed as
@@ -402,18 +415,24 @@ export class APIClient {
       let buffer = '';
       let lastDone: TaskResponse | null = null;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split('\n\n');
-        buffer = parts.pop() ?? '';
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split('\n\n');
+          buffer = parts.pop() ?? '';
 
-        for (const part of parts) {
-          if (!part.startsWith('data: ')) continue;
-          try {
-            const event = JSON.parse(part.slice(6));
+          for (const part of parts) {
+            if (!part.startsWith('data: ')) continue;
+            let event: any;
+            try {
+              event = JSON.parse(part.slice(6));
+            } catch {
+              // Malformed SSE frame — skip silently.
+              continue;
+            }
             if (event.type === 'chunk' && event.text) {
               onChunk(event.text as string);
             } else if (event.type === 'thought' && event.text) {
@@ -470,11 +489,12 @@ export class APIClient {
               const errMsg: string = (event as any).error ?? 'An API error occurred.';
               throw new Error(errMsg);
             }
-          } catch (e) {
-            // Re-throw intentional API errors; silently drop JSON parse failures.
-            if (e instanceof Error) throw e;
           }
         }
+      } finally {
+        // Always release the reader so the underlying stream is closed,
+        // even when we exit via an exception or AbortController signal.
+        reader.releaseLock();
       }
 
       return lastDone ?? ({
@@ -743,6 +763,7 @@ export class APIClient {
     return {
       notebookPath: raw.notebook_path ?? notebookPath,
       lastThreadId: raw.last_thread_id ?? null,
+      needsIdStamp: raw.needs_id_stamp === true,
       threads: (raw.threads ?? []).map((t: Record<string, unknown>) => ({
         id: t.id,
         name: t.name,
@@ -966,6 +987,72 @@ export class APIClient {
       body: JSON.stringify({ name, disabled }),
     });
     if (!r.ok) throw new Error(`toggleMCPServer failed: ${r.status}`);
+  }
+
+  /** Scan root dir for orphaned notebook UUID data dirs. */
+  async scanOrphans(): Promise<{
+    orphaned: Array<{
+      uuid: string;
+      notebook_path: string;
+      message_count: number;
+      current_uuid: string | null;
+      notebook_missing: boolean;
+      needs_migration: boolean;
+      conflict: boolean;
+    }>;
+    already_linked: number;
+    total_scanned: number;
+  }> {
+    const r = await fetch(`${this.baseUrl}/nb/migration`, {
+      credentials: 'same-origin',
+      headers: { 'X-XSRFToken': this.getXSRFToken() },
+    });
+    if (!r.ok) throw new Error(`scanOrphans failed: ${r.status}`);
+    return r.json();
+  }
+
+  /** Apply pending orphan migrations (rename UUID dirs to match current notebook IDs). */
+  async applyOrphanMigration(uuids?: string[]): Promise<{
+    results: Array<{
+      uuid: string;
+      status: 'migrated' | 'conflict' | 'missing' | 'error' | 'skipped';
+      notebook_path: string;
+      new_uuid?: string;
+      error?: string;
+    }>;
+  }> {
+    const r = await fetch(`${this.baseUrl}/nb/migration`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-XSRFToken': this.getXSRFToken(),
+      },
+      body: JSON.stringify(uuids ? { uuids } : {}),
+    });
+    if (!r.ok) throw new Error(`applyOrphanMigration failed: ${r.status}`);
+    return r.json();
+  }
+
+  /**
+   * Notify the backend that JupyterLab renamed (or moved) a notebook so that
+   * the Varys sidecar ID mapping and UUID cache stay in sync.  Fire-and-forget
+   * — always resolves so callers never need to handle exceptions.
+   */
+  async notifyRenamed(src: string, dst: string): Promise<void> {
+    try {
+      await fetch(`${this.baseUrl}/nb/renamed`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-XSRFToken': this.getXSRFToken(),
+        },
+        body: JSON.stringify({ src, dst }),
+      });
+    } catch {
+      // Non-fatal — the rename notify is best-effort.
+    }
   }
 
   private getXSRFToken(): string {

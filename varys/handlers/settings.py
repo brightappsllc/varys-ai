@@ -330,6 +330,14 @@ class SettingsHandler(JupyterHandler):
         new_path_raw = body.get("_new_env_path", "").strip()
         if new_path_raw:
             new_path = Path(new_path_raw).expanduser().resolve()
+            # Restrict env-file location to the user's home directory.
+            # resolve() dereferences symlinks, so a symlink pointing outside
+            # home is caught here before any write occurs.
+            _home = Path.home().resolve()
+            if new_path != _home and not str(new_path).startswith(str(_home) + os.sep):
+                self.set_status(400)
+                self.finish(json.dumps({"error": "Env file path must be within your home directory"}))
+                return
             old_path = path
             if new_path != old_path:
                 try:

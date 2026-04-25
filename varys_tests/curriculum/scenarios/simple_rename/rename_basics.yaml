@@ -1,0 +1,109 @@
+name: rename_basics
+description: |
+  Tier-1 chain on the simple_rename fixture. Each task builds on the
+  previous: rename a variable, then fix the syntax error in the same
+  notebook, then add a markdown header above Section 1. Each task uses
+  `target_cell` to focus the specific cell Varys should edit.
+
+  Assertions are deliberately *content-level*: every cell that should
+  survive the task is asserted by name and by relative position. The
+  cell_count_between bound is just a coarse backstop — the load-bearing
+  checks are the per-cell symbol/header presence + symbols_in_order.
+
+notebook: simple_rename.ipynb
+
+# Optional Varys settings — applied via UI clicks after sidebar opens.
+# mode:      chat | agent
+# reasoning: off  | cot | sequential
+mode: "agent"
+reasoning: "cot"
+# Full notebook context — these tasks span multiple cells (rename references
+# downstream, etc.) so the focal cutoff would make them impossible. See
+# focal_only_basics.yaml for the cutoff scenario.
+limit_to_focal: true
+# One-shot actions applied right after the notebook is first opened,
+# before the first task runs. Mirrors a real user opening the notebook,
+# running everything, and then clicking the cell they want to edit.
+setup:
+  run_all: true
+  focus_cell: 2                     # 1-indexed (matches Varys UI badges)
+
+tasks:
+  - id: rename_var
+    tier: 1
+    target_cell: 2                  # cell #2 = data generation code cell
+    prompt: |
+      Rename `df_north` to `df_region_north` in the data generation cell
+      and update all references in the rest of the notebook.
+    timeout_s: 180
+    assertions:
+      structural:
+        # Every original cell must still exist (by distinctive content) ────
+        # cell 0 — top markdown
+        - markdown_header_present: "Simple Rename Fixture"
+        # cell 1 — data generation cell (the rename target)
+        - symbol_present: df_region_north
+        - symbol_absent: df_north
+        - cell_defining_symbol_nonempty: df_region_north
+        # cell 2 — section header
+        - markdown_header_present: "Section 1"
+        # cell 3 — total / sum cell (must still exist post-rename)
+        - symbol_present: total
+        # cell 4 — mean cell
+        - symbol_present: mean_sales
+        # Relative order preserved ───────────────────────────────────────
+        - symbols_in_order: ["Simple Rename Fixture", df_region_north, "Section 1", total, mean_sales]
+        # Coarse backstop ────────────────────────────────────────────────
+        - cell_count_between: [4, 8]
+      execution: false
+      judge: true
+
+  - id: fix_syntax
+    tier: 1
+    target_cell: 4                  # cell #4 = the syntax-error cell
+    prompt: |
+      There is a syntax error in this cell (a missing closing parenthesis
+      on a `.sum(` call). Find it and fix it.
+    timeout_s: 180
+    assertions:
+      structural:
+        # All cells from rename_var must still be present ────────────────
+        - markdown_header_present: "Simple Rename Fixture"
+        - symbol_present: df_region_north
+        - cell_defining_symbol_nonempty: df_region_north
+        - markdown_header_present: "Section 1"
+        - symbol_present: total
+        - symbol_present: mean_sales
+        - symbols_in_order: ["Simple Rename Fixture", df_region_north, "Section 1", total, mean_sales]
+        - cell_count_between: [4, 8]
+      execution: true                # the only signal that the syntax fix actually worked
+      judge: true
+
+  - id: add_markdown
+    tier: 1
+    target_cell: 3                  # cell #3 = the existing 'Section 1' markdown header
+    prompt: |
+      Add a markdown cell directly above the 'Section 1' header that says
+      'North Region Analysis' as a level-2 heading.
+    timeout_s: 180
+    assertions:
+      structural:
+        # All previous cells must survive ────────────────────────────────
+        - markdown_header_present: "Simple Rename Fixture"
+        - symbol_present: df_region_north
+        - cell_defining_symbol_nonempty: df_region_north
+        - markdown_header_present: "Section 1"
+        - symbol_present: total
+        - symbol_present: mean_sales
+        # New content + correct relative position ─────────────────────────
+        - markdown_header_present: "North Region Analysis"
+        - symbols_in_order:
+            - "Simple Rename Fixture"
+            - df_region_north
+            - "North Region Analysis"
+            - "Section 1"
+            - total
+            - mean_sales
+        - cell_count_between: [5, 9]
+      execution: true
+      judge: true

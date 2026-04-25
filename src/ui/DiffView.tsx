@@ -55,8 +55,9 @@ export interface DiffViewProps {
   resolved?: 'accepted' | 'undone';
   /**
    * When false (default), the code has already been inserted and executed —
-   * only the Reject button is shown.  When true (reorder ops), execution is
-   * gated on approval so both Accept and Reject are shown.
+   * only the Undo button is shown.  When true, the cell was populated but not
+   * yet run — both "Apply" and "Undo" are shown; the user must run the cell
+   * manually after accepting.
    */
   requiresApproval?: boolean;
 }
@@ -253,14 +254,14 @@ export const DiffView: React.FC<DiffViewProps> = ({
                 <button
                   className="ds-assistant-btn ds-assistant-btn-accept"
                   onClick={() => onAccept(operationId)}
-                  title="Accept changes and run cells"
-                >✓ Accept</button>
+                  title="Accept changes"
+                >✓ Apply</button>
               )}
               <button
                 className="ds-assistant-btn ds-assistant-btn-undo"
                 onClick={() => onUndo(operationId)}
-                title="Reject changes and undo"
-              >✕ Reject</button>
+                title="Undo changes"
+              >↺</button>
             </>
           )}
         </div>
@@ -270,10 +271,10 @@ export const DiffView: React.FC<DiffViewProps> = ({
       {!resolved && (
         <div className="ds-diff-hint">
           {isReorder
-            ? <>Cells have been rearranged in the notebook. Use <strong>✓ Accept</strong> to keep the new order or <strong>✕ Reject</strong> to undo.</>
+            ? <>Cells have been rearranged in the notebook. Use <strong>✓ Apply</strong> to keep the new order or <strong>↺</strong> to revert.</>
             : requiresApproval
-              ? <>Review the changes below, then use <strong>✓ Accept</strong> to run or <strong>✕ Reject</strong> to undo.</>
-              : <>Changes applied. Click <strong>✕ Reject</strong> to undo.</>
+              ? <>Cell populated. Use <strong>✓ Apply</strong> to accept or <strong>↺</strong> to revert. Run the cell manually when ready.</>
+              : <>Changes applied. Click <strong>↺</strong> to revert.</>
           }
         </div>
       )}

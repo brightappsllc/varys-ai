@@ -30,11 +30,12 @@ import json
 import logging
 import shutil
 from pathlib import Path
+from typing import Optional
 
 from jupyter_server.base.handlers import JupyterHandler
 from tornado.web import authenticated
 
-from ..utils.paths import get_or_create_notebook_id, _UUID_CACHE
+from ..utils.paths import get_or_create_notebook_id, _UUID_CACHE, _read_sidecar_id, _write_sidecar_id, _remove_sidecar_id
 
 log = logging.getLogger(__name__)
 
@@ -116,6 +117,18 @@ class NbMoveHandler(JupyterHandler):
         if old_key in _UUID_CACHE:
             _UUID_CACHE[new_key] = _UUID_CACHE.pop(old_key)
 
+        # ── Carry sidecar entry to destination ───────────────────────────────
+        # If the UUID was stored in the sidecar (not in notebook metadata), copy
+        # the entry so the destination path resolves to the same UUID.
+        sidecar_id = _read_sidecar_id(src.parent, src.name)
+        if sidecar_id:
+            try:
+                _write_sidecar_id(dst.parent, dst.name, sidecar_id)
+                # Remove the stale source entry so the sidecar stays clean.
+                _remove_sidecar_id(src.parent, src.name)
+            except Exception as exc:
+                log.warning("NbMoveHandler: could not update sidecar for %s — %s", dst.name, exc)
+
         self.set_header("Content-Type", "application/json")
         self.finish(json.dumps({
             "moved":      True,
@@ -124,3 +137,88 @@ class NbMoveHandler(JupyterHandler):
             "notebook_id": nb_id,
             "data_moved": data_moved,
         }))
+
+
+class NbRenameHandler(JupyterHandler):
+    """POST /varys/nb/renamed — notify Varys that JupyterLab renamed a notebook.
+
+    Called by the frontend after JupyterLab completes a native rename or move
+    so that the Varys sidecar ID mapping and in-process UUID cache stay in
+    sync with the new path.
+
+    Body (JSON):
+      { "src": "relative/old/name.ipynb", "dst": "relative/new/name.ipynb" }
+
+    The .ipynb file has ALREADY been renamed by JupyterLab before this
+    endpoint is called — only the sidecar and UUID cache are updated here.
+    When the notebook moves to a different directory, the UUID-scoped data
+    directory is also relocated so chat history, summaries, and memory follow
+    the notebook.
+    """
+
+    @authenticated
+    async def post(self) -> None:
+        root_dir = self.settings.get("ds_assistant_root_dir", ".")
+        try:
+            body = json.loads(self.request.body)
+        except Exception:
+            self.set_status(400)
+            self.finish(json.dumps({"error": "Invalid JSON body"}))
+            return
+
+        src_rel = body.get("src", "").strip()
+        dst_rel = body.get("dst", "").strip()
+        if not src_rel or not dst_rel:
+            self.set_status(400)
+            self.finish(json.dumps({"error": "'src' and 'dst' are required"}))
+            return
+
+        root = Path(root_dir)
+        src = (root / src_rel).resolve()
+        dst = (root / dst_rel).resolve()
+
+        # ── Determine the UUID before we touch any caches ─────────────────────
+        # Priority: in-process cache (from before rename) → old sidecar entry →
+        # read the notebook at its NEW location (file already renamed by JupyterLab).
+        nb_id: Optional[str] = _UUID_CACHE.get(str(src))
+        if not nb_id:
+            nb_id = _read_sidecar_id(src.parent, src.name)
+        if not nb_id:
+            nb_id = get_or_create_notebook_id(str(dst))
+
+        # ── Update UUID cache: old abs path → new abs path ────────────────────
+        old_key = str(src)
+        new_key = str(dst)
+        if old_key in _UUID_CACHE:
+            _UUID_CACHE[new_key] = _UUID_CACHE.pop(old_key)
+            log.info("NbRenameHandler: cache %s → %s", src.name, dst.name)
+        elif nb_id:
+            # Pre-populate new key so the next request hits cache instantly.
+            _UUID_CACHE[new_key] = nb_id
+
+        # ── Update sidecar: rename entry from src filename to dst filename ─────
+        sidecar_id = _read_sidecar_id(src.parent, src.name)
+        if sidecar_id:
+            try:
+                _write_sidecar_id(dst.parent, dst.name, sidecar_id)
+                _remove_sidecar_id(src.parent, src.name)
+                log.info("NbRenameHandler: sidecar %s → %s", src.name, dst.name)
+            except Exception as exc:
+                log.warning("NbRenameHandler: sidecar update failed: %s", exc)
+
+        # ── Relocate UUID-scoped data dir when notebook moved to a new folder ──
+        data_moved = False
+        if nb_id and src.parent.resolve() != dst.parent.resolve():
+            src_data = src.parent / ".jupyter-assistant" / nb_id
+            dst_data = dst.parent / ".jupyter-assistant" / nb_id
+            if src_data.exists() and not dst_data.exists():
+                try:
+                    dst_data.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(src_data), str(dst_data))
+                    data_moved = True
+                    log.info("NbRenameHandler: moved data %s → %s", src_data, dst_data)
+                except Exception as exc:
+                    log.warning("NbRenameHandler: could not move data dir: %s", exc)
+
+        self.set_header("Content-Type", "application/json")
+        self.finish(json.dumps({"ok": True, "src": src_rel, "dst": dst_rel, "data_moved": data_moved}))

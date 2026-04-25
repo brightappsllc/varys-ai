@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import os
 import re as _re
 import traceback
 import uuid
@@ -662,18 +663,22 @@ class TaskHandler(JupyterHandler):
         _file_ctx_path: str = (notebook_context.get("fileContextPath") or "").strip()
         if _file_ctx_path:
             import os as _os
-            _fc_root = self.settings.get("ds_assistant_root_dir", ".")
-            _full_path = _os.path.join(_fc_root, _file_ctx_path)
-            try:
-                with open(_full_path, "r", encoding="utf-8", errors="replace") as _fh:
-                    _file_content = _fh.read()
-                notebook_context = dict(notebook_context)
-                notebook_context["_file_context"] = {
-                    "path": _file_ctx_path,
-                    "content": _file_content,
-                }
-            except Exception as _fe:
-                log.warning("Could not read file context %s: %s", _file_ctx_path, _fe)
+            _fc_root  = self.settings.get("ds_assistant_root_dir", ".")
+            _real_root = _os.path.realpath(_fc_root)
+            _full_path = _os.path.realpath(_os.path.join(_fc_root, _file_ctx_path))
+            if not (_full_path == _real_root or _full_path.startswith(_real_root + _os.sep)):
+                log.warning("Rejected fileContextPath outside root: %r", _file_ctx_path)
+            else:
+                try:
+                    with open(_full_path, "r", encoding="utf-8", errors="replace") as _fh:
+                        _file_content = _fh.read()
+                    notebook_context = dict(notebook_context)
+                    notebook_context["_file_context"] = {
+                        "path": _file_ctx_path,
+                        "content": _file_content,
+                    }
+                except Exception as _fe:
+                    log.warning("Could not read file context %s: %s", _file_ctx_path, _fe)
 
         # Apply image mode to notebook_context before anything else reads cells.
         # Always work on a mutable copy so we never mutate the original.
@@ -710,6 +715,10 @@ class TaskHandler(JupyterHandler):
             _raw_cell_mode = "agent"
         user_cell_mode   = _raw_cell_mode  # 'chat' | 'agent'
         reasoning_mode   = body.get("reasoningMode", "off")   # 'off' | 'cot' | 'sequential'
+        # Per-request opt-in: in agent mode, hide cells past the focal cell.
+        # Sent by the sidebar "Focus on active cell" toggle. Defaults to False
+        # so existing behavior (full notebook in agent mode) is preserved.
+        limit_to_focal   = bool(body.get("limitToFocal", False))
         cot_enabled      = reasoning_mode == "cot"
         sequential_enabled = reasoning_mode == "sequential"
 
@@ -885,6 +894,10 @@ class TaskHandler(JupyterHandler):
                     nb_base                = _nb_base_path,
                     kernel_name            = notebook_context.get("kernelName") or "",
                     agent_mode             = (user_cell_mode == "agent"),
+                    agent_cutoff_at_focal  = limit_to_focal or (
+                        os.environ.get("VARYS_AGENT_CUTOFF_AT_FOCAL", "").lower()
+                        in ("1", "true", "yes")
+                    ),
                 )
                 # Ensure notebook_context is a mutable copy before patching
                 notebook_context = dict(notebook_context)
@@ -1630,13 +1643,38 @@ class TaskHandler(JupyterHandler):
                 self.finish()
                 return
 
+            # Check for read/connection timeout errors and surface a friendly message.
+            _is_timeout = (
+                "read timeout" in _err_lower
+                or "readtimeout" in _err_lower
+                or "connect timeout" in _err_lower
+                or "connecttimeout" in _err_lower
+                or "timed out" in _err_lower
+            )
+            if _is_timeout:
+                _timeout_msg = (
+                    "⏱️ **Request timed out** — the model took too long to respond. "
+                    "This can happen with complex code generation or extended thinking. "
+                    "Try again, or break the request into smaller steps."
+                )
+                self.set_status(200)
+                self.set_header("Content-Type", "text/event-stream")
+                self.write(f"data: {json.dumps({'type': 'done', 'operationId': operation_id, 'steps': [], 'requiresApproval': False, 'clarificationNeeded': None, 'cellInsertionMode': 'chat', 'chatResponse': _timeout_msg, 'summary': 'Timeout'})}\n\n")
+                self.finish()
+                return
+
             # Check for prompt-too-long errors (context budget exceeded).
+            # Patterns cover Anthropic direct API, OpenAI, and AWS Bedrock
+            # (ValidationException: "input is too long" / "too many tokens").
             _is_ctx_long = (
                 "prompt is too long" in _err_lower
                 or "context length exceeded" in _err_lower
                 or "maximum context length" in _err_lower
                 or "context_length_exceeded" in _err_lower
                 or "reduce the length of the messages" in _err_lower
+                or "input is too long" in _err_lower          # AWS Bedrock
+                or "too many tokens" in _err_lower            # AWS Bedrock (Converse API)
+                or "input length" in _err_lower               # AWS Bedrock variant
             )
             if _is_ctx_long:
                 _nb_ctx = locals().get("notebook_context") or {}

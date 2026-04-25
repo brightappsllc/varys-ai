@@ -96,16 +96,27 @@ class BedrockProvider(BaseLLMProvider):
         self.thinking_budget = max(1024, int(thinking_budget or 8000))
         # User-configured override; None means "use the model-aware default".
         self._max_tokens_override: Optional[int] = int(max_tokens) if max_tokens else None
-        # Set by chat() when thinking is enabled; consumed by stream_chat().
-        self._last_thinking: str = ""
+        # Prevents concurrent requests from rebuilding the boto3 client simultaneously.
+        self._refresh_lock = asyncio.Lock()
         self._cache = CompletionCache()
         self._boto_client = self._make_client()
 
     def _make_client(self):
         try:
             import boto3
+            from botocore.config import Config as BotocoreConfig
         except ImportError:
             raise RuntimeError("boto3 not installed. Run: pip install boto3")
+
+        # Long read timeout for streaming LLM responses.  boto3 default is 60 s,
+        # which is too short for complex code-generation requests where the model
+        # may take several minutes to produce the first token (especially with
+        # extended thinking enabled).  600 s (10 min) covers all realistic cases.
+        boto_cfg = BotocoreConfig(
+            read_timeout=600,
+            connect_timeout=10,
+            retries={"max_attempts": 0},  # Varys handles retries explicitly
+        )
 
         # Profile-based auth: use a named profile from ~/.aws/credentials.
         # Takes priority over explicit key/secret so the user only needs to
@@ -115,7 +126,7 @@ class BedrockProvider(BaseLLMProvider):
                 profile_name=self.aws_profile,
                 region_name=self.region,
             )
-            return session.client("bedrock-runtime")
+            return session.client("bedrock-runtime", config=boto_cfg)
 
         # Explicit key auth (or fall through to boto3 default credential chain:
         # env vars → ~/.aws/credentials default profile → IAM role).
@@ -124,6 +135,7 @@ class BedrockProvider(BaseLLMProvider):
             "region_name": self.region,
             "aws_access_key_id": self.access_key_id or None,
             "aws_secret_access_key": self.secret_access_key or None,
+            "config": boto_cfg,
         }
         if self.session_token:
             kwargs["aws_session_token"] = self.session_token
@@ -132,11 +144,22 @@ class BedrockProvider(BaseLLMProvider):
     def _credentials_expired(self) -> bool:
         """Return True if the profile's temporary credentials are expired (or missing).
 
-        Reads ``~/.aws/credentials`` and checks the ``aws_expiration`` field
-        written by tools like aws-azure-login.  If no expiration field is
-        present the credentials are assumed to be long-lived (IAM user keys)
-        and this method always returns False.
+        For profile-based auth (AWS_PROFILE / aws_profile): boto3's own credential
+        provider — including the SSO provider — handles refresh internally.  We
+        return False so that _ensure_credentials does NOT run the refresh command
+        before every request (SSO profiles live in ~/.aws/config, not in
+        ~/.aws/credentials, so the old check always returned True for SSO users,
+        causing aws sso login to run on every single API call).
+
+        For explicit session-token auth: reads ``~/.aws/credentials`` and checks
+        the ``aws_expiration`` field written by tools like aws-azure-login.  If no
+        expiration field is present the credentials are assumed long-lived (IAM
+        user keys) and this method returns False.
         """
+        # Profile-based: let boto3 manage credential refresh transparently.
+        if self.aws_profile:
+            return False
+
         creds_path = Path.home() / ".aws" / "credentials"
         if not creds_path.exists():
             return True
@@ -144,7 +167,7 @@ class BedrockProvider(BaseLLMProvider):
         cfg = configparser.ConfigParser()
         cfg.read(creds_path)
 
-        profile = self.aws_profile or "default"
+        profile = "default"
         if profile not in cfg:
             return True
 
@@ -164,9 +187,44 @@ class BedrockProvider(BaseLLMProvider):
         except (ValueError, TypeError):
             return True  # unparseable → assume expired to be safe
 
+    def _reload_credentials_from_env(self) -> None:
+        """Re-read AWS credentials from varys.env after a refresh command.
+
+        When using explicit session tokens (not AWS_PROFILE), the refresh
+        command may write fresh STS credentials to varys.env.  Reading them
+        here ensures _make_client() picks up the new values rather than
+        reusing the stale token that was loaded at startup.
+        """
+        if self.aws_profile:
+            return  # profile-based: boto3 reads SSO cache directly, nothing to reload
+        try:
+            from ..handlers.settings import resolve_env_path
+            env_file = resolve_env_path()
+            if not env_file.exists():
+                return
+            import re as _re
+            for line in env_file.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                m = _re.match(r"^([A-Z0-9_]+)\s*=\s*(.*)", stripped)
+                if not m:
+                    continue
+                key = m.group(1)
+                val = _re.sub(r"\s+#.*$", "", m.group(2)).strip().strip("\"'")
+                if key == "AWS_SESSION_TOKEN":
+                    self.session_token = val
+                elif key == "AWS_ACCESS_KEY_ID":
+                    self.access_key_id = val
+                elif key == "AWS_SECRET_ACCESS_KEY":
+                    self.secret_access_key = val
+        except Exception as exc:
+            log.debug("Bedrock: could not reload credentials from varys.env: %s", exc)
+
     def _run_auth_refresh(self) -> None:
         """Run the auth-refresh command synchronously and rebuild the boto3 client."""
-        log.info("Bedrock: credentials expired, running auth refresh: %s", self.aws_auth_refresh)
+        # Do NOT log the command string — it may contain embedded credentials.
+        log.info("Bedrock: credentials expired, running auth refresh command")
         try:
             subprocess.run(
                 self.aws_auth_refresh,
@@ -178,6 +236,10 @@ class BedrockProvider(BaseLLMProvider):
             raise RuntimeError(f"AWS auth refresh command failed: {e}") from e
         except subprocess.TimeoutExpired as e:
             raise RuntimeError("AWS auth refresh command timed out after 120 s") from e
+        # For explicit-token setups: reload fresh credentials from varys.env in
+        # case the refresh command wrote new STS values there.  For profile-based
+        # setups this is a no-op — boto3 reads the SSO cache directly.
+        self._reload_credentials_from_env()
         # Rebuild the boto3 client so it picks up the freshly written credentials.
         self._boto_client = self._make_client()
         log.info("Bedrock: credentials refreshed successfully")
@@ -185,7 +247,11 @@ class BedrockProvider(BaseLLMProvider):
     async def _ensure_credentials(self) -> None:
         """Refresh credentials lazily — only when expired and a refresh command is set."""
         if self.aws_auth_refresh and self._credentials_expired():
-            await asyncio.get_running_loop().run_in_executor(None, self._run_auth_refresh)
+            async with self._refresh_lock:
+                # Double-check after acquiring the lock: another coroutine may
+                # have already refreshed while we were waiting.
+                if self._credentials_expired():
+                    await asyncio.get_running_loop().run_in_executor(None, self._run_auth_refresh)
 
     @staticmethod
     def _is_expired_token(exc: Exception) -> bool:
@@ -388,13 +454,21 @@ class BedrockProvider(BaseLLMProvider):
         for _round in range(max_rounds):
             log.info("Bedrock thinking MCP round %d", _round)
             try:
+                # Wrap with _retry_on_expired_token so an ExpiredTokenException
+                # triggers a credential refresh and a transparent single retry —
+                # matching the behaviour of the non-thinking Converse path.
+                # ExpiredTokenException is always raised before any chunks are
+                # delivered (token checked server-side before the stream opens),
+                # so the on_chunk callback has not fired yet and the retry is safe.
                 _thinking, _text, full_blocks, tool_use_blocks = \
-                    await self._stream_invoke_model(
-                        system=system,
-                        messages=msgs,
-                        on_chunk=on_chunk,
-                        on_thought=on_thought,
-                        tools=mcp_tools,
+                    await self._retry_on_expired_token(
+                        lambda: self._stream_invoke_model(
+                            system=system,
+                            messages=msgs,
+                            on_chunk=on_chunk,
+                            on_thought=on_thought,
+                            tools=mcp_tools,
+                        )
                     )
             except Exception as e:
                 log.error("Bedrock thinking MCP loop error (round %d): %s", _round, e)
@@ -838,14 +912,10 @@ class BedrockProvider(BaseLLMProvider):
                     "Bedrock: thinking returned thinking_len=%d text_len=%d",
                     len(_thinking), len(_text),
                 )
-                # Store thinking for stream_chat() to forward to on_thought callback.
-                self._last_thinking = _thinking
                 return _text
             except Exception as e:
                 log.error("Bedrock chat (thinking) error: %s", e)
                 raise RuntimeError(f"AWS Bedrock error: {e}") from e
-
-        self._last_thinking = ""
 
         system_blocks = self._to_converse_system_blocks(system)
 
@@ -1266,10 +1336,12 @@ class BedrockProvider(BaseLLMProvider):
                 # but we want streaming UX.  Re-run the final call with converse_stream.
                 # Build a fresh copy of msgs so the stream call sees the correct history.
                 try:
-                    full_response = await self._stream_converse(
-                        system=system,
-                        messages=msgs,
-                        on_chunk=on_chunk,
+                    full_response = await self._retry_on_expired_token(
+                        lambda: self._stream_converse(
+                            system=system,
+                            messages=msgs,
+                            on_chunk=on_chunk,
+                        )
                     )
                 except Exception:
                     # Fallback: emit the already-collected text as-is.
@@ -1389,7 +1461,6 @@ class BedrockProvider(BaseLLMProvider):
             return
 
         # Plain converse_stream path (no thinking).
-        self._last_thinking = ""
         msgs: List[Dict[str, Any]] = [
             {"role": h["role"], "content": [{"text": h["content"]}]} for h in history
         ]

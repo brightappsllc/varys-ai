@@ -235,10 +235,10 @@ export const FileChangeCard: React.FC<FileChangeCardProps> = ({
               )}
               <div className="ds-file-change-card__actions">
                 <button className="ds-assistant-btn ds-assistant-btn-accept" onClick={handleAccept}>
-                  ✓ Accept
+                  ✓ Apply
                 </button>
                 <button className="ds-assistant-btn ds-assistant-btn-undo" onClick={handleReject}>
-                  ✕ Reject
+                  ✕ Undo
                 </button>
               </div>
             </>

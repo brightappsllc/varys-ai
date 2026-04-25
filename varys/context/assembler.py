@@ -94,6 +94,7 @@ def assemble_context(
     nb_base: Optional[Path] = None,
     kernel_name: str = "",
     agent_mode: bool = False,
+    agent_cutoff_at_focal: bool = False,
 ) -> str:
     """Build the cell-context string for injection into the LLM prompt.
 
@@ -161,7 +162,13 @@ def assemble_context(
     # keeps the cutoff so the LLM does not get distracted by downstream cells.
     cutoff_cell_idx: Optional[int] = None
     aidx: int = len(active) - 1  # default: treat all cells as visible
-    if agent_mode:
+    if agent_mode and agent_cutoff_at_focal and active_cell_id and active_cell_id in active_ids:
+        # Opt-in: even in agent mode, hide downstream cells past the focal
+        # cell. Used by stress-test scenarios that want a hard upper bound.
+        aidx            = next(i for i, c in enumerate(active) if c["cell_id"] == active_cell_id)
+        visible         = active[: aidx + 1]
+        cutoff_cell_idx = (active[aidx].get("index") or aidx) + 1   # 1-based
+    elif agent_mode:
         visible = active
     elif active_cell_id and active_cell_id in active_ids:
         aidx            = next(i for i, c in enumerate(active) if c["cell_id"] == active_cell_id)

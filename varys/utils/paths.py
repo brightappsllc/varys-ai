@@ -15,9 +15,12 @@ at the flat `.jupyter-assistant/` level:
 
   <nb_dir>/.jupyter-assistant/config/      ← agent.cfg etc.
 
-The per-notebook UUID is stored in ``notebook.metadata.varys_notebook_id``.  It
-is written once (first Varys interaction) and travels with the file on rename or
-move, so the path always resolves correctly regardless of where the file lives.
+The per-notebook UUID is stored in ``notebook.metadata.varys_notebook_id`` for
+notebooks that already carry it (backward compat).  For new notebooks the UUID
+is persisted in a sidecar file instead of modifying the ``.ipynb`` file, which
+would otherwise trigger JupyterLab's "File Changed on disk" dialog:
+
+  <nb_dir>/.jupyter-assistant/_notebook_ids.json  ← {"notebook.ipynb": "<uuid>", ...}
 
 Migration
 ---------
@@ -38,6 +41,7 @@ import logging
 import os
 import shutil
 import tempfile
+import threading
 import uuid as _uuid_mod
 from pathlib import Path
 from typing import Dict, Optional, Set
@@ -49,6 +53,12 @@ log = logging.getLogger(__name__)
 # abs_notebook_path → uuid_str
 _UUID_CACHE: Dict[str, str] = {}
 
+# abs_notebook_path → True  (ID came from metadata.id / varys_notebook_id)
+#                  → False (ID came from sidecar or was freshly generated)
+# Populated by get_or_create_notebook_id; used to skip re-reading the file in
+# _notebook_has_built_in_id on subsequent requests.
+_BUILT_IN_ID_CACHE: Dict[str, bool] = {}
+
 # abs .jupyter-assistant dirs already checked for migration this session
 _MIGRATED_CHECK: Set[str] = set()
 
@@ -56,6 +66,104 @@ _MIGRATED_CHECK: Set[str] = set()
 _NB_SCOPED_DIRS = {"context", "chats", "memory", "logs"}
 
 # ── UUID helpers ───────────────────────────────────────────────────────────────
+
+# Sidecar filename that stores generated notebook IDs (avoids writing to .ipynb)
+_SIDECAR_NAME = "_notebook_ids.json"
+
+# Serialises concurrent read-modify-write cycles on the sidecar file.
+_SIDECAR_LOCK = threading.Lock()
+
+
+def _sidecar_path(nb_dir: Path) -> Path:
+    return nb_dir / ".jupyter-assistant" / _SIDECAR_NAME
+
+
+def _read_sidecar_id(nb_dir: Path, nb_filename: str) -> Optional[str]:
+    """Return the UUID stored in the sidecar for *nb_filename*, or None."""
+    p = _sidecar_path(nb_dir)
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8")).get(nb_filename)
+    except Exception:
+        return None
+
+
+def _write_sidecar_id(nb_dir: Path, nb_filename: str, uuid_str: str) -> None:
+    """Persist *uuid_str* for *nb_filename* in the sidecar (atomic write)."""
+    p = _sidecar_path(nb_dir)
+    with _SIDECAR_LOCK:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        data: Dict[str, str] = {}
+        if p.exists():
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        data[nb_filename] = uuid_str
+        _atomic_write_text(p, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+
+
+def _remove_sidecar_id(nb_dir: Path, nb_filename: str) -> None:
+    """Remove the sidecar entry for *nb_filename* (no-op if absent)."""
+    p = _sidecar_path(nb_dir)
+    with _SIDECAR_LOCK:
+        if not p.exists():
+            return
+        try:
+            data: Dict[str, str] = json.loads(p.read_text(encoding="utf-8"))
+            if nb_filename not in data:
+                return
+            del data[nb_filename]
+            _atomic_write_text(p, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+        except Exception as exc:
+            log.debug("paths: could not remove sidecar entry for %s — %s", nb_filename, exc)
+
+
+def _stamp_metadata_id(nb_path: Path, nb_id: str) -> bool:
+    """Write *nb_id* into ``metadata.id`` of the notebook file (atomic).
+
+    Called when the UUID is known from the sidecar but the notebook lacks a
+    built-in ``metadata.id``.  Writing the *same* UUID avoids any data-dir
+    migration — the existing ``.jupyter-assistant/<uuid>/`` keeps working.
+
+    Returns True on success, False if the write could not be completed (the
+    caller falls back to treating the ID as sidecar-only).
+    """
+    try:
+        raw = nb_path.read_text(encoding="utf-8")
+        data = json.loads(raw)
+        meta = data.get("metadata")
+        if not isinstance(meta, dict):
+            return False
+        if meta.get("id"):
+            return False  # already present — nothing to do
+        meta["id"] = nb_id
+        # nbformat uses indent=1; match so JupyterLab's next save produces a
+        # minimal diff.
+        _atomic_write_text(nb_path, json.dumps(data, indent=1, ensure_ascii=False) + "\n")
+        log.info("paths: stamped metadata.id=%s… into %s", nb_id[:8], nb_path.name)
+        return True
+    except Exception as exc:
+        log.warning("paths: could not stamp metadata.id into %s — %s", nb_path.name, exc)
+        return False
+
+
+def _migrate_data_dir(nb_dir: Path, old_id: str, new_id: str) -> None:
+    """Move the per-notebook data dir from *old_id* to *new_id* (best-effort).
+
+    Called when metadata.id is discovered after a sidecar UUID was already
+    used — ensures existing chat threads, summaries, and memory are not orphaned.
+    """
+    src = nb_dir / ".jupyter-assistant" / old_id
+    dst = nb_dir / ".jupyter-assistant" / new_id
+    if not src.exists() or dst.exists():
+        return
+    try:
+        shutil.move(str(src), str(dst))
+        log.info("paths: migrated data dir %s… → %s…", old_id[:8], new_id[:8])
+    except Exception as exc:
+        log.warning("paths: could not migrate data dir %s → %s: %s", old_id[:8], new_id[:8], exc)
 
 
 def _atomic_write_text(path: Path, content: str) -> None:
@@ -77,12 +185,21 @@ def _atomic_write_text(path: Path, content: str) -> None:
 def get_or_create_notebook_id(notebook_abs_path: str) -> Optional[str]:
     """Return the stable UUID for a notebook, creating it if absent.
 
-    The UUID is stored in ``notebook.metadata.varys_notebook_id``.  It is
-    written once (first Varys interaction) and survives rename and move.
+    Lookup order:
+      1. In-process cache (fastest).
+      2. ``notebook.metadata.varys_notebook_id`` — present on notebooks stamped
+         by an older version of Varys (backward compat, read-only).
+      3. ``notebook.metadata.id`` — the standard nbformat 4.5 field written by
+         JupyterLab 4+ on every save.  Using it here means modern notebooks
+         never need any write at all and the ID is rename-stable because it
+         travels inside the file.
+      4. Sidecar file ``{nb_dir}/.jupyter-assistant/_notebook_ids.json`` — used
+         only for truly old notebooks (pre-nbformat 4.5) that carry neither of
+         the above fields.  Avoids writing to the ``.ipynb`` file, which would
+         trigger JupyterLab's "File Changed on disk" dialog.
 
-    Returns ``None`` when the notebook file does not exist or cannot be
-    read/written (e.g. read-only filesystem).  Callers fall back to the
-    old directory-scoped layout in that case.
+    Returns ``None`` when the notebook file does not exist or cannot be read.
+    Callers fall back to the old directory-scoped layout in that case.
     """
     cache_key = str(notebook_abs_path)
     if cache_key in _UUID_CACHE:
@@ -99,30 +216,55 @@ def get_or_create_notebook_id(notebook_abs_path: str) -> Optional[str]:
         log.debug("paths: could not read notebook %s — %s", nb_path, exc)
         return None
 
-    existing_id: Optional[str] = (
-        data.get("metadata", {}).get("varys_notebook_id")
-        if isinstance(data.get("metadata"), dict)
-        else None
-    )
+    meta = data.get("metadata", {}) if isinstance(data.get("metadata"), dict) else {}
+
+    # 1. Legacy Varys field — check first so existing data dirs keep their UUID
+    existing_id: Optional[str] = meta.get("varys_notebook_id")
     if existing_id and isinstance(existing_id, str):
         _UUID_CACHE[cache_key] = existing_id
+        _BUILT_IN_ID_CACHE[cache_key] = True   # lives inside the file
         return existing_id
 
-    # Generate a new UUID and persist it in the notebook metadata.
+    # 2. Standard nbformat 4.5 field written by JupyterLab 4+ — no write needed,
+    #    rename-stable because the ID is embedded in the file itself.
+    std_id: Optional[str] = meta.get("id")
+    if std_id and isinstance(std_id, str):
+        # If a sidecar entry was assigned before metadata.id was written (via the
+        # needsIdStamp → silent-save flow), migrate the data directory so existing
+        # chat threads, summaries and memory are not orphaned.
+        sidecar_id = _read_sidecar_id(nb_path.parent, nb_path.name)
+        if sidecar_id and sidecar_id != std_id:
+            _migrate_data_dir(nb_path.parent, sidecar_id, std_id)
+            _remove_sidecar_id(nb_path.parent, nb_path.name)
+        _UUID_CACHE[cache_key] = std_id
+        _BUILT_IN_ID_CACHE[cache_key] = True   # lives inside the file
+        return std_id
+
+    # 3. Sidecar — stamp the UUID straight into metadata.id so the notebook
+    #    becomes rename-stable without needing a frontend save round-trip.
+    #    Using the *same* UUID means the existing data directory keeps working
+    #    with no migration.
+    sidecar_id = _read_sidecar_id(nb_path.parent, nb_path.name)
+    if sidecar_id and isinstance(sidecar_id, str):
+        stamped = _stamp_metadata_id(nb_path, sidecar_id)
+        _UUID_CACHE[cache_key] = sidecar_id
+        _BUILT_IN_ID_CACHE[cache_key] = stamped  # True once written to the file
+        return sidecar_id
+
+    # 4. Generate a new UUID and write it to the sidecar — NOT to the notebook.
+    #    Writing to the notebook triggers JupyterLab's "File Changed on disk"
+    #    dialog even when only one instance of the file is open.
     new_id = str(_uuid_mod.uuid4())
     try:
-        if not isinstance(data.get("metadata"), dict):
-            data["metadata"] = {}
-        data["metadata"]["varys_notebook_id"] = new_id
-        # JupyterLab uses 1-space indentation for .ipynb files.
-        _atomic_write_text(nb_path, json.dumps(data, indent=1, ensure_ascii=False) + "\n")
-        log.info("paths: assigned varys_notebook_id=%s to %s", new_id, nb_path.name)
+        _write_sidecar_id(nb_path.parent, nb_path.name, new_id)
+        log.info("paths: assigned notebook id=%s to %s (sidecar)", new_id, nb_path.name)
     except Exception as exc:
-        log.warning("paths: could not write notebook UUID to %s — %s", nb_path, exc)
-        # Return the generated ID but don't cache (will try again next call).
+        log.warning("paths: could not write sidecar notebook id for %s — %s", nb_path, exc)
+        # Return the generated ID but don't cache (will retry next call).
         return new_id
 
     _UUID_CACHE[cache_key] = new_id
+    _BUILT_IN_ID_CACHE[cache_key] = False      # sidecar only — not in the file
     return new_id
 
 
@@ -179,6 +321,20 @@ def _maybe_migrate(nb_dir: Path, nb_id: str) -> None:
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
+
+
+def notebook_has_built_in_id(notebook_abs_path: str) -> Optional[bool]:
+    """Return whether the notebook's ID lives inside the file (True/False).
+
+    Returns None if ``get_or_create_notebook_id`` has not yet been called for
+    this path (i.e. the file hasn't been read this session).  Callers that
+    need a definitive answer should call ``get_or_create_notebook_id`` first.
+
+    This avoids re-reading the notebook file on subsequent requests — the
+    provenance (built-in vs sidecar) is recorded the first time the file is
+    read and cached for the remainder of the server session.
+    """
+    return _BUILT_IN_ID_CACHE.get(str(notebook_abs_path))
 
 
 def nb_base(root_dir: str, notebook_path: str = "") -> Path:
