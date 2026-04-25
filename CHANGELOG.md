@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.8.6] — In Development
+
+_Branch open. No user-facing changes yet._
+
+### New Features
+_TBD_
+
+### Bug Fixes
+_TBD_
+
+---
+
 ## [0.8.5] — Focal-Cell Context, Notebook ID Stability, Bedrock Fixes
 
 ### New Features
