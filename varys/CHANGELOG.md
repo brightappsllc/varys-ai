@@ -105,6 +105,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   bare `void`.
 - Duplicate step-label comment ("3." appearing twice) in `paths.py` fixed.
 
+#### Skills — Prompt Robustness
+- **`/ds-review` empty-notebook guard**: the skill could occasionally fabricate
+  a methodology review when invoked against a notebook with zero non-empty
+  code cells.  Added an explicit Step 0 pre-check at the top of the skill that
+  counts non-empty code cells, emits a fixed "notebook is empty" message, and
+  stops before any review output can be generated.  The guard declares
+  precedence over every other instruction in the skill, so the model cannot
+  "fall through" to the review template on an empty fixture.
+
 ---
 
 ### Developer / Test Infrastructure
@@ -112,6 +121,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Varys stress-test framework v1.0** (`varys_tests/`): curriculum-based
   scenario harness that drives a real JupyterLab session, evaluates responses
   with an LLM judge, and writes structured JSON result files.
+- **Primitives catalog for external stress testing** (`stress/`): deterministic
+  YAML catalog of 65 user-facing operations consumed by the external
+  `varys-stress` repo.  Built from six priority-ordered sources (slash-command
+  SKILL.md front matter, tsx event handlers, JupyterLab command subset, file
+  & notebook ops).  Re-runnable extractor script produces byte-identical
+  output per SHA; validates CSS selectors against live source.
 - **Self-contained per-fixture scenario folders**: each test scenario ships its
   own fixture notebook, preventing cross-scenario contamination.
 - **LLM prompt templates** for generating new test scenarios added to
