@@ -7,13 +7,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.8.6] — In Development
 
-_Branch open. No user-facing changes yet._
-
-### New Features
-_TBD_
-
 ### Bug Fixes
-_TBD_
+
+#### Google Provider
+- **`'NoneType' object is not iterable` on filtered/empty Gemini responses**:
+  the streaming chat path, the streaming agent path, the operation-plan tool
+  path, and the non-streaming `_extract_text()` helper all iterated
+  `candidate.content.parts` directly.  Google's SDK returns
+  `candidate.content` truthy but with `parts=None` when generation is cut
+  short (`finish_reason=SAFETY`, `RECITATION`, or `MAX_TOKENS` with no text
+  emitted), so iteration crashed with `TypeError` and the user saw a generic
+  "API error" message instead of a graceful empty result.
+  Fixed at all four sites with a safe `getattr` chain
+  (`getattr(getattr(cand, "content", None), "parts", None) or []`) and a
+  `log.debug` of the `finish_reason` for diagnostics.
 
 ---
 

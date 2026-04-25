@@ -189,10 +189,19 @@ class GoogleAgentProvider(AgentProvider):
                 if not chunk.candidates:
                     continue
                 candidate = chunk.candidates[0]
-                if not (hasattr(candidate, "content") and candidate.content):
+                # Google may return content=None or content.parts=None when the
+                # response was filtered (SAFETY/RECITATION) or terminated empty
+                # (MAX_TOKENS without emitted text).  Iterating None raises
+                # TypeError, so fall back to [] and surface the finish_reason
+                # in the debug log for diagnostics.
+                parts = getattr(getattr(candidate, "content", None), "parts", None) or []
+                if not parts:
+                    fr = getattr(candidate, "finish_reason", None)
+                    if fr:
+                        log.debug("GoogleAgentProvider: empty parts (finish_reason=%s)", fr)
                     continue
 
-                for part in candidate.content.parts:
+                for part in parts:
                     fc = getattr(part, "function_call", None)
                     if fc and getattr(fc, "name", None):
                         # Keep the raw Part object — it carries thought_signature
