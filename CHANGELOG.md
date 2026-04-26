@@ -7,6 +7,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.8.6] — In Development
 
+### Restored Functionality
+
+#### `%%ai` magic auto-loading
+- Re-enabled the kernel-side `%load_ext varys.magic` injection that runs once
+  per kernel ready / restart.  The auto-load was previously short-circuited by
+  a leftover `if (true) return;` diagnostic in `src/index.ts` from an earlier
+  performance investigation; users who wanted the `%%ai` cell magic had to
+  type `%load_ext varys.magic` themselves.  Now `%%ai`, `%%ai --model`,
+  `%%ai --skill`, and `%%ai --no-context` work out of the box in any new
+  notebook kernel.
+- Added an opt-out escape hatch for stress harnesses or automated tests:
+  set `window.VARYS_DISABLE_MAGIC_AUTOLOAD = true` before page load (e.g. via
+  Playwright `addInitScript`) to skip the injection entirely.  Useful when a
+  tight first-cell-execution timeout competes with the kernel's brief "busy"
+  window during the magic-load.
+
 ### Bug Fixes
 
 #### Inline Completion — Stale-completion crash workaround

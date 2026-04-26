@@ -445,9 +445,16 @@ const plugin: JupyterFrontEndPlugin<void> = {
       const doInject = async () => {
         const kernel = session.session?.kernel;
         if (!kernel) return;
-        // DIAGNOSTIC: skip the actual kernel.requestExecute — if cells run
-        // fast with this guard, magic injection is the root cause.
-        if (true) return;
+        // Escape hatch: stress harnesses, automated tests, or power users
+        // can disable %%ai magic auto-loading by setting this window global
+        // before page load (e.g. Playwright `addInitScript`).  The magic
+        // injection runs one extra `kernel.requestExecute` per kernel ready
+        // / restart; if that brief "busy" window competes with a tight
+        // first-cell timeout in the test harness, set the toggle to skip it.
+        if ((window as unknown as { VARYS_DISABLE_MAGIC_AUTOLOAD?: boolean })
+            .VARYS_DISABLE_MAGIC_AUTOLOAD === true) {
+          return;
+        }
 
         // Resolve the server URL and token from JupyterLab's own service
         // manager so we don't rely on env vars that may not be set in the
