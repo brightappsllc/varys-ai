@@ -25,6 +25,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Bug Fixes
 
+#### Inline Completion — Null-model crash on notebook close → open
+- **`TypeError: Cannot read properties of null (reading 'sharedModel')`**:
+  hotfix to the stale-completion workaround landed earlier in this branch
+  (`37aafb5`).  The new `_onActiveCellChanged` handler dereferenced
+  `this._watchedCell.model.sharedModel.changed` without guarding against the
+  previously-watched cell being disposed.  The crash reproduced
+  deterministically when a `notebook_ops.close` was followed by
+  `file_ops.open_notebook`: the active-cell-changed signal fired with the
+  new notebook's cell while `_watchedCell` still held a reference to the
+  disposed previous cell, whose `.model` had been cleared to null.
+  All four `sharedModel` dereferences in `InlineCompletionProvider.ts`
+  now use optional chaining; disposed cells return undefined and are
+  skipped (Lumino signals auto-disconnect on dispose, so this is safe).
+
 #### Inline Completion — Stale-completion crash workaround
 - **`RangeError: Invalid line number N in K-line document` from JL's
   inline-completer**: when the user edits a cell while a Varys completion

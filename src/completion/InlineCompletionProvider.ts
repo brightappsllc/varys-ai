@@ -65,16 +65,18 @@ export class DSAssistantInlineProvider
   /**
    * Re-wire the cell-content listener whenever the active cell changes so we
    * always cancel the right cell's in-flight completion on edit.
+   *
+   * Optional-chain every dereference: when this fires after a notebook close
+   * → open sequence, the previously-watched cell may already be disposed and
+   * its `.model` set to null.  Lumino signals auto-disconnect on dispose, so
+   * skipping the explicit disconnect in that case is safe.
    */
   private _onActiveCellChanged(_: INotebookTracker, cell: Cell | null): void {
-    if (this._watchedCell) {
-      this._watchedCell.model.sharedModel.changed.disconnect(
-        this._onCellContentChanged, this);
-    }
+    this._watchedCell?.model?.sharedModel?.changed?.disconnect(
+      this._onCellContentChanged, this);
     this._watchedCell = cell;
-    if (cell) {
-      cell.model.sharedModel.changed.connect(this._onCellContentChanged, this);
-    }
+    cell?.model?.sharedModel?.changed?.connect(
+      this._onCellContentChanged, this);
   }
 
   /**
@@ -158,13 +160,12 @@ export class DSAssistantInlineProvider
 
       // Belt-and-suspenders: verify the active cell still has the prefix we
       // computed against.  Catches the millisecond between fetch resolution
-      // and abort handler, plus active-cell switches mid-request.
-      const activeCell = this._tracker.activeCell;
-      if (activeCell) {
-        const currentText = activeCell.model.sharedModel.getSource();
-        if (!currentText.startsWith(prefix)) {
-          return empty;
-        }
+      // and abort handler, plus active-cell switches mid-request.  Optional
+      // chain in case the active cell was disposed during the await (e.g.
+      // notebook closed mid-request).
+      const currentText = this._tracker.activeCell?.model?.sharedModel?.getSource();
+      if (currentText !== undefined && !currentText.startsWith(prefix)) {
+        return empty;
       }
 
       return { items: [{ insertText: result.suggestion }] };
@@ -207,11 +208,12 @@ export class DSAssistantInlineProvider
     const cells: Array<{ index: number; type: string; source: string }> = [];
     for (let i = start; i < active; i++) {
       const cell = notebook.widgets[i];
-      if (cell) {
+      const source = cell?.model?.sharedModel?.getSource();
+      if (cell && source !== undefined) {
         cells.push({
           index: i,
           type: cell.model.type,
-          source: cell.model.sharedModel.getSource()
+          source
         });
       }
     }
