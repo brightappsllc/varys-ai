@@ -374,7 +374,15 @@ class GoogleProvider(BaseLLMProvider):
                 # Each chunk may carry multiple parts: thought=True parts are
                 # reasoning content; the rest are regular response text.
                 if chunk.candidates:
-                    for part in chunk.candidates[0].content.parts:
+                    cand = chunk.candidates[0]
+                    # content.parts can be None when the response is filtered
+                    # (SAFETY/RECITATION) or empty-truncated (MAX_TOKENS).
+                    parts = getattr(getattr(cand, "content", None), "parts", None) or []
+                    if not parts:
+                        fr = getattr(cand, "finish_reason", None)
+                        if fr:
+                            log.debug("GoogleProvider: empty parts (finish_reason=%s)", fr)
+                    for part in parts:
                         if not part.text:
                             continue
                         if getattr(part, "thought", False):
@@ -490,7 +498,16 @@ class GoogleProvider(BaseLLMProvider):
                 last_chunk = chunk
                 if not chunk.candidates:
                     continue
-                for part in chunk.candidates[0].content.parts:
+                cand = chunk.candidates[0]
+                # content.parts can be None when the response is filtered
+                # (SAFETY/RECITATION) or empty-truncated (MAX_TOKENS).
+                parts = getattr(getattr(cand, "content", None), "parts", None) or []
+                if not parts:
+                    fr = getattr(cand, "finish_reason", None)
+                    if fr:
+                        log.debug("GoogleProvider plan: empty parts (finish_reason=%s)", fr)
+                    continue
+                for part in parts:
                     # Function call — collect the plan arguments.
                     fc = getattr(part, "function_call", None)
                     if fc and getattr(fc, "name", None) == _PLAN_TOOL_NAME:
@@ -608,11 +625,20 @@ class GoogleProvider(BaseLLMProvider):
         def _extract_text(resp: Any) -> str:
             self._record_usage(resp)
             if resp.candidates:
+                cand = resp.candidates[0]
+                # content.parts can be None when the response is filtered
+                # (SAFETY/RECITATION) or empty-truncated (MAX_TOKENS).
+                parts = getattr(getattr(cand, "content", None), "parts", None) or []
+                if not parts:
+                    fr = getattr(cand, "finish_reason", None)
+                    if fr:
+                        log.debug("GoogleProvider _extract_text: empty parts (finish_reason=%s)", fr)
                 text_parts = [
-                    p.text for p in resp.candidates[0].content.parts
+                    p.text for p in parts
                     if p.text and not getattr(p, "thought", False)
                 ]
-                return "".join(text_parts)
+                if text_parts:
+                    return "".join(text_parts)
             return resp.text or ""
 
         try:

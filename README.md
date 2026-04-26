@@ -8,7 +8,7 @@
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
 [![MCP compatible](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io/)
 [![Ollama](https://img.shields.io/badge/Ollama-local%20models-black.svg)](https://ollama.com/)
-[![Version](https://img.shields.io/badge/version-0.8.5-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.8.6-blue.svg)](CHANGELOG.md)
 
 **Varys-ai** is an AI-powered data science assistant that lives inside JupyterLab.
 Chat with it, ask it to write code, run EDA, generate plots, review your notebook, or complete your code inline — all without leaving the notebook interface.
@@ -19,20 +19,17 @@ No Node.js required on the user's machine. No cloud account lock-in. Works with 
 
 ---
 
-## What's new in v0.8.5
+## What's new in v0.8.6
 
 > Full details in [CHANGELOG.md](CHANGELOG.md).
 
 | Area | What changed |
 |---|---|
-| **Focal-cell context** | New opt-in toggle in Settings → Context — "Limit context to active cell" — restricts cell context to all cells up to and including the focused cell, keeping the agent focused on work-in-progress |
-| **Notebook ID stability** | No more "File Changed on disk" dialog when Varys stamps a new notebook — uses the standard nbformat 4.5 `metadata.id` written by JupyterLab, with a sidecar fallback for older notebooks |
-| **Input toolbar redesign** | Model switcher moved to its own row below the input frame; cleaner visual separation from the prompt box |
-| **"Reject" → "Undo"** | Consistent wording across DiffView, FileChangeCard, ActionBar, and all hint-text surfaces |
-| **Security & reliability hardening** | Path-traversal prevention on chat/task/reproducibility endpoints, home-directory restriction on env-file paths, tool-output truncation (50K chars) to block prompt injection, concurrency locks on chat history + sidecar file writes + Bedrock credential refresh, atomic writes for preference migration, SSE stream lock release on error |
-| **AWS Bedrock fixes** | `ExpiredTokenException` recovery for both SSO profiles and explicit session tokens; "input is too long" now detected as a context-too-large error with a friendly UI advisory |
-| **`/ds-review` empty-notebook guard** | The skill now explicitly checks for zero non-empty code cells and refuses to produce a review on an empty fixture — eliminates a prompt-robustness failure mode |
-| **Varys stress-test framework** | Curriculum-based scenario harness + external stress-test catalog in `stress/primitives.yaml` (65 user-facing primitives, deterministic extractor, consumed by the external `varys-stress` repo) |
+| **Google provider stability** | Gemini responses with `finish_reason=SAFETY`, `RECITATION`, or empty `MAX_TOKENS` no longer crash with `'NoneType' object is not iterable` — `candidate.content.parts` is now safely iterated at all four call sites; `finish_reason` is logged for diagnostics |
+| **Inline completion robustness** | Cancel in-flight completion requests the moment the active cell mutates — avoids JupyterLab's `RangeError: Invalid line number N in K-line document` crash when stale suggestions render against a shrunk cell. Plus a null-model guard for the close → open notebook sequence |
+| **`%%ai` magic auto-loading restored** | The leftover diagnostic that disabled `%load_ext varys.magic` on kernel ready/restart is gone; `%%ai`, `%%ai --model`, `%%ai --skill`, `%%ai --no-context` now work out of the box. Opt-out via `window.VARYS_DISABLE_MAGIC_AUTOLOAD = true` for stress harnesses |
+| **Cleaner action cards** | "Apply" button removed for auto-applied reorder operations (the cells are already rearranged when the card appears, so only "Undo" is meaningful); "Click Undo" copy suppressed for run-cell-only chat responses (no Undo state to reference) |
+| **Better chat-bubble timing** | "Changes applied" is no longer appended before the auto-execute loop finishes; if the user clicks Undo mid-execution the line is suppressed entirely |
 
 ---
 

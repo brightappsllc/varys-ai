@@ -4,6 +4,7 @@
  * Tab/Esc/Alt+Right keyboard shortcuts, and settings UI natively.
  */
 
+import { Cell } from '@jupyterlab/cells';
 import {
   CompletionHandler,
   IInlineCompletionContext,
@@ -43,9 +44,50 @@ export class DSAssistantInlineProvider
   private _apiClient: APIClient;
   private _tracker: INotebookTracker;
 
+  // ── Stale-completion guard (workaround for jupyterlab/jupyterlab `RangeError:
+  //    Invalid line number N in K-line document` race) ──────────────────────
+  // When the user edits a cell while a completion request is in flight, the
+  // cached response can later be rendered against a now-shorter document and
+  // crash JL's inline completer.  We can't fix JL's renderer from here, but we
+  // can prevent stale suggestions from ever reaching it: cancel the in-flight
+  // request the moment the active cell's content changes, and re-validate the
+  // prefix before returning a result.
+  private _inFlight: AbortController | null = null;
+  private _watchedCell: Cell | null = null;
+
   constructor(apiClient: APIClient, tracker: INotebookTracker) {
     this._apiClient = apiClient;
     this._tracker = tracker;
+    tracker.activeCellChanged.connect(this._onActiveCellChanged, this);
+    this._onActiveCellChanged(tracker, tracker.activeCell);
+  }
+
+  /**
+   * Re-wire the cell-content listener whenever the active cell changes so we
+   * always cancel the right cell's in-flight completion on edit.
+   *
+   * Optional-chain every dereference: when this fires after a notebook close
+   * → open sequence, the previously-watched cell may already be disposed and
+   * its `.model` set to null.  Lumino signals auto-disconnect on dispose, so
+   * skipping the explicit disconnect in that case is safe.
+   */
+  private _onActiveCellChanged(_: INotebookTracker, cell: Cell | null): void {
+    this._watchedCell?.model?.sharedModel?.changed?.disconnect(
+      this._onCellContentChanged, this);
+    this._watchedCell = cell;
+    cell?.model?.sharedModel?.changed?.connect(
+      this._onCellContentChanged, this);
+  }
+
+  /**
+   * The active cell's content changed.  If a completion request is in flight,
+   * abort it so JL never gets a suggestion to render against the mutated doc.
+   */
+  private _onCellContentChanged(): void {
+    if (this._inFlight) {
+      this._inFlight.abort();
+      this._inFlight = null;
+    }
   }
 
   /** Called by JupyterLab when user changes settings for this provider. */
@@ -91,19 +133,51 @@ export class DSAssistantInlineProvider
 
     const previousCells = this._gatherPreviousCells(context);
 
+    // Cancel any previous in-flight completion (covers the rapid-typing case;
+    // the active-cell signal handler covers cell-structure edits).
+    if (this._inFlight) {
+      this._inFlight.abort();
+    }
+    const ctrl = new AbortController();
+    this._inFlight = ctrl;
+
     try {
       const result = await this._apiClient.fetchCompletion({
         prefix,
         suffix,
         language,
         previousCells,
-      });
+      }, ctrl.signal);
+
+      // Clear in-flight pointer only if we're still the latest request.
+      if (this._inFlight === ctrl) {
+        this._inFlight = null;
+      }
 
       if (!result.suggestion) {
         return empty;
       }
+
+      // Belt-and-suspenders: verify the active cell still has the prefix we
+      // computed against.  Catches the millisecond between fetch resolution
+      // and abort handler, plus active-cell switches mid-request.  Optional
+      // chain in case the active cell was disposed during the await (e.g.
+      // notebook closed mid-request).
+      const currentText = this._tracker.activeCell?.model?.sharedModel?.getSource();
+      if (currentText !== undefined && !currentText.startsWith(prefix)) {
+        return empty;
+      }
+
       return { items: [{ insertText: result.suggestion }] };
     } catch (err) {
+      if (this._inFlight === ctrl) {
+        this._inFlight = null;
+      }
+      // AbortError fires when the user edited mid-request — that's the
+      // intended outcome of this workaround, not an error worth logging.
+      if ((err as Error)?.name === 'AbortError') {
+        return empty;
+      }
       console.error('[DSAssistant] completion fetch error:', err);
       return empty;
     }
@@ -134,11 +208,12 @@ export class DSAssistantInlineProvider
     const cells: Array<{ index: number; type: string; source: string }> = [];
     for (let i = start; i < active; i++) {
       const cell = notebook.widgets[i];
-      if (cell) {
+      const source = cell?.model?.sharedModel?.getSource();
+      if (cell && source !== undefined) {
         cells.push({
           index: i,
           type: cell.model.type,
-          source: cell.model.sharedModel.getSource()
+          source
         });
       }
     }

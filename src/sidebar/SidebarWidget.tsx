@@ -5205,7 +5205,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   // ── Version update check ──────────────────────────────────────────────────
   const [updateVersion,  setUpdateVersion]  = useState<string | null>(null);
   const [updateUrl,      setUpdateUrl]      = useState('');
-  const [currentVersion, setCurrentVersion] = useState('0.8.5');
+  const [currentVersion, setCurrentVersion] = useState('0.8.6');
   const [showChangelog,  setShowChangelog]  = useState(false);
   const [changelogBody,  setChangelogBody]  = useState('');
   const [changelogLoading, setChangelogLoading] = useState(false);
@@ -5219,7 +5219,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
           update_available: boolean; latest: string;
           release_url: string; release_notes: string; current: string;
         };
-        setCurrentVersion(d.current || '0.8.5');
+        setCurrentVersion(d.current || '0.8.6');
         if (d.update_available) {
           setUpdateVersion(d.latest);
           setUpdateUrl(d.release_url || '');
@@ -6381,21 +6381,37 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
       // they survive re-renders, thread switches, and page refreshes.
       markHadCellOps(response.operationId, diffs);
 
-      // Append step summary + review prompt to the streamed explanation bubble
-      const reviewPrompt = response.requiresApproval
-        ? '\n\nCell populated — review the changes and run manually when ready.'
-        : '\n\nChanges applied. Click Undo below to revert.';
-      appendToStream(`\n\n${stepSummary}${reviewPrompt}`);
+      // Whether any step actually produces an undoable diff.  run_cell-only
+      // operations have no content change, so claiming "Click Undo to revert"
+      // would reference a button that doesn't render.
+      const hasUndoableChange = response.steps.some(s =>
+        s.type === 'insert' || s.type === 'modify' || s.type === 'delete' || s.type === 'reorder'
+      );
+
+      // Append the step summary now; the "applied / review" message comes
+      // later — after auto-execution finishes — so the bubble doesn't claim
+      // "Changes applied" while cells are still running.
+      appendToStream(`\n\n${stepSummary}`);
+
+      // For staged-change flow (requiresApproval=true), the review prompt is
+      // accurate immediately because the cells are populated but not yet run.
+      if (response.requiresApproval && hasUndoableChange) {
+        appendToStream('\n\nCell populated — review the changes and run manually when ready.');
+      }
 
       // Execute cells flagged for auto-run — after the diff block is already visible.
       // executingOpIdRef lets handleUndo interrupt the kernel and break this loop
       // if the user clicks Undo while a cell is still running.
+      let interruptedByUndo = false;
       if (!response.requiresApproval) {
         executingOpIdRef.current = response.operationId;
         try {
           for (let i = 0; i < response.steps.length; i++) {
             // If the user rejected the op mid-execution, stop running further cells.
-            if (executingOpIdRef.current !== response.operationId) break;
+            if (executingOpIdRef.current !== response.operationId) {
+              interruptedByUndo = true;
+              break;
+            }
             const step = response.steps[i];
             const shouldRun =
               step.type === 'run_cell' ||
@@ -6416,6 +6432,19 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
             executingOpIdRef.current = null;
           }
         }
+      }
+
+      // Append the "applied" message ONLY when (a) the auto-execute loop
+      // completed without being interrupted by Undo, and (b) at least one
+      // step actually produced an undoable change.  This skips the
+      // misleading line on run_cell-only operations and avoids stating
+      // "applied" before the cells finished running.
+      if (
+        !response.requiresApproval &&
+        !interruptedByUndo &&
+        hasUndoableChange
+      ) {
+        appendToStream('\n\nChanges applied. Click Undo below to revert.');
       }
 
     } catch (error: unknown) {
@@ -7054,7 +7083,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
             className="ds-varys-version ds-varys-version--clickable"
             onClick={openChangelog}
             title="View changelog"
-          >v0.8.5</span>
+          >v0.8.6</span>
           {updateVersion && (
             <button
               className="ds-varys-update-pill"

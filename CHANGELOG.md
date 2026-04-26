@@ -5,6 +5,105 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [0.8.6] — Stability & UX Polish
+
+### Restored Functionality
+
+#### `%%ai` magic auto-loading
+- Re-enabled the kernel-side `%load_ext varys.magic` injection that runs once
+  per kernel ready / restart.  The auto-load was previously short-circuited by
+  a leftover `if (true) return;` diagnostic in `src/index.ts` from an earlier
+  performance investigation; users who wanted the `%%ai` cell magic had to
+  type `%load_ext varys.magic` themselves.  Now `%%ai`, `%%ai --model`,
+  `%%ai --skill`, and `%%ai --no-context` work out of the box in any new
+  notebook kernel.
+- Added an opt-out escape hatch for stress harnesses or automated tests:
+  set `window.VARYS_DISABLE_MAGIC_AUTOLOAD = true` before page load (e.g. via
+  Playwright `addInitScript`) to skip the injection entirely.  Useful when a
+  tight first-cell-execution timeout competes with the kernel's brief "busy"
+  window during the magic-load.
+
+### Bug Fixes
+
+#### UI — Misleading "Click Undo" copy on run-cell-only operations
+- **Chat bubble said "Changes applied. Click Undo below to revert." even when
+  no Undo button rendered.**  Re-running cells (e.g. "Re-run all cells that
+  depend on `df`") produces no per-cell diff and no undoable state — the
+  Undo button correctly does not render — but the streamed response template
+  appended the generic "Click Undo" line anyway, pointing at a UI element
+  that didn't exist.  The text now suppresses the line entirely when the
+  operation contains only `run_cell` steps (no `insert` / `modify` /
+  `delete` / `reorder`).
+
+#### UI — Premature "Changes applied" claim before auto-execution finishes
+- The "Changes applied" message was appended to the chat bubble *before*
+  the auto-execute loop ran the cells.  Result: bubble showed "applied"
+  while the notebook still showed `[*]:` running indicators, eroding trust.
+  Moved the append to after the auto-execute loop completes.  Also added
+  an interrupt-guard so the message is suppressed when the user clicks
+  Undo mid-execution (otherwise we'd announce "applied" right after the
+  user reverted).
+
+#### UI — Redundant "Apply" button on auto-applied reorders
+- **Reorder cells card showed both `✓ Apply` and `↺` buttons even though the
+  reorder was already applied to the notebook**.  Reorder operations
+  optimistically rearrange the cells before the diff card appears (the user
+  can see the new order immediately), so the `✓ Apply` button asking to
+  "keep the new order" was redundant — the only meaningful action at that
+  point is `↺` to revert.  The same redundancy was previously cleaned up for
+  modify/insert flows by gating Apply on `requiresApproval`, but reorder
+  ops set `requiresApproval=true` by skill-rule and slipped through.
+  `DiffView.tsx` now suppresses the Apply button when `isReorder=true`
+  regardless of `requiresApproval`, and the hint text reads "Cells have
+  been rearranged in the notebook. Click ↺ to revert."
+
+#### Inline Completion — Null-model crash on notebook close → open
+- **`TypeError: Cannot read properties of null (reading 'sharedModel')`**:
+  hotfix to the stale-completion workaround landed earlier in this branch
+  (`37aafb5`).  The new `_onActiveCellChanged` handler dereferenced
+  `this._watchedCell.model.sharedModel.changed` without guarding against the
+  previously-watched cell being disposed.  The crash reproduced
+  deterministically when a `notebook_ops.close` was followed by
+  `file_ops.open_notebook`: the active-cell-changed signal fired with the
+  new notebook's cell while `_watchedCell` still held a reference to the
+  disposed previous cell, whose `.model` had been cleared to null.
+  All four `sharedModel` dereferences in `InlineCompletionProvider.ts`
+  now use optional chaining; disposed cells return undefined and are
+  skipped (Lumino signals auto-disconnect on dispose, so this is safe).
+
+#### Inline Completion — Stale-completion crash workaround
+- **`RangeError: Invalid line number N in K-line document` from JL's
+  inline-completer**: when the user edits a cell while a Varys completion
+  request is still in flight (200–800ms typical latency — covers any rapid
+  backspacing, cell split, or cell delete during that window), the cached
+  response could later be rendered against a now-shorter document and crash
+  JupyterLab's inline-completer renderer.  Sometimes the corrupt completer
+  state then suppressed ghost text for the rest of the session.
+  `DSAssistantInlineProvider` now subscribes to the active cell's
+  `sharedModel.changed` signal and aborts the in-flight request (via
+  `AbortController`) the moment the document mutates, so JL never receives a
+  stale suggestion to cache.  Each new completion request also aborts any
+  prior one, and a prefix re-validation runs on the fetched response as a
+  belt-and-suspenders check.  Does **not** fix the case where JL has already
+  cached a suggestion before the edit — that requires an upstream JupyterLab
+  PR — but it eliminates the common in-flight path that produced the bulk of
+  the crashes.
+
+#### Google Provider
+- **`'NoneType' object is not iterable` on filtered/empty Gemini responses**:
+  the streaming chat path, the streaming agent path, the operation-plan tool
+  path, and the non-streaming `_extract_text()` helper all iterated
+  `candidate.content.parts` directly.  Google's SDK returns
+  `candidate.content` truthy but with `parts=None` when generation is cut
+  short (`finish_reason=SAFETY`, `RECITATION`, or `MAX_TOKENS` with no text
+  emitted), so iteration crashed with `TypeError` and the user saw a generic
+  "API error" message instead of a graceful empty result.
+  Fixed at all four sites with a safe `getattr` chain
+  (`getattr(getattr(cand, "content", None), "parts", None) or []`) and a
+  `log.debug` of the `finish_reason` for diagnostics.
+
+---
+
 ## [0.8.5] — Focal-Cell Context, Notebook ID Stability, Bedrock Fixes
 
 ### New Features
