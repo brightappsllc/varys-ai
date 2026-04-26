@@ -510,14 +510,18 @@ export class APIClient {
   }
 
 
-  async fetchCompletion(request: CompletionRequest): Promise<CompletionResult> {
+  async fetchCompletion(
+    request: CompletionRequest,
+    signal?: AbortSignal
+  ): Promise<CompletionResult> {
     const response = await fetch(`${this.baseUrl}/complete`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-XSRFToken': this.getXSRFToken()
       },
-      body: JSON.stringify(request)
+      body: JSON.stringify(request),
+      signal
     });
 
     if (!response.ok) {

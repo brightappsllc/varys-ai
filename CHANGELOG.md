@@ -9,6 +9,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Bug Fixes
 
+#### Inline Completion — Stale-completion crash workaround
+- **`RangeError: Invalid line number N in K-line document` from JL's
+  inline-completer**: when the user edits a cell while a Varys completion
+  request is still in flight (200–800ms typical latency — covers any rapid
+  backspacing, cell split, or cell delete during that window), the cached
+  response could later be rendered against a now-shorter document and crash
+  JupyterLab's inline-completer renderer.  Sometimes the corrupt completer
+  state then suppressed ghost text for the rest of the session.
+  `DSAssistantInlineProvider` now subscribes to the active cell's
+  `sharedModel.changed` signal and aborts the in-flight request (via
+  `AbortController`) the moment the document mutates, so JL never receives a
+  stale suggestion to cache.  Each new completion request also aborts any
+  prior one, and a prefix re-validation runs on the fetched response as a
+  belt-and-suspenders check.  Does **not** fix the case where JL has already
+  cached a suggestion before the edit — that requires an upstream JupyterLab
+  PR — but it eliminates the common in-flight path that produced the bulk of
+  the crashes.
+
 #### Google Provider
 - **`'NoneType' object is not iterable` on filtered/empty Gemini responses**:
   the streaming chat path, the streaming agent path, the operation-plan tool
