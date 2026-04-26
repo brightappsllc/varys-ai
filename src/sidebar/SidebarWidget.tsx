@@ -5205,7 +5205,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
   // ── Version update check ──────────────────────────────────────────────────
   const [updateVersion,  setUpdateVersion]  = useState<string | null>(null);
   const [updateUrl,      setUpdateUrl]      = useState('');
-  const [currentVersion, setCurrentVersion] = useState('0.8.6');
+  const [currentVersion, setCurrentVersion] = useState('0.8.7');
   const [showChangelog,  setShowChangelog]  = useState(false);
   const [changelogBody,  setChangelogBody]  = useState('');
   const [changelogLoading, setChangelogLoading] = useState(false);
@@ -5219,7 +5219,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
           update_available: boolean; latest: string;
           release_url: string; release_notes: string; current: string;
         };
-        setCurrentVersion(d.current || '0.8.6');
+        setCurrentVersion(d.current || '0.8.7');
         if (d.update_available) {
           setUpdateVersion(d.latest);
           setUpdateUrl(d.release_url || '');
@@ -7083,7 +7083,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
             className="ds-varys-version ds-varys-version--clickable"
             onClick={openChangelog}
             title="View changelog"
-          >v0.8.6</span>
+          >v0.8.7</span>
           {updateVersion && (
             <button
               className="ds-varys-update-pill"
