@@ -25,6 +25,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Bug Fixes
 
+#### UI — Misleading "Click Undo" copy on run-cell-only operations
+- **Chat bubble said "Changes applied. Click Undo below to revert." even when
+  no Undo button rendered.**  Re-running cells (e.g. "Re-run all cells that
+  depend on `df`") produces no per-cell diff and no undoable state — the
+  Undo button correctly does not render — but the streamed response template
+  appended the generic "Click Undo" line anyway, pointing at a UI element
+  that didn't exist.  The text now suppresses the line entirely when the
+  operation contains only `run_cell` steps (no `insert` / `modify` /
+  `delete` / `reorder`).
+
+#### UI — Premature "Changes applied" claim before auto-execution finishes
+- The "Changes applied" message was appended to the chat bubble *before*
+  the auto-execute loop ran the cells.  Result: bubble showed "applied"
+  while the notebook still showed `[*]:` running indicators, eroding trust.
+  Moved the append to after the auto-execute loop completes.  Also added
+  an interrupt-guard so the message is suppressed when the user clicks
+  Undo mid-execution (otherwise we'd announce "applied" right after the
+  user reverted).
+
 #### UI — Redundant "Apply" button on auto-applied reorders
 - **Reorder cells card showed both `✓ Apply` and `↺` buttons even though the
   reorder was already applied to the notebook**.  Reorder operations
