@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [0.8.6] — In Development
+## [0.8.6] — Stability & UX Polish
 
 ### Restored Functionality
 
