@@ -25,6 +25,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Bug Fixes
 
+#### UI — Redundant "Apply" button on auto-applied reorders
+- **Reorder cells card showed both `✓ Apply` and `↺` buttons even though the
+  reorder was already applied to the notebook**.  Reorder operations
+  optimistically rearrange the cells before the diff card appears (the user
+  can see the new order immediately), so the `✓ Apply` button asking to
+  "keep the new order" was redundant — the only meaningful action at that
+  point is `↺` to revert.  The same redundancy was previously cleaned up for
+  modify/insert flows by gating Apply on `requiresApproval`, but reorder
+  ops set `requiresApproval=true` by skill-rule and slipped through.
+  `DiffView.tsx` now suppresses the Apply button when `isReorder=true`
+  regardless of `requiresApproval`, and the hint text reads "Cells have
+  been rearranged in the notebook. Click ↺ to revert."
+
 #### Inline Completion — Null-model crash on notebook close → open
 - **`TypeError: Cannot read properties of null (reading 'sharedModel')`**:
   hotfix to the stale-completion workaround landed earlier in this branch

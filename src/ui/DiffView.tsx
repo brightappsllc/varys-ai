@@ -250,7 +250,12 @@ export const DiffView: React.FC<DiffViewProps> = ({
             >{expanded ? '⌃ Hide' : '⌄ Show'}</button>
           ) : (
             <>
-              {requiresApproval && (
+              {/* Reorder operations apply optimistically — the cells are
+                  already rearranged in the notebook by the time this card
+                  renders, so an "Apply" button would be redundant.  Only
+                  show Apply for stage-then-confirm operations (cell content
+                  populated but not yet committed). */}
+              {requiresApproval && !isReorder && (
                 <button
                   className="ds-assistant-btn ds-assistant-btn-accept"
                   onClick={() => onAccept(operationId)}
@@ -271,7 +276,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
       {!resolved && (
         <div className="ds-diff-hint">
           {isReorder
-            ? <>Cells have been rearranged in the notebook. Use <strong>✓ Apply</strong> to keep the new order or <strong>↺</strong> to revert.</>
+            ? <>Cells have been rearranged in the notebook. Click <strong>↺</strong> to revert.</>
             : requiresApproval
               ? <>Cell populated. Use <strong>✓ Apply</strong> to accept or <strong>↺</strong> to revert. Run the cell manually when ready.</>
               : <>Changes applied. Click <strong>↺</strong> to revert.</>
