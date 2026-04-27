@@ -8,7 +8,44 @@ keywords: [reorganize, reorder, move cell, restructure notebook, rearrange, swap
 ## When this skill applies
 Use this skill when the user asks to move, reorder, swap, or restructure notebook cells —
 e.g. "move the heatmap before the distributions", "swap sections 3 and 5",
-"put the imports at the top".
+"move cell #3 above cell #1".
+
+## Step 0 — Scope check (MANDATORY)
+
+Before emitting any operation, ask yourself: **does this request require modifying
+the *contents* of any cell?**  Extracting lines from a mixed cell, splitting code,
+removing imports from a cell that also holds other code, copying a snippet into a
+different cell — all of these are *content* changes, not pure reorders.
+
+This skill emits exactly ONE `reorder` step and CANNOT modify cell contents.
+
+If the user's request requires content modification:
+
+- DO NOT emit a reorder step that only shuffles cells around the unwanted code.
+- DO NOT pretend the request was a pure reorder.
+- INSTEAD, return a `chatResponse` like:
+
+  > "I can only reorder existing cells, not extract or move code between them.
+  >  To accomplish what you asked, I'd need to modify cell contents (extract
+  >  the import line into a separate cell, etc.).  Could you confirm — do you
+  >  want me to (a) just reorder existing cells, or (b) restructure the
+  >  contents (split out imports into their own cell)?"
+
+  …and emit an empty `steps` array.  The general planner will pick up the
+  request on the next turn with full `modify` + `insert` + `reorder` tools.
+
+Common phrases that often hide content-modification intent (apply scope check
+extra carefully):
+- "put all imports in the first cell" — usually means *extract* imports
+- "consolidate X into one cell" — usually means *merge* code
+- "clean up the notebook structure" — too vague; ask the user to clarify
+- "reorganize so X" — depends on what X is; if X requires moving *code lines*
+  (not whole cells), refuse and ask
+
+If the request is unambiguously a pure reorder ("move cell #3 to position 1",
+"swap cells 2 and 5", "put markdown headers before each code cell — assuming
+those headers already exist as separate cells"), proceed to the `reorder`
+operation below.
 
 ## The ONLY correct approach: `reorder` operation
 

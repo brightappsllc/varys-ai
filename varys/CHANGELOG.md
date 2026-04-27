@@ -7,6 +7,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.8.7] — In Development
 
+### Bug Fixes
+
+#### Skill — `reorganize_cell` no longer captures content-extraction requests
+- **"Reorganize the notebook so all imports are in the first cell" used to
+  trigger a useless whole-cell shuffle.**  The skill's keyword list and "When
+  this skill applies" example included *"put the imports at the top"*, which
+  caused the planner to load this skill — but the skill's tool surface is
+  hard-wired to a single atomic `reorder` op (deliberately, to prevent
+  index-drift data loss when moving cells).  With only `reorder` available,
+  the model would shuffle whole cells around without extracting the import
+  lines the user actually wanted moved.
+  Added a Step 0 scope check at the top of `reorganize_cell/SKILL.md` that
+  forces the skill to refuse and return a clarifying `chatResponse` whenever
+  the request implies cell-content modification (extracting imports, merging
+  code, splitting cells).  The general planner then picks up the request on
+  the next turn with full `modify` + `insert` + `reorder` access.
+  Also dropped the *"put the imports at the top"* example phrase from the
+  skill's "When this skill applies" copy so the model isn't primed to
+  associate import-consolidation with pure reorders.
+
 ### Behavior Changes
 
 #### "Where should the answer go?" disambiguation card removed
