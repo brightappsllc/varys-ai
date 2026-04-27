@@ -6513,7 +6513,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
       markHadCellOps(response.operationId, diffs);
 
       // Whether any step actually produces an undoable diff.  run_cell-only
-      // operations have no content change, so claiming "Click Undo to revert"
+      // operations have no content change, so claiming "Click ↺ to revert"
       // would reference a button that doesn't render.
       const hasUndoableChange = response.steps.some(s =>
         s.type === 'insert' || s.type === 'modify' || s.type === 'delete' || s.type === 'reorder'
@@ -6575,7 +6575,7 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
         !interruptedByUndo &&
         hasUndoableChange
       ) {
-        appendToStream('\n\nChanges applied. Click Undo below to revert.');
+        appendToStream('\n\nChanges applied. Click ↺ to revert.');
       }
 
     } catch (error: unknown) {
