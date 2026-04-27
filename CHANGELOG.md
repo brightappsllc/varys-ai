@@ -9,6 +9,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Bug Fixes
 
+#### Editor — Undo no longer silently loses deleted cells (data-loss fix)
+- **Severity: data loss.**  Clicking ↺ on an operation that contained a
+  `delete` step did not restore the deleted cell.  The original cell content
+  was captured at apply time but never visited by the wholesale-undo path:
+  `undoOperation()` iterated `cellIndices`, which only contained insert and
+  modify indices — delete indices were stored separately and never reached.
+  The user had no way to recover the lost content beyond a manual notebook-
+  level Ctrl+Z (which itself doesn't always restore deleted cells in JL).
+  `partialAcceptOperation()` (the per-cell accept/reject path) had correct
+  delete-revert logic (`insertCell(idx, 'code', original)`); this just ports
+  the same logic to the wholesale-undo path used by the ↺ button.
+  Implementation:
+    - Added `deletedContents?: Map<number, string>` to `PendingOperation`
+    - `applyOperations()` populates it during the delete loop
+    - `undoOperation()` is now `async` and runs a Pass-2 step after
+      modify/insert undo: re-inserts each deleted cell at its original index,
+      iterating in ascending order so successive restorations don't trample
+      each other's indices
+    - The single caller in `SidebarWidget.tsx` is wrapped in a void-IIFE so
+      the composite-op chain is awaited sequentially (concurrent inserts
+      would race on the notebook's active-cell index)
+  Discovered when Varys mis-planned a "reorganize the notebook so all imports
+  are in the first cell" prompt as `modify cell #2 + delete cell #3`,
+  destroyed cell #2's content, and ↺ did nothing.
+
 #### Skill — `reorganize_cell` no longer captures content-extraction requests
 - **"Reorganize the notebook so all imports are in the first cell" used to
   trigger a useless whole-cell shuffle.**  The skill's keyword list and "When

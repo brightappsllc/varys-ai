@@ -6674,12 +6674,19 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
     }
 
     const op = pendingOps.find(o => o.operationId === operationId);
-    if (op?.compositeOpIds) {
-      // Reverse order so later steps (which may have inserted cells) are undone first
-      [...op.compositeOpIds].reverse().forEach(id => cellEditor.undoOperation(id));
-    } else {
-      cellEditor.undoOperation(operationId);
-    }
+    // undoOperation became async so it can re-insert deleted cells.  Run the
+    // composite chain sequentially via a void-IIFE — concurrent inserts would
+    // race on the notebook's active-cell index and corrupt the restored order.
+    void (async () => {
+      if (op?.compositeOpIds) {
+        // Reverse order so later steps (which may have inserted cells) are undone first
+        for (const id of [...op.compositeOpIds].reverse()) {
+          await cellEditor.undoOperation(id);
+        }
+      } else {
+        await cellEditor.undoOperation(operationId);
+      }
+    })();
     setPendingOps(prev =>
       prev.map(o => o.operationId === operationId ? { ...o, resolved: 'undone' as const } : o)
     );

@@ -11,6 +11,11 @@ export interface PendingOperation {
   operationId: string;
   cellIndices: number[];
   originalContents: Map<number, string>;
+  /** Indices that were DELETE-d, mapped to their captured original source.
+   *  Consumed by undoOperation() to re-insert the cells at their original
+   *  positions.  Without this, deletes were silently lost on wholesale undo
+   *  (cellIndices only contained insert/modify indices). */
+  deletedContents?: Map<number, string>;
   /** Populated for reorder ops — used to restore original cell sequence on undo. */
   originalOrder?: string[];
 }
@@ -202,18 +207,23 @@ export class CellEditor {
     }
 
     // --- Deletes (descending order to avoid index shifting) ---
-    //     Capture content BEFORE deleting so the diff view can show what was removed.
+    //     Capture content BEFORE deleting so the diff view can show what was
+    //     removed AND so undoOperation() can re-insert the cell on revert.
     const deletePairs = steps
       .map((s, i) => ({ step: s, originalIdx: i }))
       .filter(p => p.step.type === 'delete')
       .sort((a, b) => b.step.cellIndex - a.step.cellIndex);
 
+    /** Indices that were deleted (separate from originalContentsByNbIdx so
+     *  undoOperation can tell modify-restore from delete-restore).  Also
+     *  duplicated into originalContentsByNbIdx for backward compat with
+     *  partialAcceptOperation, which keys delete-revert on originalContents. */
+    const deletedContentsByNbIdx = new Map<number, string>();
     for (const { step, originalIdx } of deletePairs) {
       const original = this.getCellSource(step.cellIndex);
       if (original !== null) {
         capturedOriginals.set(originalIdx, original);
-        // Deleted cells cannot be restored by notebook index (they're gone), so we
-        // store under the step index in originalContentsByNbIdx for undo to find them.
+        deletedContentsByNbIdx.set(step.cellIndex, original);
         originalContentsByNbIdx.set(step.cellIndex, original);
       }
       this.deleteCell(step.cellIndex);
@@ -243,7 +253,8 @@ export class CellEditor {
     this.pendingOperations.set(operationId, {
       operationId,
       cellIndices: affectedIndices,
-      originalContents: originalContentsByNbIdx
+      originalContents: originalContentsByNbIdx,
+      deletedContents: deletedContentsByNbIdx.size > 0 ? deletedContentsByNbIdx : undefined,
     });
 
     // Highlight cells that were inserted or modified
@@ -485,7 +496,7 @@ export class CellEditor {
    * deletes inserted cells, and clears highlighting.
    * For reorder operations, restores the original cell sequence.
    */
-  undoOperation(operationId: string): void {
+  async undoOperation(operationId: string): Promise<void> {
     const op = this.pendingOperations.get(operationId);
     if (!op) {
       return;
@@ -493,20 +504,39 @@ export class CellEditor {
 
     if (op.originalOrder) {
       // Reorder undo: restore original cell sequence
-      void this.reorderCells(op.originalOrder);
+      await this.reorderCells(op.originalOrder);
       this.pendingOperations.delete(operationId);
       return;
     }
 
-    // Reverse order to handle index shifts correctly
+    // Pass 1: handle modify-restore and insert-undo.
+    // Reverse order so deleting an inserted cell doesn't shift later
+    // inserted-cell indices that we still need to visit.
     const reversedIndices = [...op.cellIndices].reverse();
     for (const idx of reversedIndices) {
       if (op.originalContents.has(idx)) {
-        // Was a modify — restore original source
+        // Was a modify — restore original source in place
         this.updateCell(idx, op.originalContents.get(idx)!);
       } else {
         // Was an insert — delete the cell
         this.deleteCell(idx);
+      }
+    }
+
+    // Pass 2: re-insert deleted cells at their original positions.
+    // Iterate in ASCENDING index order so each restored cell only shifts
+    // cells AFTER it — earlier-indexed restorations land at the right slot
+    // first, and later restorations account for the by-then-restored
+    // earlier cells.  Without this pass, delete operations were
+    // irreversible — clicking ↺ silently lost the cell content.
+    if (op.deletedContents && op.deletedContents.size > 0) {
+      const sortedDeletes = [...op.deletedContents.entries()].sort((a, b) => a[0] - b[0]);
+      for (const [idx, content] of sortedDeletes) {
+        try {
+          await this.insertCell(idx, 'code', content);
+        } catch (err) {
+          console.warn(`[CellEditor] could not restore deleted cell at index ${idx}:`, err);
+        }
       }
     }
 
