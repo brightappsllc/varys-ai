@@ -73,3 +73,11 @@ deploy.sh
 # Articles / drafts
 documentation/drafts
 
+# Stress-test harness — local outputs and runtime data, not part of the repo
+varys_tests/results/
+varys_tests/curriculum/scenarios/**/.jupyter-assistant/
+varys_tests/qa_pipeline_jupyterlab.md
+
+# JLab schema-build backup artifacts (jlpm leaves *.orig files behind)
+varys/labextension/schemas/**/*.orig
+
