@@ -7,6 +7,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.8.7] — In Development
 
+### New Features
+
+#### Skill — `/regroup` for grouping cell contents by functionality
+- New bundled skill `regroup_by_function` that handles requests like
+  "consolidate imports", "extract functions into their own cell",
+  "isolate constants", etc.  Previously these went through the general
+  planner with full tool access, which produced the wrong plan on weak
+  models (e.g. emitting `modify + delete` instead of `modify + modify`,
+  destroying source content).
+- The skill teaches a single mandatory algorithm — *scan → identify
+  target → modify-or-insert target → modify each source* — and forbids
+  `delete` and `reorder` operations within its scope.  An empty cell
+  after extraction is harmless; the user can clean it up separately.
+- Triggered by an explicit `/regroup` slash command or by tight
+  keywords (`consolidate imports`, `extract functions`, `isolate
+  constants`, `regroup`, etc.) that pair an action verb with a target.
+  Generic words like "reorganize" deliberately do NOT trigger this
+  skill — they still route to `reorganize_cell` for whole-cell shuffles
+  and bow out via the scope check when content modification is needed.
+
 ### Bug Fixes
 
 #### Editor — Undo no longer silently loses deleted cells (data-loss fix)
