@@ -7,13 +7,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.8.7] — In Development
 
-_Branch open. No user-facing changes yet._
+### Behavior Changes
 
-### New Features
-_TBD_
-
-### Bug Fixes
-_TBD_
+#### "Where should the answer go?" disambiguation card removed
+- **Replaced with auto-routing by prompt shape.**  Plain (non-slash) prompts
+  in Agent mode previously surfaced a two-button card asking the user to
+  pick between chat and notebook for every advisory-shaped message.  The
+  card fired inconsistently — same prompt could route differently depending
+  on hidden state (cell mode, context chip, mid-stream output) — and
+  required an extra click on the common path.
+  Now: questions ("what / why / how / explain / ?") auto-route to `/chat`;
+  commands ("refactor / move / add") proceed to the notebook agent flow.
+  Override on a per-prompt basis with `/chat <prompt>` to force a chat-only
+  answer.
+- **New setting** in Settings → Context: *"Where to send answers"*.  Four
+  options:
+    - **Auto** (default) — infer from prompt shape
+    - **Always chat** — never modify the notebook unless an explicit slash
+      command is used
+    - **Always notebook** — always run the agent flow
+    - **Ask each time** — restore the legacy disambiguation card
+  Persisted in `localStorage` as `ds-assistant-answer-default`.
+- **One-time toast notification** fires on first launch after upgrade,
+  pointing the user at the new setting.  Tracked via
+  `localStorage` key `varys-answer-default-notified-v1`.
 
 ---
 

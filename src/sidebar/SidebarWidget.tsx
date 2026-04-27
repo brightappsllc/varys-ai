@@ -455,9 +455,25 @@ interface Message {
 // on cell 5" or "don't generate a report" both matched incorrectly).
 
 // ---------------------------------------------------------------------------
+// Answer-destination default — controls chat vs. notebook routing for plain
+// (non-slash) prompts.  See ContextPanel and the disambiguation block in
+// handleSend for usage.  The legacy "ask" mode preserves the pre-0.8.7
+// "Where should the answer go?" disambiguation card.
+// ---------------------------------------------------------------------------
+type AnswerDefault = 'auto' | 'always_chat' | 'always_notebook' | 'ask';
+
+function readAnswerDefault(): AnswerDefault {
+  try {
+    const v = localStorage.getItem('ds-assistant-answer-default');
+    if (v === 'auto' || v === 'always_chat' || v === 'always_notebook' || v === 'ask') return v;
+  } catch { /* fall through */ }
+  return 'auto';
+}
+
+// ---------------------------------------------------------------------------
 // Advisory disambiguation — phrases that suggest a discussion/question intent
-// When detected on a plain (non-command) message, we surface two options to
-// the user instead of silently guessing.
+// In legacy "ask" mode this triggers the disambiguation card; in "auto" mode
+// it routes the prompt to /chat instead of running the notebook agent flow.
 // ---------------------------------------------------------------------------
 const _ADVISORY_STARTS = [
   'what ', 'how ', 'why ', 'when ', 'where ', 'who ', 'which ',
@@ -2696,8 +2712,74 @@ const ContextPanel: React.FC = () => {
     catch { /* ignore */ }
   };
 
+  // ── Answer-destination default ───────────────────────────────────────────
+  // Controls how Varys decides between chat vs. notebook for plain (non-slash)
+  // prompts.  The disambiguation card used to fire on every advisory-shaped
+  // message in Agent mode; users found it inconsistent (sometimes the same
+  // prompt routed differently depending on hidden state) and asked for a
+  // single predictable default.  See CHANGELOG [0.8.7].
+  const [answerDefault, setAnswerDefaultState] = useState<AnswerDefault>(() => {
+    try {
+      const v = localStorage.getItem('ds-assistant-answer-default');
+      if (v === 'auto' || v === 'always_chat' || v === 'always_notebook' || v === 'ask') return v;
+    } catch { /* fall through */ }
+    return 'auto';
+  });
+
+  const setAnswerDefault = (next: AnswerDefault) => {
+    setAnswerDefaultState(next);
+    try { localStorage.setItem('ds-assistant-answer-default', next); }
+    catch { /* ignore */ }
+    // Notify the chat component to pick up the change immediately.
+    window.dispatchEvent(new CustomEvent('varys-answer-default-changed', { detail: next }));
+  };
+
   return (
     <div className="ds-settings-section-body">
+      <div className="ds-settings-row">
+        <div className="ds-settings-row-label">
+          <span className="ds-settings-row-title">
+            Where to send answers
+            <span
+              className="ds-info-bubble"
+              tabIndex={0}
+              role="img"
+              aria-label="What does this do?"
+              data-tip={
+                "How Varys routes your plain (non-slash) prompts:\n\n"
+                + "• Auto (recommended) — questions like 'what does this do?' "
+                + "go to chat; commands like 'refactor this loop' write to a "
+                + "notebook cell.\n\n"
+                + "• Always chat — answer in the sidebar; never modify the "
+                + "notebook unless you explicitly type a slash command.\n\n"
+                + "• Always notebook — always run the agent flow; useful if "
+                + "you almost never want chat-only answers.\n\n"
+                + "• Ask each time — show a 'Where should the answer go?' "
+                + "card before responding (the pre-0.8.7 behavior).\n\n"
+                + "Override on a per-prompt basis by prefixing with /chat."
+              }
+            >
+              i
+            </span>
+          </span>
+          <span className="ds-settings-row-sub">
+            Question shape (auto) routes to chat; command shape routes to the
+            notebook. Override with /chat &lt;prompt&gt;.
+          </span>
+        </div>
+        <select
+          className="ds-settings-input"
+          value={answerDefault}
+          onChange={e => setAnswerDefault(e.target.value as AnswerDefault)}
+          style={{ minWidth: 160 }}
+        >
+          <option value="auto">Auto (recommended)</option>
+          <option value="always_chat">Always chat</option>
+          <option value="always_notebook">Always notebook</option>
+          <option value="ask">Ask each time</option>
+        </select>
+      </div>
+
       <div className="ds-settings-row">
         <div className="ds-settings-row-label">
           <span className="ds-settings-row-title">
@@ -5412,6 +5494,30 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
     ]);
   };
 
+  // ── One-time 0.8.7 upgrade toast: announce the disambiguation-card removal.
+  // Fires once per browser; tracked via localStorage flag.  Won't appear on
+  // fresh installs that have never seen the old card either — that's fine,
+  // they just see "Auto" routing as the default.
+  useEffect(() => {
+    try {
+      const seen = localStorage.getItem('varys-answer-default-notified-v1');
+      if (seen === '1') return;
+      // Defer one tick so the message lands after the welcome bubbles render.
+      const t = setTimeout(() => {
+        addMessage('system',
+          "ℹ️  **What's new:** the *Where should the answer go?* card is gone. " +
+          "Varys now picks chat for questions and notebook for commands. " +
+          "Type `/chat <prompt>` to force a chat-only answer, or change the " +
+          "default in **Settings → Context → Where to send answers**."
+        );
+        try { localStorage.setItem('varys-answer-default-notified-v1', '1'); }
+        catch { /* ignore */ }
+      }, 100);
+      return () => clearTimeout(t);
+    } catch { /* localStorage may be disabled — silently skip */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const addMessageWithChip = (
     role: Message['role'],
     content: string,
@@ -5658,36 +5764,61 @@ const DSAssistantChat: React.FC<SidebarProps> = (props) => {
     setActiveCommand(null);
     setShowCmdPopup(false);
 
-    // ── Disambiguation check ─────────────────────────────────────────────
-    // When the user types a plain message (no /command) that looks like a
-    // discussion/question, and the sidebar is in Auto mode (intent unknown),
-    // surface two options instead of guessing silently:
-    //   💬 /chat <message>  — answer in chat only
-    //   📝 <message>        — write result to notebook cells
+    // ── Answer-destination dispatch ──────────────────────────────────────
+    // Routes plain (non-slash) prompts to chat or notebook based on the
+    // user's setting (Settings → Context → "Where to send answers"):
+    //   - "auto"             — questions → /chat, commands → notebook agent
+    //   - "always_chat"      — always /chat unless a slash command says otherwise
+    //   - "always_notebook"  — always run the notebook agent flow
+    //   - "ask"              — show the legacy disambiguation card (pre-0.8.7)
     //
-    // This is skipped when:
-    //   - A slash command was explicitly typed
-    //   - The user already chose via a disambiguation card (skipAdvisory=true)
-    //   - The sidebar is locked to Chat or Document mode (intent is clear)
+    // Skipped entirely when:
+    //   - A slash command was explicitly typed (slashCommand !== null)
+    //   - The user already routed via a disambiguation card (skipAdvisory=true)
+    //   - The sidebar is in Chat mode or no notebook is loaded (intent clear)
     //   - A context chip is attached (specific targeted action)
+    //   - A selected output is attached
     const effectiveCellMode = (notebookAware || !!currentFilePathRef.current) ? cellMode : 'chat';
-    if (
-      !skipAdvisory &&
-      !slashCommand &&
-      effectiveCellMode === 'agent' &&
-      !chip &&
-      !selectedOutputRef.current &&
-      looksAdvisory(typedText, advisoryPhrases)
-    ) {
-      setInput('');
-      const disambigId = generateId();
-      setMessages(prev => [...prev, {
-        id: disambigId,
-        role: 'disambiguation',
-        content: typedText,   // store original typed text for re-send
-        timestamp: new Date(),
-      }]);
-      return;
+    const dispatchEligible =
+      !skipAdvisory && !slashCommand && effectiveCellMode === 'agent' && !chip && !selectedOutputRef.current;
+
+    if (dispatchEligible) {
+      const answerDefault = readAnswerDefault();
+      const advisory = looksAdvisory(typedText, advisoryPhrases);
+
+      // Decide where to route:
+      let routeTo: 'chat' | 'notebook' | 'ask' | null = null;
+      if (answerDefault === 'always_chat') {
+        routeTo = 'chat';
+      } else if (answerDefault === 'always_notebook') {
+        routeTo = 'notebook';
+      } else if (answerDefault === 'ask') {
+        // Legacy: show the card only when the prompt looks advisory; otherwise
+        // proceed with the notebook flow (matching pre-0.8.7 behavior).
+        routeTo = advisory ? 'ask' : 'notebook';
+      } else {
+        // "auto" (default): infer from prompt shape.
+        routeTo = advisory ? 'chat' : 'notebook';
+      }
+
+      if (routeTo === 'chat') {
+        // Re-enter handleSend with the /chat prefix; skipAdvisory=true so we
+        // don't recurse through this block.
+        void handleSend(`/chat ${typedText}`, typedText, true);
+        return;
+      }
+      if (routeTo === 'ask') {
+        setInput('');
+        const disambigId = generateId();
+        setMessages(prev => [...prev, {
+          id: disambigId,
+          role: 'disambiguation',
+          content: typedText,
+          timestamp: new Date(),
+        }]);
+        return;
+      }
+      // routeTo === 'notebook' falls through to the existing task flow below.
     }
 
     // Capture conversation history BEFORE adding the new user message.
